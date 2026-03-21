@@ -191,18 +191,25 @@ Prerequisite: complete the "Configuration" steps above first (`make config` and 
    make install  # Install backend + frontend dependencies
    ```
 
-3. **(Optional) Pre-pull sandbox image**:
+3. **Install Git hooks**:
+   ```bash
+   make install-hooks  # Enable the repository pre-commit checks
+   ```
+
+   The pre-commit hook blocks commits when staged text files contain a UTF-8 BOM, trailing whitespace, or a missing final newline. It also runs `backend` Ruff checks and `frontend` ESLint before the commit is created.
+
+4. **(Optional) Pre-pull sandbox image**:
    ```bash
    # Recommended if using Docker/Container-based sandbox
    make setup-sandbox
    ```
 
-4. **Start services**:
+5. **Start services**:
    ```bash
    make dev
    ```
 
-5. **Access**: http://localhost:2026
+6. **Access**: http://localhost:2026
 
 ### Advanced
 #### Sandbox Mode

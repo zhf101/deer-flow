@@ -3,7 +3,7 @@ from .extensions_config import ExtensionsConfig, get_extensions_config
 from .memory_config import MemoryConfig, get_memory_config
 from .paths import Paths, get_paths
 from .skills_config import SkillsConfig
-from .tracing_config import get_tracing_config, is_tracing_enabled, get_langfuse_config, is_langfuse_enabled
+from .tracing_config import get_langfuse_config, get_tracing_config, is_langfuse_enabled, is_tracing_enabled
 
 __all__ = [
     "get_app_config",

@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.gateway.config import get_gateway_config
 from app.gateway.routers import (
@@ -76,6 +77,8 @@ def create_app() -> FastAPI:
     Returns:
         Configured FastAPI application instance.
     """
+
+    config = get_gateway_config()
 
     app = FastAPI(
         title="DeerFlow API Gateway",
@@ -152,7 +155,15 @@ This gateway provides custom endpoints for models, MCP configuration, skills, an
         ],
     )
 
-    # CORS is handled by nginx - no need for FastAPI middleware
+    # Support direct frontend-to-gateway development requests on :3000 -> :8001.
+    # nginx still handles CORS in the unified :2026 entrypoint.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=config.cors_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # Include routers
     # Models API is mounted at /api/models

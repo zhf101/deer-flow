@@ -5,8 +5,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from deerflow.nlp2sql.adapters.factory import create_adapter
-from deerflow.nlp2sql.adapters.mysql import MySQLAdapter, _parse_mysql_enum, _require_identifier as mysql_require_identifier
-from deerflow.nlp2sql.adapters.postgres import PostgresAdapter, _require_identifier as postgres_require_identifier
+from deerflow.nlp2sql.adapters.mysql import MySQLAdapter, _parse_mysql_enum
+from deerflow.nlp2sql.adapters.mysql import _require_identifier as mysql_require_identifier
+from deerflow.nlp2sql.adapters.postgres import PostgresAdapter
+from deerflow.nlp2sql.adapters.postgres import _require_identifier as postgres_require_identifier
 from deerflow.nlp2sql.errors import DatabaseConnectionError
 from deerflow.nlp2sql.types import DataSourceConfig
 

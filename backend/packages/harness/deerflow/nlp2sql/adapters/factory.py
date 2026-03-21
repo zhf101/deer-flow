@@ -1,6 +1,6 @@
 from deerflow.nlp2sql.adapters.mysql import MySQLAdapter
 from deerflow.nlp2sql.adapters.postgres import PostgresAdapter
-from deerflow.nlp2sql.types import DataSourceConfig, DatabaseType
+from deerflow.nlp2sql.types import DatabaseType, DataSourceConfig
 
 
 def create_adapter(config: DataSourceConfig):
