@@ -10,9 +10,7 @@ export function useThreadChat() {
   const pathname = usePathname();
 
   const searchParams = useSearchParams();
-  const [threadId, setThreadId] = useState(() => {
-    return threadIdFromPath === "new" ? uuid() : threadIdFromPath;
-  });
+  const [threadId, setThreadId] = useState(() => threadIdFromPath);
 
   const [isNewThread, setIsNewThread] = useState(
     () => threadIdFromPath === "new",
@@ -21,9 +19,12 @@ export function useThreadChat() {
   useEffect(() => {
     if (pathname.endsWith("/new")) {
       setIsNewThread(true);
-      setThreadId(uuid());
+      setThreadId((current) => (current === "new" ? uuid() : current));
+      return;
     }
-  }, [pathname]);
+    setIsNewThread(false);
+    setThreadId(threadIdFromPath);
+  }, [pathname, threadIdFromPath]);
   const isMock = searchParams.get("mock") === "true";
   return { threadId, isNewThread, setIsNewThread, isMock };
 }

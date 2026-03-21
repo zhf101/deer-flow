@@ -2,7 +2,7 @@
 
 import {
   BellIcon,
-  InfoIcon,
+  DatabaseIcon,
   BrainIcon,
   PaletteIcon,
   SparklesIcon,
@@ -17,9 +17,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { AboutSettingsPage } from "@/components/workspace/settings/about-settings-page";
 import { AppearanceSettingsPage } from "@/components/workspace/settings/appearance-settings-page";
 import { MemorySettingsPage } from "@/components/workspace/settings/memory-settings-page";
+import { Nlp2SqlSettingsPage } from "@/components/workspace/settings/nlp2sql-settings-page";
 import { NotificationSettingsPage } from "@/components/workspace/settings/notification-settings-page";
 import { SkillSettingsPage } from "@/components/workspace/settings/skill-settings-page";
 import { ToolSettingsPage } from "@/components/workspace/settings/tool-settings-page";
@@ -30,9 +30,9 @@ type SettingsSection =
   | "appearance"
   | "memory"
   | "tools"
+  | "dataSources"
   | "skills"
-  | "notification"
-  | "about";
+  | "notification";
 
 type SettingsDialogProps = React.ComponentProps<typeof Dialog> & {
   defaultSection?: SettingsSection;
@@ -46,7 +46,6 @@ export function SettingsDialog(props: SettingsDialogProps) {
 
   useEffect(() => {
     // When opening the dialog, ensure the active section follows the caller's intent.
-    // This allows triggers like "About" to open the dialog directly on that page.
     if (dialogProps.open) {
       setActiveSection(defaultSection);
     }
@@ -70,16 +69,20 @@ export function SettingsDialog(props: SettingsDialogProps) {
         icon: BrainIcon,
       },
       { id: "tools", label: t.settings.sections.tools, icon: WrenchIcon },
+      {
+        id: "dataSources",
+        label: t.settings.sections.dataSources,
+        icon: DatabaseIcon,
+      },
       { id: "skills", label: t.settings.sections.skills, icon: SparklesIcon },
-      { id: "about", label: t.settings.sections.about, icon: InfoIcon },
     ],
     [
       t.settings.sections.appearance,
       t.settings.sections.memory,
       t.settings.sections.tools,
+      t.settings.sections.dataSources,
       t.settings.sections.skills,
       t.settings.sections.notification,
-      t.settings.sections.about,
     ],
   );
   return (
@@ -127,13 +130,13 @@ export function SettingsDialog(props: SettingsDialogProps) {
               {activeSection === "appearance" && <AppearanceSettingsPage />}
               {activeSection === "memory" && <MemorySettingsPage />}
               {activeSection === "tools" && <ToolSettingsPage />}
+              {activeSection === "dataSources" && <Nlp2SqlSettingsPage />}
               {activeSection === "skills" && (
                 <SkillSettingsPage
                   onClose={() => props.onOpenChange?.(false)}
                 />
               )}
               {activeSection === "notification" && <NotificationSettingsPage />}
-              {activeSection === "about" && <AboutSettingsPage />}
             </div>
           </ScrollArea>
         </div>

@@ -3,7 +3,7 @@
 import json
 import re
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,7 @@ from deerflow.agents.memory.prompt import (
 from deerflow.config.memory_config import get_memory_config
 from deerflow.config.paths import get_paths
 from deerflow.models import create_chat_model
+from deerflow.tracing.runtime import prepare_root_runnable_config
 
 
 def _get_memory_file_path(agent_name: str | None = None) -> Path:
@@ -41,7 +42,7 @@ def _create_empty_memory() -> dict[str, Any]:
     """Create an empty memory structure."""
     return {
         "version": "1.0",
-        "lastUpdated": datetime.utcnow().isoformat() + "Z",
+        "lastUpdated": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "user": {
             "workContext": {"summary": "", "updatedAt": ""},
             "personalContext": {"summary": "", "updatedAt": ""},
@@ -199,7 +200,7 @@ def _save_memory_to_file(memory_data: dict[str, Any], agent_name: str | None = N
         file_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Update lastUpdated timestamp
-        memory_data["lastUpdated"] = datetime.utcnow().isoformat() + "Z"
+        memory_data["lastUpdated"] = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
         # Write atomically using temp file
         temp_path = file_path.with_suffix(".tmp")
@@ -277,7 +278,19 @@ class MemoryUpdater:
 
             # Call LLM
             model = self._get_model()
-            response = model.invoke(prompt)
+            invoke_config = prepare_root_runnable_config(
+                {},
+                session_id=thread_id,
+                run_name="memory_update",
+                metadata={
+                    "thread_id": thread_id,
+                    "agent_name": agent_name or "default",
+                    "source": "memory_queue",
+                    "message_count": len(messages),
+                    "debounced": True,
+                },
+            )
+            response = model.invoke(prompt, config=invoke_config)
             response_text = str(response.content).strip()
 
             # Parse response
@@ -324,7 +337,7 @@ class MemoryUpdater:
             Updated memory data.
         """
         config = get_memory_config()
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
         # Update user sections
         user_updates = update_data.get("user", {})

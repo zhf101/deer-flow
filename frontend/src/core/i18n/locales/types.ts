@@ -190,6 +190,35 @@ export interface Translations {
     clickToViewContent: string;
     writeTodos: string;
     skillInstallTooltip: string;
+    nlp2sql: {
+      availableDataSources: string;
+      currentDataSource: string;
+      usingDataSource: string;
+      noDataSourceSelected: string;
+      defaultValidationMode: string;
+      schemaMatches: string;
+      table: string;
+      column: string;
+      matchType: string;
+      score: string;
+      executeSql: string;
+      exportedFile: string;
+      validationPassed: string;
+      validationFailed: string;
+      normalizedSql: string;
+      sql: string;
+      warnings: string;
+      errors: string;
+      rowCount: string;
+      fetchedRowCount: string;
+      executionMs: string;
+      truncated: string;
+      resultPreview: string;
+      truncatedByRowCap: (returned: number, fetched: number) => string;
+      previewLimited: (shown: number, total: number) => string;
+      openArtifact: string;
+      noRows: string;
+    };
   };
 
   // Uploads
@@ -215,9 +244,9 @@ export interface Translations {
       appearance: string;
       memory: string;
       tools: string;
+      dataSources: string;
       skills: string;
       notification: string;
-      about: string;
     };
     memory: {
       title: string;
@@ -268,6 +297,50 @@ export interface Translations {
     tools: {
       title: string;
       description: string;
+    };
+    nlp2sql: {
+      title: string;
+      description: string;
+      listTitle: string;
+      newSource: string;
+      emptyTitle: string;
+      emptyDescription: string;
+      sourceCountSuffix: string;
+      editorTitleNew: string;
+      editorTitleEdit: string;
+      createHint: string;
+      idLabel: string;
+      nameLabel: string;
+      dbTypeLabel: string;
+      hostLabel: string;
+      portLabel: string;
+      databaseLabel: string;
+      usernameLabel: string;
+      passwordEnvLabel: string;
+      descriptionLabel: string;
+      schemaWhitelistLabel: string;
+      tableWhitelistLabel: string;
+      whitelistHint: string;
+      readonlyLabel: string;
+      enabledLabel: string;
+      defaultValidationModeLabel: string;
+      connectTimeoutLabel: string;
+      queryTimeoutLabel: string;
+      maxRowsLabel: string;
+      mysqlLabel: string;
+      postgresLabel: string;
+      relaxedLabel: string;
+      strictLabel: string;
+      enabledBadge: string;
+      disabledBadge: string;
+      testConnection: string;
+      clearSchemaCache: string;
+      deleteConfirm: string;
+      createSuccess: string;
+      updateSuccess: string;
+      deleteSuccess: string;
+      testSuccess: string;
+      cacheCleared: string;
     };
     skills: {
       title: string;

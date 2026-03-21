@@ -82,7 +82,11 @@ export default function ChatPage() {
             )}
           >
             <div className="flex w-full items-center text-sm font-medium">
-              <ThreadTitle threadId={threadId} thread={thread} />
+              <ThreadTitle
+                threadId={threadId}
+                thread={thread}
+                isNewThread={isNewThread}
+              />
             </div>
             <div>
               <ArtifactTrigger />

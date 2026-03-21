@@ -12,6 +12,7 @@ from app.gateway.routers import (
     mcp,
     memory,
     models,
+    nlp2sql,
     skills,
     suggestions,
     uploads,
@@ -89,6 +90,7 @@ API Gateway for DeerFlow - A LangGraph-based AI agent backend with sandbox execu
 - **MCP Configuration**: Manage Model Context Protocol (MCP) server configurations
 - **Memory Management**: Access and manage global memory data for personalized conversations
 - **Skills Management**: Query and manage skills and their enabled status
+- **NLP2SQL Data Sources**: Configure database data sources and schema cache
 - **Artifacts**: Access thread artifacts and generated files
 - **Health Monitoring**: System health check endpoints
 
@@ -118,6 +120,10 @@ This gateway provides custom endpoints for models, MCP configuration, skills, an
             {
                 "name": "skills",
                 "description": "Manage skills and their configurations",
+            },
+            {
+                "name": "nlp2sql",
+                "description": "Configure nlp2sql data sources and schema cache",
             },
             {
                 "name": "artifacts",
@@ -160,6 +166,9 @@ This gateway provides custom endpoints for models, MCP configuration, skills, an
 
     # Skills API is mounted at /api/skills
     app.include_router(skills.router)
+
+    # NLP2SQL API is mounted at /api/nlp2sql
+    app.include_router(nlp2sql.router)
 
     # Artifacts API is mounted at /api/threads/{thread_id}/artifacts
     app.include_router(artifacts.router)

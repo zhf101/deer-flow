@@ -1,40 +1,41 @@
-import logging
 import os
 import threading
 
 from pydantic import BaseModel, Field
 
-logger = logging.getLogger(__name__)
 _config_lock = threading.Lock()
-
-
-class TracingConfig(BaseModel):
-    """Configuration for LangSmith tracing."""
-
-    enabled: bool = Field(...)
-    api_key: str | None = Field(...)
-    project: str = Field(...)
-    endpoint: str = Field(...)
-
-    @property
-    def is_configured(self) -> bool:
-        """Check if tracing is fully configured (enabled and has API key)."""
-        return self.enabled and bool(self.api_key)
-
-
-_tracing_config: TracingConfig | None = None
-
 
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
 
-def _env_flag_preferred(*names: str) -> bool:
-    """Return the boolean value of the first env var that is present and non-empty.
+class TracingConfig(BaseModel):
+    """DeerFlow tracing configuration."""
 
-    Accepted truthy values (case-insensitive): ``1``, ``true``, ``yes``, ``on``.
-    Any other non-empty value is treated as falsy.  If none of the named
-    variables is set, returns ``False``.
-    """
+    enabled: bool = Field(default=False)
+    trace_log_path: str = Field(default="./logs/traces.jsonl")
+
+
+class LangfuseConfig(BaseModel):
+    """Configuration for Langfuse-based tracing."""
+
+    public_key: str | None = Field(default=None)
+    secret_key: str | None = Field(default=None)
+    base_url: str = Field(default="https://cloud.langfuse.com")
+    environment: str | None = Field(default=None)
+    release: str | None = Field(default=None)
+
+    @property
+    def is_configured(self) -> bool:
+        """Return ``True`` when Langfuse credentials are present."""
+        return bool(self.public_key and self.secret_key)
+
+
+_tracing_config: TracingConfig | None = None
+_langfuse_config: LangfuseConfig | None = None
+
+
+def _env_flag_preferred(*names: str) -> bool:
+    """Return the boolean value of the first non-empty environment variable."""
     for name in names:
         value = os.environ.get(name)
         if value is not None and value.strip():
@@ -52,43 +53,47 @@ def _first_env_value(*names: str) -> str | None:
 
 
 def get_tracing_config() -> TracingConfig:
-    """Get the current tracing configuration from environment variables.
-
-    ``LANGSMITH_*`` variables take precedence over their legacy ``LANGCHAIN_*``
-    counterparts.  For boolean flags (``enabled``), the *first* variable that is
-    present and non-empty in the priority list is the sole authority – its value
-    is parsed and returned without consulting the remaining candidates.  Accepted
-    truthy values are ``1``, ``true``, ``yes``, and ``on`` (case-insensitive);
-    any other non-empty value is treated as falsy.
-
-    Priority order:
-        enabled  : LANGSMITH_TRACING > LANGCHAIN_TRACING_V2 > LANGCHAIN_TRACING
-        api_key  : LANGSMITH_API_KEY  > LANGCHAIN_API_KEY
-        project  : LANGSMITH_PROJECT  > LANGCHAIN_PROJECT   (default: "deer-flow")
-        endpoint : LANGSMITH_ENDPOINT > LANGCHAIN_ENDPOINT  (default: https://api.smith.langchain.com)
-
-    Returns:
-        TracingConfig with current settings.
-    """
+    """Return the current DeerFlow tracing configuration."""
     global _tracing_config
     if _tracing_config is not None:
         return _tracing_config
+
     with _config_lock:
-        if _tracing_config is not None:  # Double-check after acquiring lock
+        if _tracing_config is not None:
             return _tracing_config
+
         _tracing_config = TracingConfig(
-            # Keep compatibility with both legacy LANGCHAIN_* and newer LANGSMITH_* variables.
-            enabled=_env_flag_preferred("LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING"),
-            api_key=_first_env_value("LANGSMITH_API_KEY", "LANGCHAIN_API_KEY"),
-            project=_first_env_value("LANGSMITH_PROJECT", "LANGCHAIN_PROJECT") or "deer-flow",
-            endpoint=_first_env_value("LANGSMITH_ENDPOINT", "LANGCHAIN_ENDPOINT") or "https://api.smith.langchain.com",
+            enabled=_env_flag_preferred("DEERFLOW_TRACING_ENABLED", "LANGFUSE_TRACING_ENABLED"),
+            trace_log_path=_first_env_value("DEERFLOW_TRACE_LOG_PATH") or "./logs/traces.jsonl",
         )
         return _tracing_config
 
 
+def get_langfuse_config() -> LangfuseConfig:
+    """Return the current Langfuse configuration."""
+    global _langfuse_config
+    if _langfuse_config is not None:
+        return _langfuse_config
+
+    with _config_lock:
+        if _langfuse_config is not None:
+            return _langfuse_config
+
+        _langfuse_config = LangfuseConfig(
+            public_key=_first_env_value("LANGFUSE_PUBLIC_KEY"),
+            secret_key=_first_env_value("LANGFUSE_SECRET_KEY"),
+            base_url=_first_env_value("LANGFUSE_BASE_URL", "LANGFUSE_HOST") or "https://cloud.langfuse.com",
+            environment=_first_env_value("LANGFUSE_TRACING_ENVIRONMENT"),
+            release=_first_env_value("LANGFUSE_RELEASE"),
+        )
+        return _langfuse_config
+
+
 def is_tracing_enabled() -> bool:
-    """Check if LangSmith tracing is enabled and configured.
-    Returns:
-        True if tracing is enabled and has an API key.
-    """
-    return get_tracing_config().is_configured
+    """Return ``True`` when DeerFlow tracing is enabled."""
+    return get_tracing_config().enabled
+
+
+def is_langfuse_enabled() -> bool:
+    """Return ``True`` when tracing is enabled and Langfuse is fully configured."""
+    return is_tracing_enabled() and get_langfuse_config().is_configured

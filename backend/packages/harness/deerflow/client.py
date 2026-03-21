@@ -41,6 +41,7 @@ from deerflow.config.app_config import get_app_config, reload_app_config
 from deerflow.config.extensions_config import ExtensionsConfig, SkillStateConfig, get_extensions_config, reload_extensions_config
 from deerflow.config.paths import get_paths
 from deerflow.models import create_chat_model
+from deerflow.tracing.runtime import prepare_root_runnable_config
 
 logger = logging.getLogger(__name__)
 
@@ -176,9 +177,22 @@ class DeerFlowClient:
             "is_plan_mode": overrides.get("plan_mode", self._plan_mode),
             "subagent_enabled": overrides.get("subagent_enabled", self._subagent_enabled),
         }
-        return RunnableConfig(
+        config = RunnableConfig(
             configurable=configurable,
             recursion_limit=overrides.get("recursion_limit", 100),
+        )
+        resolved_model_name = configurable["model_name"] or self._app_config.models[0].name
+        return prepare_root_runnable_config(
+            config,
+            session_id=thread_id,
+            run_name="lead_agent",
+            metadata={
+                "agent_name": "default",
+                "model_name": resolved_model_name,
+                "thinking_enabled": configurable["thinking_enabled"],
+                "is_plan_mode": configurable["is_plan_mode"],
+                "subagent_enabled": configurable["subagent_enabled"],
+            },
         )
 
     def _ensure_agent(self, config: RunnableConfig):

@@ -141,6 +141,50 @@ class TestTitleMiddlewareCoreLogic:
         assert title.endswith("...")
         assert title.startswith("这是一个非常长的问题描述")
 
+    def test_generate_title_prepares_child_tracing_when_runtime_available(self, monkeypatch):
+        _set_test_title_config(max_chars=20)
+        middleware = TitleMiddleware()
+        fake_model = MagicMock()
+        fake_model.ainvoke = AsyncMock(return_value=MagicMock(content="Tracing Title"))
+
+        captured: dict[str, object] = {}
+
+        def fake_prepare(config, *, session_id, run_name, trace_context, metadata, tags=None):
+            captured["session_id"] = session_id
+            captured["run_name"] = run_name
+            captured["trace_context"] = trace_context
+            captured["metadata"] = metadata
+            return {"callbacks": ["child-callback"]}
+
+        monkeypatch.setattr("deerflow.agents.middlewares.title_middleware.create_chat_model", lambda **kwargs: fake_model)
+        monkeypatch.setattr("deerflow.agents.middlewares.title_middleware.get_current_trace_context", lambda config=None: {"trace_id": "trace-1", "parent_span_id": "span-1"})
+        monkeypatch.setattr("deerflow.agents.middlewares.title_middleware.prepare_child_runnable_config", fake_prepare)
+
+        runtime = MagicMock()
+        runtime.context = {"thread_id": "thread-title"}
+        runtime.config = {"metadata": {"trace_id": "trace-1"}}
+
+        state = {
+            "messages": [
+                HumanMessage(content="请帮我写一个脚本"),
+                AIMessage(content="好的，先确认需求"),
+            ]
+        }
+
+        title = asyncio.run(middleware._generate_title(state, runtime=runtime))
+
+        assert title == "Tracing Title"
+        assert fake_model.ainvoke.await_args.kwargs["config"] == {"callbacks": ["child-callback"]}
+        assert captured == {
+            "session_id": "thread-title",
+            "run_name": "generate_title",
+            "trace_context": {"trace_id": "trace-1", "parent_span_id": "span-1"},
+            "metadata": {
+                "thread_id": "thread-title",
+                "source": "title_middleware",
+            },
+        }
+
     def test_after_agent_returns_title_only_when_needed(self, monkeypatch):
         middleware = TitleMiddleware()
         monkeypatch.setattr(middleware, "_should_generate_title", lambda state: True)

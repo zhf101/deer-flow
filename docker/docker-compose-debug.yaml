@@ -1,0 +1,138 @@
+# DeerFlow Debug Environment - LangGraph Debug Mode
+# Usage: docker-compose -f docker/docker-compose-debug.yaml up -d
+#
+# Services:
+#   - codeserver: VS Code Server IDE (port 8080)
+#   - nginx: Reverse proxy (port 2026)
+#   - frontend: Next.js dev server (port 3000)
+#   - gateway: API Gateway (port 8001)
+#   - langgraph: Agent runtime with debugpy (port 2024, debug: 5679)
+
+services:
+  codeserver:
+    image: deer-flow-codeserver:dev
+    container_name: deer-flow-codeserver
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../:/home/coder/workspace
+      - codeserver-data:/home/coder/.local/share/code-server
+      - codeserver-venv:/home/coder/workspace/backend/.venv
+      - pnpm-store:/home/coder/.local/share/pnpm/store
+      - ./dev-env/settings.json:/home/coder/workspace/.vscode/settings.json:ro
+      - ./dev-env/launch.json:/home/coder/workspace/.vscode/launch.json:ro
+      - ./dev-env/tasks.json:/home/coder/workspace/.vscode/tasks.json:ro
+    environment:
+      - PASSWORD=${CODE_SERVER_PASSWORD:-deerflow}
+      - PYTHONPATH=/home/coder/workspace/backend
+    env_file:
+      - ../.env
+    networks:
+      - deer-flow-dev
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: deer-flow-nginx
+    ports:
+      - "2026:2026"
+    volumes:
+      - ./nginx/nginx.docker.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - deer-flow-dev
+    restart: unless-stopped
+
+  frontend:
+    image: deer-flow-frontend:dev
+    container_name: deer-flow-frontend
+    ports:
+      - "3000:3000"
+    command: sh -c "cd frontend && pnpm run dev > /app/logs/frontend.log 2>&1"
+    volumes:
+      - ../frontend/src:/app/frontend/src
+      - ../frontend/public:/app/frontend/public
+      - ../frontend/next.config.js:/app/frontend/next.config.js:ro
+      - ../logs:/app/logs
+      - pnpm-store:/root/.local/share/pnpm/store
+    working_dir: /app
+    environment:
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+      - CI=true
+    env_file:
+      - ../frontend/.env
+    networks:
+      - deer-flow-dev
+    restart: unless-stopped
+
+  gateway:
+    image: deer-flow-backend:dev
+    container_name: deer-flow-gateway
+    ports:
+      - "8001:8001"
+    command: sh -c "cd backend && PYTHONPATH=. uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001 --reload --reload-include='*.yaml .env' > /app/logs/gateway.log 2>&1"
+    volumes:
+      - ../backend/:/app/backend/
+      - gateway-venv:/app/backend/.venv
+      - ../config.yaml:/app/config.yaml
+      - ../extensions_config.json:/app/extensions_config.json
+      - ../skills:/app/skills
+      - ../logs:/app/logs
+      - uv-cache:/root/.cache/uv
+      - /var/run/docker.sock:/var/run/docker.sock
+    working_dir: /app
+    environment:
+      - CI=true
+      - DEER_FLOW_HOST_BASE_DIR=${DEER_FLOW_ROOT:-}/backend/.deer-flow
+      - DEER_FLOW_HOST_SKILLS_PATH=${DEER_FLOW_ROOT:-}/skills
+      - DEER_FLOW_SANDBOX_HOST=host.docker.internal
+    env_file:
+      - ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - deer-flow-dev
+    restart: unless-stopped
+
+  langgraph:
+    image: deer-flow-backend:dev
+    container_name: deer-flow-langgraph
+    ports:
+      - "2024:2024"
+      - "5679:5679"
+    entrypoint: ["/bin/bash", "/scripts/start-langgraph-debug.sh"]
+    volumes:
+      - ../backend/:/app/backend/
+      - langgraph-venv:/app/backend/.venv
+      - ../config.yaml:/app/config.yaml
+      - ../extensions_config.json:/app/extensions_config.json
+      - ../skills:/app/skills
+      - ../logs:/app/logs
+      - uv-cache:/root/.cache/uv
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./dev-env/start-langgraph-debug.sh:/scripts/start-langgraph-debug.sh:ro
+    working_dir: /app
+    environment:
+      - CI=true
+      - DEER_FLOW_HOST_BASE_DIR=${DEER_FLOW_ROOT:-}/backend/.deer-flow
+      - DEER_FLOW_HOST_SKILLS_PATH=${DEER_FLOW_ROOT:-}/skills
+      - DEER_FLOW_SANDBOX_HOST=host.docker.internal
+    env_file:
+      - ../.env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - deer-flow-dev
+    restart: unless-stopped
+
+volumes:
+  gateway-venv:
+  langgraph-venv:
+  codeserver-data:
+  codeserver-venv:
+  pnpm-store:
+  uv-cache:
+
+networks:
+  deer-flow-dev:
+    driver: bridge

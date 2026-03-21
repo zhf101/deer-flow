@@ -135,3 +135,43 @@ def test_apply_updates_preserves_threshold_and_max_facts_trimming() -> None:
     ]
     assert all(fact["content"] != "User likes noisy logs" for fact in result["facts"])
     assert result["facts"][1]["source"] == "thread-9"
+
+
+def test_update_memory_prepares_independent_root_trace(monkeypatch) -> None:
+    updater = MemoryUpdater()
+    messages = ["message-a", "message-b"]
+    fake_model = patch("deerflow.agents.memory.updater.MemoryUpdater._get_model").start()
+    fake_model.return_value.invoke.return_value.content = '{"user":{},"history":{},"factsToRemove":[],"newFacts":[]}'
+
+    captured: dict[str, object] = {}
+
+    def fake_prepare(config, *, session_id, run_name, metadata, tags=None):
+        captured["session_id"] = session_id
+        captured["run_name"] = run_name
+        captured["metadata"] = metadata
+        return {"callbacks": ["memory-root-callback"]}
+
+    monkeypatch.setattr("deerflow.agents.memory.updater.get_memory_config", lambda: _memory_config(enabled=True))
+    monkeypatch.setattr("deerflow.agents.memory.updater.get_memory_data", lambda agent_name=None: _make_memory())
+    monkeypatch.setattr("deerflow.agents.memory.updater.format_conversation_for_update", lambda msgs: "conversation")
+    monkeypatch.setattr("deerflow.agents.memory.updater.prepare_root_runnable_config", fake_prepare)
+    monkeypatch.setattr("deerflow.agents.memory.updater._save_memory_to_file", lambda memory_data, agent_name=None: True)
+
+    try:
+        assert updater.update_memory(messages, thread_id="thread-memory", agent_name="memory-agent") is True
+    finally:
+        patch.stopall()
+
+    fake_model.return_value.invoke.assert_called_once()
+    assert fake_model.return_value.invoke.call_args.kwargs["config"] == {"callbacks": ["memory-root-callback"]}
+    assert captured == {
+        "session_id": "thread-memory",
+        "run_name": "memory_update",
+        "metadata": {
+            "thread_id": "thread-memory",
+            "agent_name": "memory-agent",
+            "source": "memory_queue",
+            "message_count": 2,
+            "debounced": True,
+        },
+    }

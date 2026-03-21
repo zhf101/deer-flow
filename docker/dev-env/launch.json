@@ -1,0 +1,21 @@
+﻿{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach LangGraph",
+      "type": "debugpy",
+      "request": "attach",
+      "connect": {
+        "host": "langgraph",
+        "port": 5679
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}/backend",
+          "remoteRoot": "/app/backend"
+        }
+      ],
+      "justMyCode": false
+    }
+  ]
+}

@@ -32,7 +32,7 @@ def _make_runtime() -> SimpleNamespace:
             },
         },
         context={"thread_id": "thread-1"},
-        config={"metadata": {"model_name": "ark-model", "trace_id": "trace-1"}},
+        config={"metadata": {"model_name": "ark-model", "trace_id": "trace-1", "trace_root_span_id": "span-root-1"}},
     )
 
 
@@ -127,6 +127,7 @@ def test_task_tool_emits_running_and_completed_events(monkeypatch):
     assert captured["task_id"] == "tc-123"
     assert captured["executor_kwargs"]["thread_id"] == "thread-1"
     assert captured["executor_kwargs"]["parent_model"] == "ark-model"
+    assert captured["executor_kwargs"]["trace_context"] == {"trace_id": "trace-1", "parent_span_id": "span-root-1"}
     assert captured["executor_kwargs"]["config"].max_turns == 7
     assert "Skills Appendix" in captured["executor_kwargs"]["config"].system_prompt
 

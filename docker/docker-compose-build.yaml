@@ -1,0 +1,30 @@
+# DeerFlow Image Builder
+# Usage: docker-compose -f docker/docker-compose-build.yaml build
+#
+# This file is ONLY for building images, not for running services.
+# Use docker-compose-dev.yaml or docker-compose-debug.yaml for running.
+
+services:
+  # ── Frontend Image ─────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../
+      dockerfile: frontend/Dockerfile
+      target: dev
+      args:
+        PNPM_STORE_PATH: ${PNPM_STORE_PATH:-/root/.local/share/pnpm/store}
+    image: deer-flow-frontend:dev
+
+  # ── Backend Images (Gateway + LangGraph) ───────────────────────────────
+  backend:
+    build:
+      context: ../
+      dockerfile: backend/Dockerfile
+    image: deer-flow-backend:dev
+
+  # ── VS Code Server IDE ─────────────────────────────────────────────────
+  codeserver:
+    build:
+      context: ./dev-env
+      dockerfile: Dockerfile.codeserver
+    image: deer-flow-codeserver:dev

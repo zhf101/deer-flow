@@ -1,20 +1,22 @@
 # Backend Development Dockerfile
+FROM node:22-slim AS node-source
+
 FROM python:3.12-slim
 
-ARG NODE_MAJOR=22
+# Configure China mirror for faster apt (comment out if outside China)
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
 
-# Install system dependencies + Node.js (provides npx for MCP servers)
-RUN apt-get update && apt-get install -y \
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
-    gnupg \
-    ca-certificates \
-    && mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key -o /etc/apt/keyrings/nodesource.gpg \
-    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_${NODE_MAJOR}.x nodistro main" > /etc/apt/sources.list.d/nodesource.list \
-    && apt-get update \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /tmp/* /var/tmp/*
+
+# Copy Node.js from official image (cleaner than NodeSource apt repo)
+COPY --from=node-source /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-source /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
 # Install Docker CLI (for DooD: allows starting sandbox containers via host Docker socket)
 COPY --from=docker:cli /usr/local/bin/docker /usr/local/bin/docker
@@ -28,12 +30,16 @@ WORKDIR /app
 # Copy frontend source code
 COPY backend ./backend
 
-# Install dependencies with cache mount
+# Install dependencies with cache mount (includes debugpy for remote debugging)
 RUN --mount=type=cache,target=/root/.cache/uv \
-    sh -c "cd backend && uv sync"
+    sh -c "cd backend && uv sync --all-groups"
 
-# Expose ports (gateway: 8001, langgraph: 2024)
-EXPOSE 8001 2024
+# Expose ports
+# - gateway: 8001
+# - langgraph: 2024
+# - debugpy (gateway): 5678
+# - debugpy (langgraph): 5679
+EXPOSE 8001 2024 5678 5679
 
 # Default command (can be overridden in docker-compose)
 CMD ["sh", "-c", "cd backend && PYTHONPATH=. uv run uvicorn app.gateway.app:app --host 0.0.0.0 --port 8001"]

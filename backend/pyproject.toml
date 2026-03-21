@@ -16,10 +16,11 @@ dependencies = [
     "python-telegram-bot>=21.0",
     "langgraph-sdk>=0.1.51",
     "markdown-to-mrkdwn>=0.3.1",
+    "debugpy>=1.8.20",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0.0", "ruff>=0.14.11"]
+dev = ["pytest>=8.0.0", "ruff>=0.14.11", "debugpy>=1.8.0"]
 
 [tool.uv.workspace]
 members = ["packages/harness"]

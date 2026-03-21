@@ -1,5 +1,6 @@
 import type { Message } from "@langchain/langgraph-sdk";
 import {
+  DatabaseIcon,
   BookOpenTextIcon,
   ChevronUp,
   FolderOpenIcon,
@@ -12,7 +13,8 @@ import {
   SquareTerminalIcon,
   WrenchIcon,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import { useMemo, useState, type ReactNode } from "react";
 
 import {
   ChainOfThought,
@@ -22,7 +24,9 @@ import {
   ChainOfThoughtStep,
 } from "@/components/ai-elements/chain-of-thought";
 import { CodeBlock } from "@/components/ai-elements/code-block";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { resolveArtifactURL } from "@/core/artifacts/utils";
 import { useI18n } from "@/core/i18n/hooks";
 import {
   extractReasoningContentFromMessage,
@@ -38,6 +42,438 @@ import { FlipDisplay } from "../flip-display";
 import { Tooltip } from "../tooltip";
 
 import { MarkdownContent } from "./markdown-content";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) && value.every((item) => typeof item === "string")
+  );
+}
+
+function isRowArray(value: unknown): value is Record<string, unknown>[] {
+  return Array.isArray(value) && value.every((item) => isRecord(item));
+}
+
+function toStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item): item is string => typeof item === "string");
+}
+
+function formatCellValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return "—";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (
+    typeof value === "number" ||
+    typeof value === "boolean" ||
+    typeof value === "bigint"
+  ) {
+    return String(value);
+  }
+  return JSON.stringify(value) ?? "—";
+}
+
+function extractExportedArtifactPath(result: string): string | null {
+  const match = /(\/mnt\/user-data\/outputs\/\S+)/.exec(result);
+  return match?.[1] ?? null;
+}
+
+function renderNlp2SqlToolCall({
+  id,
+  name,
+  result,
+  threadId,
+  t,
+}: {
+  id?: string;
+  name: string;
+  result?: unknown;
+  threadId?: string;
+  t: ReturnType<typeof useI18n>["t"];
+}): ReactNode | null {
+  if (name === "validate_sql" && isRecord(result)) {
+    const warnings = toStringList(result.warnings);
+    const errors = toStringList(result.errors);
+    const normalizedSql =
+      typeof result.normalized_sql === "string" ? result.normalized_sql : "";
+    const ok = result.ok === true;
+    const mode = typeof result.mode === "string" ? result.mode : null;
+
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={
+          ok
+            ? t.toolCalls.nlp2sql.validationPassed
+            : t.toolCalls.nlp2sql.validationFailed
+        }
+        icon={WrenchIcon}
+      >
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant={ok ? "default" : "destructive"}>
+              {ok
+                ? t.toolCalls.nlp2sql.validationPassed
+                : t.toolCalls.nlp2sql.validationFailed}
+            </Badge>
+            {mode ? <Badge variant="outline">{mode}</Badge> : null}
+          </div>
+          {normalizedSql ? (
+            <div className="space-y-1">
+              <div className="text-muted-foreground text-xs font-medium">
+                {t.toolCalls.nlp2sql.normalizedSql}
+              </div>
+              <CodeBlock
+                className="mx-0 border-none px-0"
+                code={normalizedSql}
+                language="sql"
+                showLineNumbers={false}
+              />
+            </div>
+          ) : null}
+          {warnings.length > 0 ? (
+            <div className="space-y-1">
+              <div className="text-muted-foreground text-xs font-medium">
+                {t.toolCalls.nlp2sql.warnings}
+              </div>
+              <ul className="text-sm leading-6">
+                {warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {errors.length > 0 ? (
+            <div className="space-y-1">
+              <div className="text-muted-foreground text-xs font-medium">
+                {t.toolCalls.nlp2sql.errors}
+              </div>
+              <ul className="text-sm leading-6">
+                {errors.map((error) => (
+                  <li key={error}>{error}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      </ChainOfThoughtStep>
+    );
+  }
+
+  if (name === "list_data_sources" && isRecord(result)) {
+    const dataSources = Array.isArray(result.data_sources)
+      ? result.data_sources.filter(isRecord)
+      : [];
+
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={t.toolCalls.nlp2sql.availableDataSources}
+        icon={DatabaseIcon}
+      >
+        <div className="mt-3 space-y-2">
+          {dataSources.map((dataSource) => {
+            const sourceId =
+              typeof dataSource.id === "string" ? dataSource.id : "";
+            const name =
+              typeof dataSource.name === "string" ? dataSource.name : sourceId;
+            const dbType =
+              typeof dataSource.db_type === "string" ? dataSource.db_type : "";
+            const host =
+              typeof dataSource.host === "string" ? dataSource.host : "";
+            const database =
+              typeof dataSource.database === "string"
+                ? dataSource.database
+                : "";
+
+            return (
+              <div
+                key={sourceId || name}
+                className="rounded-md border px-3 py-2 text-sm"
+              >
+                <div className="font-medium">{name}</div>
+                <div className="text-muted-foreground text-xs">
+                  {sourceId}
+                  {dbType ? ` · ${dbType}` : ""}
+                  {host ? ` · ${host}` : ""}
+                  {database ? ` · ${database}` : ""}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </ChainOfThoughtStep>
+    );
+  }
+
+  if (name === "use_data_source" && isRecord(result)) {
+    const dataSourceId =
+      typeof result.data_source_id === "string" ? result.data_source_id : "";
+    const validationMode =
+      typeof result.default_validation_mode === "string"
+        ? result.default_validation_mode
+        : "";
+
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={t.toolCalls.nlp2sql.usingDataSource}
+        icon={DatabaseIcon}
+      >
+        <div className="mt-3 space-y-2 text-sm">
+          <div className="font-medium">{dataSourceId}</div>
+          {validationMode ? (
+            <div className="text-muted-foreground">
+              {t.toolCalls.nlp2sql.defaultValidationMode}: {validationMode}
+            </div>
+          ) : null}
+        </div>
+      </ChainOfThoughtStep>
+    );
+  }
+
+  if (name === "get_current_data_source" && isRecord(result)) {
+    const dataSource = isRecord(result.data_source) ? result.data_source : null;
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={t.toolCalls.nlp2sql.currentDataSource}
+        icon={DatabaseIcon}
+      >
+        <div className="mt-3 text-sm">
+          {dataSource ? (
+            <>
+              <div className="font-medium">
+                {typeof dataSource.name === "string"
+                  ? dataSource.name
+                  : typeof dataSource.id === "string"
+                    ? dataSource.id
+                    : t.toolCalls.nlp2sql.currentDataSource}
+              </div>
+              <div className="text-muted-foreground text-xs">
+                {typeof dataSource.id === "string" ? dataSource.id : ""}
+                {typeof dataSource.db_type === "string"
+                  ? ` · ${dataSource.db_type}`
+                  : ""}
+                {typeof dataSource.database === "string"
+                  ? ` · ${dataSource.database}`
+                  : ""}
+              </div>
+            </>
+          ) : (
+            <div className="text-muted-foreground">
+              {t.toolCalls.nlp2sql.noDataSourceSelected}
+            </div>
+          )}
+        </div>
+      </ChainOfThoughtStep>
+    );
+  }
+
+  if (name === "search_schema" && isRecord(result)) {
+    const hits = Array.isArray(result.hits) ? result.hits.filter(isRecord) : [];
+
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={t.toolCalls.nlp2sql.schemaMatches}
+        icon={SearchIcon}
+      >
+        <div className="mt-3 space-y-2">
+          {hits.map((hit, index) => {
+            const schemaName =
+              typeof hit.schema_name === "string" ? hit.schema_name : "";
+            const tableName =
+              typeof hit.table_name === "string" ? hit.table_name : "";
+            const columnName =
+              typeof hit.column_name === "string" ? hit.column_name : "";
+            const matchType =
+              typeof hit.match_type === "string" ? hit.match_type : "";
+            const score =
+              typeof hit.score === "number" ? hit.score.toFixed(2) : "";
+            const snippet = typeof hit.snippet === "string" ? hit.snippet : "";
+
+            return (
+              <div
+                key={`${schemaName}.${tableName}.${columnName}.${index}`}
+                className="rounded-md border px-3 py-2 text-sm"
+              >
+                <div className="font-medium">
+                  {schemaName ? `${schemaName}.` : ""}
+                  {tableName}
+                  {columnName ? `.${columnName}` : ""}
+                </div>
+                <div className="text-muted-foreground text-xs">
+                  {matchType
+                    ? `${t.toolCalls.nlp2sql.matchType}: ${matchType}`
+                    : ""}
+                  {score ? ` · ${t.toolCalls.nlp2sql.score}: ${score}` : ""}
+                </div>
+                {snippet ? <div className="mt-1 text-xs">{snippet}</div> : null}
+              </div>
+            );
+          })}
+        </div>
+      </ChainOfThoughtStep>
+    );
+  }
+
+  if (name === "execute_sql" && isRecord(result)) {
+    const sql = typeof result.sql === "string" ? result.sql : "";
+    const allRows = isRowArray(result.rows) ? result.rows : [];
+    const previewRows = allRows.slice(0, 10);
+    const columns = isStringArray(result.columns)
+      ? result.columns
+      : previewRows[0]
+        ? Object.keys(previewRows[0])
+        : [];
+    const rowCount =
+      typeof result.row_count === "number" ? result.row_count : allRows.length;
+    const fetchedRowCount =
+      typeof result.fetched_row_count === "number"
+        ? result.fetched_row_count
+        : rowCount;
+    const executionMs =
+      typeof result.execution_ms === "number" ? result.execution_ms : null;
+    const truncated = result.truncated === true;
+
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={t.toolCalls.nlp2sql.executeSql}
+        icon={SquareTerminalIcon}
+      >
+        <div className="mt-3 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="secondary">
+              {t.toolCalls.nlp2sql.rowCount}: {rowCount}
+            </Badge>
+            {truncated && fetchedRowCount > rowCount ? (
+              <Badge variant="outline">
+                {t.toolCalls.nlp2sql.fetchedRowCount}: {fetchedRowCount}
+              </Badge>
+            ) : null}
+            {executionMs !== null ? (
+              <Badge variant="outline">
+                {t.toolCalls.nlp2sql.executionMs}: {executionMs} ms
+              </Badge>
+            ) : null}
+            {truncated ? (
+              <Badge variant="outline">{t.toolCalls.nlp2sql.truncated}</Badge>
+            ) : null}
+          </div>
+          {truncated && fetchedRowCount > rowCount ? (
+            <div className="text-muted-foreground text-xs">
+              {t.toolCalls.nlp2sql.truncatedByRowCap(
+                rowCount,
+                fetchedRowCount,
+              )}
+            </div>
+          ) : null}
+          {sql ? (
+            <div className="space-y-1">
+              <div className="text-muted-foreground text-xs font-medium">
+                {t.toolCalls.nlp2sql.sql}
+              </div>
+              <CodeBlock
+                className="mx-0 border-none px-0"
+                code={sql}
+                language="sql"
+                showLineNumbers={false}
+              />
+            </div>
+          ) : null}
+          <div className="space-y-1">
+            <div className="text-muted-foreground text-xs font-medium">
+              {t.toolCalls.nlp2sql.resultPreview}
+            </div>
+            {previewRows.length > 0 && columns.length > 0 ? (
+              <div className="overflow-x-auto rounded-md border">
+                <table className="w-full min-w-max text-left text-sm">
+                  <thead className="bg-muted/60">
+                    <tr>
+                      {columns.map((column) => (
+                        <th key={column} className="px-3 py-2 font-medium">
+                          {column}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {previewRows.map((row, index) => (
+                      <tr key={index} className="border-t align-top">
+                        {columns.map((column) => (
+                          <td
+                            key={`${index}-${column}`}
+                            className="max-w-80 px-3 py-2 break-words whitespace-pre-wrap"
+                          >
+                            {formatCellValue(row[column])}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-muted-foreground text-sm">
+                {t.toolCalls.nlp2sql.noRows}
+              </div>
+            )}
+            {allRows.length > previewRows.length ? (
+              <div className="text-muted-foreground text-xs">
+                {t.toolCalls.nlp2sql.previewLimited(
+                  previewRows.length,
+                  allRows.length,
+                )}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </ChainOfThoughtStep>
+    );
+  }
+
+  if (name === "export_query_result" && typeof result === "string") {
+    const artifactPath = extractExportedArtifactPath(result);
+    const artifactUrl =
+      artifactPath && threadId
+        ? resolveArtifactURL(artifactPath, threadId)
+        : null;
+
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={t.toolCalls.nlp2sql.exportedFile}
+        icon={FolderOpenIcon}
+      >
+        <div className="mt-3 space-y-2 text-sm">
+          <div>{result}</div>
+          {artifactPath && artifactUrl ? (
+            <a
+              href={artifactUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary inline-flex underline underline-offset-4"
+            >
+              {t.toolCalls.nlp2sql.openArtifact}
+            </a>
+          ) : null}
+        </div>
+      </ChainOfThoughtStep>
+    );
+  }
+
+  return null;
+}
 
 export function MessageGroup({
   className,
@@ -196,13 +632,25 @@ function ToolCall({
   messageId?: string;
   name: string;
   args: Record<string, unknown>;
-  result?: string | Record<string, unknown>;
+  result?: unknown;
   isLast?: boolean;
   isLoading?: boolean;
 }) {
   const { t } = useI18n();
+  const { thread_id } = useParams<{ thread_id: string }>();
   const { setOpen, autoOpen, autoSelect, selectedArtifact, select } =
     useArtifacts();
+  const nlp2sqlStep = renderNlp2SqlToolCall({
+    id,
+    name,
+    result,
+    threadId: thread_id,
+    t,
+  });
+
+  if (nlp2sqlStep) {
+    return nlp2sqlStep;
+  }
 
   if (name === "web_search") {
     let label: React.ReactNode = t.toolCalls.searchForRelatedInfo;
@@ -435,7 +883,7 @@ interface CoTReasoningStep extends GenericCoTStep<"reasoning"> {
 interface CoTToolCallStep extends GenericCoTStep<"toolCall"> {
   name: string;
   args: Record<string, unknown>;
-  result?: string;
+  result?: unknown;
 }
 
 type CoTStep = CoTReasoningStep | CoTToolCallStep;

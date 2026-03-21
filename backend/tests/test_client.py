@@ -412,6 +412,54 @@ class TestEnsureAgent:
 
 
 # ---------------------------------------------------------------------------
+# _get_runnable_config
+# ---------------------------------------------------------------------------
+
+
+class TestRunnableConfig:
+    def test_get_runnable_config_prepares_root_tracing(self, client):
+        captured: dict[str, object] = {}
+
+        def fake_prepare(config, *, session_id, run_name, metadata, tags=None):
+            captured["session_id"] = session_id
+            captured["run_name"] = run_name
+            captured["metadata"] = metadata
+            config["callbacks"] = ["root-callback"]
+            return config
+
+        with patch("deerflow.client.prepare_root_runnable_config", side_effect=fake_prepare):
+            config = client._get_runnable_config(
+                "thread-1",
+                model_name="gpt-4",
+                thinking_enabled=False,
+                plan_mode=True,
+                subagent_enabled=True,
+                recursion_limit=42,
+            )
+
+        assert config["recursion_limit"] == 42
+        assert config["configurable"] == {
+            "thread_id": "thread-1",
+            "model_name": "gpt-4",
+            "thinking_enabled": False,
+            "is_plan_mode": True,
+            "subagent_enabled": True,
+        }
+        assert config["callbacks"] == ["root-callback"]
+        assert captured == {
+            "session_id": "thread-1",
+            "run_name": "lead_agent",
+            "metadata": {
+                "agent_name": "default",
+                "model_name": "gpt-4",
+                "thinking_enabled": False,
+                "is_plan_mode": True,
+                "subagent_enabled": True,
+            },
+        }
+
+
+# ---------------------------------------------------------------------------
 # get_model
 # ---------------------------------------------------------------------------
 

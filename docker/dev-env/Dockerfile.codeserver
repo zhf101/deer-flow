@@ -1,0 +1,59 @@
+# VS Code Server for DeerFlow Development
+# Extensions are installed at runtime (persisted in volume)
+
+FROM node:22-slim AS node-source
+FROM python:3.12-slim AS py-source
+
+FROM codercom/code-server:4.110.0
+
+USER root
+
+# Configure China mirror for faster apt (comment out if outside China)
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
+    sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list 2>/dev/null || true
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /tmp/* /var/tmp/*
+
+# Copy Python 3.12 from official image (keeps version aligned with backend)
+COPY --from=py-source /usr/local /usr/local
+
+# Install Node.js (for frontend development)
+COPY --from=node-source /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-source /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+# Install uv for Python package management
+COPY --from=ghcr.io/astral-sh/uv:0.7.20 /uv /uvx /usr/local/bin/
+
+# Create directories with correct ownership
+RUN mkdir -p /home/coder/workspace \
+    && mkdir -p /home/coder/.local/share/code-server/extensions \
+    && mkdir -p /home/coder/.local/share/code-server/User \
+    && mkdir -p /home/coder/.local/share/code-server/logs \
+    && chown -R coder:coder /home/coder/workspace \
+    && chown -R coder:coder /home/coder/.local
+
+# Copy offline extensions
+COPY extensions/ /tmp/extensions/
+
+# Install extensions offline
+RUN for ext in /tmp/extensions/*.vsix; do \
+        code-server --install-extension "$ext" || echo "Warning: Failed to install $ext"; \
+    done \
+    && rm -rf /tmp/extensions
+
+USER coder
+
+WORKDIR /home/coder/workspace
+
+# Expose code-server port
+EXPOSE 8080
+
+# Start code-server
+CMD ["code-server", "--bind-addr", "0.0.0.0:8080", "--auth", "none", "/home/coder/workspace"]

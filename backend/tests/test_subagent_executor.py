@@ -241,6 +241,54 @@ class TestAsyncExecutionPath:
         assert result.ai_messages[1]["id"] == "msg-2"
 
     @pytest.mark.anyio
+    async def test_aexecute_prepares_child_tracing_config(self, classes, base_config, mock_agent, msg):
+        """Test that subagent execution attaches child tracing config when parent context exists."""
+        SubagentExecutor = classes["SubagentExecutor"]
+
+        final_state = {
+            "messages": [
+                msg.human("Do something"),
+                msg.ai("done", "msg-1"),
+            ]
+        }
+        mock_agent.astream = lambda *args, **kwargs: async_iterator([final_state])
+
+        captured: dict[str, object] = {}
+
+        def fake_prepare(config, *, session_id, run_name, trace_context, metadata, tags=None):
+            captured["session_id"] = session_id
+            captured["run_name"] = run_name
+            captured["trace_context"] = trace_context
+            captured["metadata"] = metadata
+            config["callbacks"] = ["child-callback"]
+            return config
+
+        executor = SubagentExecutor(
+            config=base_config,
+            tools=[],
+            thread_id="thread-ctx",
+            trace_context={"trace_id": "trace-parent", "parent_span_id": "span-parent"},
+        )
+
+        with (
+            patch.object(executor, "_create_agent", return_value=mock_agent),
+            patch("deerflow.subagents.executor.prepare_child_runnable_config", side_effect=fake_prepare),
+        ):
+            result = await executor._aexecute("Do something")
+
+        assert result.status == classes["SubagentStatus"].COMPLETED
+        assert captured == {
+            "session_id": "thread-ctx",
+            "run_name": "subagent:test-agent",
+            "trace_context": {"trace_id": "trace-parent", "parent_span_id": "span-parent"},
+            "metadata": {
+                "source": "task_tool",
+                "subagent_name": "test-agent",
+                "parent_model": None,
+            },
+        }
+
+    @pytest.mark.anyio
     async def test_aexecute_handles_duplicate_messages(self, classes, base_config, mock_agent, msg):
         """Test that duplicate AI messages are not added."""
         SubagentExecutor = classes["SubagentExecutor"]

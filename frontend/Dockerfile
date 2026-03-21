@@ -11,25 +11,32 @@ ARG PNPM_STORE_PATH
 RUN corepack enable && corepack install -g pnpm@10.26.2
 RUN pnpm config set store-dir ${PNPM_STORE_PATH}
 WORKDIR /app
-COPY frontend ./frontend
+
+# ── Deps: install only (cache-friendly) ───────────────────────────────────────
+FROM base AS deps
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml frontend/.npmrc ./frontend/
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    cd /app/frontend && pnpm install --frozen-lockfile
 
 # ── Dev: install only, CMD is overridden by docker-compose ───────────────────
 FROM base AS dev
-RUN cd /app/frontend && pnpm install --frozen-lockfile
+COPY --from=deps /app/frontend/node_modules ./frontend/node_modules
+COPY frontend ./frontend
 EXPOSE 3000
 
 # ── Builder: install + compile Next.js ───────────────────────────────────────
 FROM base AS builder
-RUN cd /app/frontend && pnpm install --frozen-lockfile
+COPY --from=deps /app/frontend/node_modules ./frontend/node_modules
+COPY frontend ./frontend
 # Skip env validation — runtime vars are injected by nginx/container
-RUN cd /app/frontend && SKIP_ENV_VALIDATION=1 pnpm build
+RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
+    cd /app/frontend && SKIP_ENV_VALIDATION=1 pnpm build && pnpm prune --prod
 
 # ── Prod: minimal runtime with pre-built output ───────────────────────────────
 FROM node:22-alpine AS prod
-ARG PNPM_STORE_PATH
 RUN corepack enable && corepack install -g pnpm@10.26.2
-RUN pnpm config set store-dir ${PNPM_STORE_PATH}
 WORKDIR /app
+ENV NODE_ENV=production
 COPY --from=builder /app/frontend ./frontend
 EXPOSE 3000
 CMD ["sh", "-c", "cd /app/frontend && pnpm start"]

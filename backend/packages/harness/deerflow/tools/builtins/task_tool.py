@@ -14,6 +14,7 @@ from deerflow.agents.lead_agent.prompt import get_skills_prompt_section
 from deerflow.agents.thread_state import ThreadState
 from deerflow.subagents import SubagentExecutor, get_subagent_config
 from deerflow.subagents.executor import SubagentStatus, cleanup_background_task, get_background_task_result
+from deerflow.tracing.runtime import get_current_trace_context
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ def task_tool(
     thread_data = None
     thread_id = None
     parent_model = None
+    trace_context = None
     trace_id = None
 
     if runtime is not None:
@@ -91,8 +93,9 @@ def task_tool(
         metadata = runtime.config.get("metadata", {})
         parent_model = metadata.get("model_name")
 
-        # Get or generate trace_id for distributed tracing
-        trace_id = metadata.get("trace_id") or str(uuid.uuid4())[:8]
+        # Extract the current trace context so the subagent can join the parent trace.
+        trace_context = get_current_trace_context(runtime.config)
+        trace_id = (trace_context or {}).get("trace_id") or metadata.get("trace_id") or str(uuid.uuid4())[:8]
 
     # Get available tools (excluding task tool to prevent nesting)
     # Lazy import to avoid circular dependency
@@ -109,6 +112,7 @@ def task_tool(
         sandbox_state=sandbox_state,
         thread_data=thread_data,
         thread_id=thread_id,
+        trace_context=trace_context,
         trace_id=trace_id,
     )
 

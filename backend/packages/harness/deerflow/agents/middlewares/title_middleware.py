@@ -8,6 +8,7 @@ from langgraph.runtime import Runtime
 
 from deerflow.config.title_config import get_title_config
 from deerflow.models import create_chat_model
+from deerflow.tracing.runtime import get_current_trace_context, prepare_child_runnable_config
 
 
 class TitleMiddlewareState(AgentState):
@@ -62,7 +63,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         # Generate title after first complete exchange
         return len(user_messages) == 1 and len(assistant_messages) >= 1
 
-    async def _generate_title(self, state: TitleMiddlewareState) -> str:
+    async def _generate_title(self, state: TitleMiddlewareState, runtime: Runtime | None = None) -> str:
         """Generate a concise title based on the conversation."""
         config = get_title_config()
         messages = state.get("messages", [])
@@ -82,9 +83,23 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
             user_msg=user_msg[:500],
             assistant_msg=assistant_msg[:500],
         )
+        invoke_config = None
+        if runtime is not None:
+            thread_id = runtime.context.get("thread_id")
+            if thread_id:
+                invoke_config = prepare_child_runnable_config(
+                    {},
+                    session_id=thread_id,
+                    run_name="generate_title",
+                    trace_context=get_current_trace_context(getattr(runtime, "config", None)),
+                    metadata={
+                        "thread_id": thread_id,
+                        "source": "title_middleware",
+                    },
+                )
 
         try:
-            response = await model.ainvoke(prompt)
+            response = await model.ainvoke(prompt, config=invoke_config)
             title_content = self._normalize_content(response.content)
             title = title_content.strip().strip('"').strip("'")
             # Limit to max characters
@@ -101,7 +116,7 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
     async def aafter_model(self, state: TitleMiddlewareState, runtime: Runtime) -> dict | None:
         """Generate and set thread title after the first agent response."""
         if self._should_generate_title(state):
-            title = await self._generate_title(state)
+            title = await self._generate_title(state, runtime=runtime)
             print(f"Generated thread title: {title}")
 
             # Store title in state (will be persisted by checkpointer if configured)

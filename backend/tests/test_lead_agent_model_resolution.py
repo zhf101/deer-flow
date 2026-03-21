@@ -135,3 +135,51 @@ def test_build_middlewares_uses_resolved_model_name_for_vision(monkeypatch):
     )
 
     assert any(isinstance(m, lead_agent_module.ViewImageMiddleware) for m in middlewares)
+
+
+def test_make_lead_agent_prepares_root_tracing_config(monkeypatch):
+    app_config = _make_app_config([_make_model("safe-model", supports_thinking=False)])
+
+    import deerflow.tools as tools_module
+
+    captured: dict[str, object] = {}
+
+    def _fake_prepare_root(config, *, session_id, run_name, metadata, tags=None):
+        captured["session_id"] = session_id
+        captured["run_name"] = run_name
+        captured["metadata"] = metadata
+        config["callbacks"] = ["root-callback"]
+        config["run_name"] = run_name
+        config["metadata"] = metadata
+        return config
+
+    monkeypatch.setattr(lead_agent_module, "get_app_config", lambda: app_config)
+    monkeypatch.setattr(tools_module, "get_available_tools", lambda **kwargs: [])
+    monkeypatch.setattr(lead_agent_module, "_build_middlewares", lambda config, model_name, agent_name=None: [])
+    monkeypatch.setattr(lead_agent_module, "create_chat_model", lambda **kwargs: object())
+    monkeypatch.setattr(lead_agent_module, "create_agent", lambda **kwargs: kwargs)
+    monkeypatch.setattr(lead_agent_module, "prepare_root_runnable_config", _fake_prepare_root)
+
+    runtime_config = {
+        "configurable": {
+            "thread_id": "thread-123",
+            "model_name": "safe-model",
+            "thinking_enabled": True,
+            "is_plan_mode": True,
+            "subagent_enabled": False,
+        }
+    }
+
+    lead_agent_module.make_lead_agent(runtime_config)
+
+    assert captured["session_id"] == "thread-123"
+    assert captured["run_name"] == "lead_agent"
+    assert captured["metadata"] == {
+        "agent_name": "default",
+        "model_name": "safe-model",
+        "thinking_enabled": False,
+        "reasoning_effort": None,
+        "is_plan_mode": True,
+        "subagent_enabled": False,
+    }
+    assert runtime_config["callbacks"] == ["root-callback"]

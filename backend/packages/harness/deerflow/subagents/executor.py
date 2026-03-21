@@ -19,6 +19,7 @@ from langchain_core.runnables import RunnableConfig
 from deerflow.agents.thread_state import SandboxState, ThreadDataState, ThreadState
 from deerflow.models import create_chat_model
 from deerflow.subagents.config import SubagentConfig
+from deerflow.tracing.runtime import prepare_child_runnable_config
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +132,7 @@ class SubagentExecutor:
         sandbox_state: SandboxState | None = None,
         thread_data: ThreadDataState | None = None,
         thread_id: str | None = None,
+        trace_context: dict[str, str] | None = None,
         trace_id: str | None = None,
     ):
         """Initialize the executor.
@@ -142,6 +144,7 @@ class SubagentExecutor:
             sandbox_state: Sandbox state from parent agent.
             thread_data: Thread data from parent agent.
             thread_id: Thread ID for sandbox operations.
+            trace_context: Parent trace context for distributed tracing.
             trace_id: Trace ID from parent for distributed tracing.
         """
         self.config = config
@@ -149,8 +152,9 @@ class SubagentExecutor:
         self.sandbox_state = sandbox_state
         self.thread_data = thread_data
         self.thread_id = thread_id
+        self.trace_context = dict(trace_context or {})
         # Generate trace_id if not provided (for top-level calls)
-        self.trace_id = trace_id or str(uuid.uuid4())[:8]
+        self.trace_id = trace_id or self.trace_context.get("trace_id") or str(uuid.uuid4())[:8]
 
         # Filter tools based on config
         self.tools = _filter_tools(
@@ -235,6 +239,18 @@ class SubagentExecutor:
             if self.thread_id:
                 run_config["configurable"] = {"thread_id": self.thread_id}
                 context["thread_id"] = self.thread_id
+
+            run_config = prepare_child_runnable_config(
+                run_config,
+                session_id=self.thread_id,
+                run_name=f"subagent:{self.config.name}",
+                trace_context=self.trace_context or None,
+                metadata={
+                    "source": "task_tool",
+                    "subagent_name": self.config.name,
+                    "parent_model": self.parent_model,
+                },
+            )
 
             logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution with max_turns={self.config.max_turns}")
 

@@ -18,6 +18,7 @@ from deerflow.config.agents_config import load_agent_config
 from deerflow.config.app_config import get_app_config
 from deerflow.config.summarization_config import get_summarization_config
 from deerflow.models import create_chat_model
+from deerflow.tracing.runtime import prepare_root_runnable_config
 
 logger = logging.getLogger(__name__)
 
@@ -302,19 +303,18 @@ def make_lead_agent(config: RunnableConfig):
         max_concurrent_subagents,
     )
 
-    # Inject run metadata for LangSmith trace tagging
-    if "metadata" not in config:
-        config["metadata"] = {}
-
-    config["metadata"].update(
-        {
+    prepare_root_runnable_config(
+        config,
+        session_id=cfg.get("thread_id"),
+        run_name="lead_agent",
+        metadata={
             "agent_name": agent_name or "default",
             "model_name": model_name or "default",
             "thinking_enabled": thinking_enabled,
             "reasoning_effort": reasoning_effort,
             "is_plan_mode": is_plan_mode,
             "subagent_enabled": subagent_enabled,
-        }
+        },
     )
 
     if is_bootstrap:

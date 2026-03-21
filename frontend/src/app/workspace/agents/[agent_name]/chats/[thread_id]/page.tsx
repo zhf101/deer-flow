@@ -100,7 +100,11 @@ export default function AgentChatPage() {
             </div>
 
             <div className="flex w-full items-center text-sm font-medium">
-              <ThreadTitle threadId={threadId} thread={thread} />
+              <ThreadTitle
+                threadId={threadId}
+                thread={thread}
+                isNewThread={isNewThread}
+              />
             </div>
             <div className="mr-4 flex items-center">
               <Tooltip content={t.agents.newChat}>

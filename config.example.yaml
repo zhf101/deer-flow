@@ -157,6 +157,9 @@ tool_groups:
   - name: file:read
   - name: file:write
   - name: bash
+  - name: nlp2sql:source
+  - name: nlp2sql:schema
+  - name: nlp2sql:query
 
 # ============================================================================
 # Tools Configuration
@@ -223,6 +226,51 @@ tools:
   - name: bash
     group: bash
     use: deerflow.sandbox.tools:bash_tool
+
+  # NLP2SQL tools
+  - name: list_data_sources
+    group: nlp2sql:source
+    use: deerflow.nlp2sql.tools:list_data_sources_tool
+
+  - name: use_data_source
+    group: nlp2sql:source
+    use: deerflow.nlp2sql.tools:use_data_source_tool
+
+  - name: get_current_data_source
+    group: nlp2sql:source
+    use: deerflow.nlp2sql.tools:get_current_data_source_tool
+
+  - name: search_schema
+    group: nlp2sql:schema
+    use: deerflow.nlp2sql.tools:search_schema_tool
+
+  - name: get_table_info
+    group: nlp2sql:schema
+    use: deerflow.nlp2sql.tools:get_table_info_tool
+
+  - name: get_relationships
+    group: nlp2sql:schema
+    use: deerflow.nlp2sql.tools:get_relationships_tool
+
+  - name: get_enum_values
+    group: nlp2sql:schema
+    use: deerflow.nlp2sql.tools:get_enum_values_tool
+
+  - name: get_sample_rows
+    group: nlp2sql:schema
+    use: deerflow.nlp2sql.tools:get_sample_rows_tool
+
+  - name: validate_sql
+    group: nlp2sql:query
+    use: deerflow.nlp2sql.tools:validate_sql_tool
+
+  - name: execute_sql
+    group: nlp2sql:query
+    use: deerflow.nlp2sql.tools:execute_sql_tool
+
+  - name: export_query_result
+    group: nlp2sql:query
+    use: deerflow.nlp2sql.tools:export_query_result_tool
 
 # ============================================================================
 # Tool Search Configuration (Deferred Tool Loading)
