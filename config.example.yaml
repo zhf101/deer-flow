@@ -135,7 +135,7 @@ models:
   #   max_tokens: 4096
   #   temperature: 1.0  # MiniMax requires temperature in (0.0, 1.0]
   #   supports_vision: true
-  
+
   # Example: OpenRouter (OpenAI-compatible)
   # OpenRouter models use the same ChatOpenAI + base_url pattern as other OpenAI-compatible gateways.
   # - name: openrouter-gemini-2.5-flash
@@ -263,6 +263,10 @@ tools:
   - name: validate_sql
     group: nlp2sql:query
     use: deerflow.nlp2sql.tools:validate_sql_tool
+
+  - name: retrieve_knowledge_context
+    group: nlp2sql:query
+    use: deerflow.nlp2sql.tools:retrieve_knowledge_context_tool
 
   - name: execute_sql
     group: nlp2sql:query

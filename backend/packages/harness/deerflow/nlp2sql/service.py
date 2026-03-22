@@ -15,6 +15,18 @@ from deerflow.nlp2sql.types import QueryExecutionResult, SchemaSearchHit, SqlVal
 logger = logging.getLogger(__name__)
 
 
+def _default_schema_note_provider(data_source_id: str) -> list[dict]:
+    try:
+        from deerflow.nlp2sql.knowledge_service import get_knowledge_service
+
+        return [
+            item.model_dump(mode="python")
+            for item in get_knowledge_service().list_structured_schema_notes(data_source_id)
+        ]
+    except RuntimeError:
+        return []
+
+
 class DatabaseService:
     def __init__(
         self,
@@ -23,7 +35,9 @@ class DatabaseService:
         validator: SqlValidator | None = None,
     ) -> None:
         self._registry = registry or get_data_source_registry()
-        self._schema_service = schema_service or SchemaService()
+        self._schema_service = schema_service or SchemaService(
+            schema_note_provider=_default_schema_note_provider
+        )
         self._validator = validator or SqlValidator()
 
     def _dialect_name(self, adapter) -> str | None:

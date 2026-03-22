@@ -4,11 +4,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from deerflow.nlp2sql.adapters.dm import DMAdapter
 from deerflow.nlp2sql.adapters.factory import create_adapter
+from deerflow.nlp2sql.adapters.gaussdb import GaussDBAdapter
+from deerflow.nlp2sql.adapters.goldendb import GoldenDBAdapter
+from deerflow.nlp2sql.adapters.kingbase import KingbaseAdapter
 from deerflow.nlp2sql.adapters.mysql import MySQLAdapter, _parse_mysql_enum
 from deerflow.nlp2sql.adapters.mysql import _require_identifier as mysql_require_identifier
+from deerflow.nlp2sql.adapters.oceanbase import OceanBaseAdapter
+from deerflow.nlp2sql.adapters.opengauss import OpenGaussAdapter
+from deerflow.nlp2sql.adapters.oracle import OracleAdapter
+from deerflow.nlp2sql.adapters.polardb import PolarDBAdapter
 from deerflow.nlp2sql.adapters.postgres import PostgresAdapter
 from deerflow.nlp2sql.adapters.postgres import _require_identifier as postgres_require_identifier
+from deerflow.nlp2sql.adapters.tidb import TiDBAdapter
 from deerflow.nlp2sql.errors import DatabaseConnectionError
 from deerflow.nlp2sql.types import DataSourceConfig
 
@@ -49,6 +58,26 @@ def test_create_adapter_returns_postgres_adapter():
     assert isinstance(adapter, PostgresAdapter)
 
 
+@pytest.mark.parametrize(
+    ("db_type", "expected_type"),
+    [
+        ("oracle", OracleAdapter),
+        ("dm", DMAdapter),
+        ("kingbase", KingbaseAdapter),
+        ("gaussdb", GaussDBAdapter),
+        ("opengauss", OpenGaussAdapter),
+        ("oceanbase", OceanBaseAdapter),
+        ("tidb", TiDBAdapter),
+        ("polardb", PolarDBAdapter),
+        ("goldendb", GoldenDBAdapter),
+    ],
+)
+def test_create_adapter_returns_expected_adapter_for_supported_database_types(db_type, expected_type):
+    adapter = create_adapter(_build_config(db_type=db_type, port=None))
+
+    assert isinstance(adapter, expected_type)
+
+
 def test_mysql_connect_wraps_driver_errors(monkeypatch):
     config = _build_config(db_type="mysql", port=3306)
     adapter = MySQLAdapter(config)
@@ -66,6 +95,30 @@ def test_postgres_connect_wraps_driver_errors(monkeypatch):
     monkeypatch.setattr("deerflow.nlp2sql.adapters.postgres.psycopg.connect", lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("pg boom")))
 
     with pytest.raises(DatabaseConnectionError, match="pg boom"):
+        adapter.connect()
+
+
+def test_oracle_connect_reports_missing_driver(monkeypatch):
+    config = _build_config(db_type="oracle", port=1521)
+    adapter = OracleAdapter(config)
+    monkeypatch.setattr(
+        "deerflow.nlp2sql.adapters.oracle.importlib.import_module",
+        lambda _name: (_ for _ in ()).throw(ModuleNotFoundError("missing oracledb")),
+    )
+
+    with pytest.raises(DatabaseConnectionError, match="oracledb"):
+        adapter.connect()
+
+
+def test_dm_connect_reports_missing_driver(monkeypatch):
+    config = _build_config(db_type="dm", port=5236)
+    adapter = DMAdapter(config)
+    monkeypatch.setattr(
+        "deerflow.nlp2sql.adapters.dm.importlib.import_module",
+        lambda _name: (_ for _ in ()).throw(ModuleNotFoundError("missing dmPython")),
+    )
+
+    with pytest.raises(DatabaseConnectionError, match="dmPython"):
         adapter.connect()
 
 
@@ -144,3 +197,25 @@ def test_postgres_get_schema_defaults_to_public_schema():
     schema_doc = adapter.get_schema()
 
     assert [item["name"] for item in schema_doc["schemas"]] == ["public"]
+
+
+@pytest.mark.parametrize(
+    ("db_type", "expected_port"),
+    [
+        ("mysql", 3306),
+        ("postgres", 5432),
+        ("oracle", 1521),
+        ("dm", 5236),
+        ("kingbase", 54321),
+        ("gaussdb", 8000),
+        ("opengauss", 5432),
+        ("oceanbase", 2881),
+        ("tidb", 4000),
+        ("polardb", 3306),
+        ("goldendb", 3306),
+    ],
+)
+def test_data_source_config_assigns_default_ports(db_type, expected_port):
+    config = _build_config(db_type=db_type, port=None)
+
+    assert config.port == expected_port

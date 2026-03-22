@@ -169,7 +169,7 @@ class SqlValidator:
                         warnings.append(message)
                         seen_messages.add(message)
 
-            scan_type = str(node.get("access_type") or node.get("Node Type") or "")
+            scan_type = str(node.get("access_type") or node.get("type") or node.get("Node Type") or "")
             if scan_type.upper() == "ALL" or scan_type == "Seq Scan":
                 message = f"Execution plan contains a full scan node ({scan_type})"
                 if message not in seen_messages:

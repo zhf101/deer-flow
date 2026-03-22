@@ -21,6 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useI18n } from "@/core/i18n/hooks";
 import {
@@ -37,9 +38,27 @@ import {
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
+import { Nlp2SqlEmbeddingPanel } from "./nlp2sql-embedding-panel";
+import { Nlp2SqlFilesPanel } from "./nlp2sql-files-panel";
+import { Nlp2SqlHistoryPanel } from "./nlp2sql-history-panel";
+import { Nlp2SqlJobsPanel } from "./nlp2sql-jobs-panel";
+import { Nlp2SqlKnowledgePanel } from "./nlp2sql-knowledge-panel";
 import { SettingsSection } from "./settings-section";
 
 const NEW_SOURCE_ID = "__new__";
+const DEFAULT_PORTS: Record<DatabaseType, number> = {
+  mysql: 3306,
+  postgres: 5432,
+  oracle: 1521,
+  dm: 5236,
+  kingbase: 54321,
+  gaussdb: 8000,
+  opengauss: 5432,
+  oceanbase: 2881,
+  tidb: 4000,
+  polardb: 3306,
+  goldendb: 3306,
+};
 
 function createEmptyDataSource(): DataSourceConfig {
   return {
@@ -51,6 +70,9 @@ function createEmptyDataSource(): DataSourceConfig {
     database: "",
     username: "",
     password_env: "",
+    service_name: null,
+    sid: null,
+    oracle_client_path: null,
     readonly: true,
     enabled: true,
     description: "",
@@ -75,6 +97,11 @@ function parseList(value: string): string[] | null {
   return items.length > 0 ? items : null;
 }
 
+function emptyToNull(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
 export function Nlp2SqlSettingsPage() {
   const { t } = useI18n();
   const { dataSources, isLoading, error } = useDataSources(false);
@@ -87,6 +114,7 @@ export function Nlp2SqlSettingsPage() {
   const [selectedId, setSelectedId] = useState<string>("");
   const [draft, setDraft] = useState<DataSourceConfig>(createEmptyDataSource());
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("connection");
 
   const selectedSource = useMemo(
     () => dataSources.find((item) => item.id === selectedId) ?? null,
@@ -94,6 +122,7 @@ export function Nlp2SqlSettingsPage() {
   );
   const isExisting = selectedSource !== null;
   const controlsDisabled = env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY === "true";
+  const isOracle = draft.db_type === "oracle";
 
   useEffect(() => {
     if (dataSources.length === 0) {
@@ -121,6 +150,7 @@ export function Nlp2SqlSettingsPage() {
     if (selectedId === NEW_SOURCE_ID) {
       setDraft(createEmptyDataSource());
       setStatusMessage(null);
+      setActiveTab("connection");
     }
   }, [selectedId, selectedSource]);
 
@@ -143,6 +173,9 @@ export function Nlp2SqlSettingsPage() {
         database: draft.database.trim(),
         username: draft.username.trim(),
         password_env: draft.password_env.trim(),
+        service_name: emptyToNull(draft.service_name),
+        sid: emptyToNull(draft.sid),
+        oracle_client_path: emptyToNull(draft.oracle_client_path),
         description: draft.description.trim(),
       };
       const result = isExisting
@@ -319,280 +352,452 @@ export function Nlp2SqlSettingsPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field label={t.settings.nlp2sql.idLabel}>
-                <Input
-                  value={draft.id}
-                  disabled={controlsDisabled || isExisting}
-                  onChange={(e) =>
-                    setDraft((current) => ({ ...current, id: e.target.value }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.nameLabel}>
-                <Input
-                  value={draft.name}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      name: e.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.dbTypeLabel}>
-                <Select
-                  value={draft.db_type}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      db_type: value as DatabaseType,
-                      port: value === "postgres" ? 5432 : 3306,
-                    }))
-                  }
-                  disabled={controlsDisabled}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="mysql">
-                      {t.settings.nlp2sql.mysqlLabel}
-                    </SelectItem>
-                    <SelectItem value="postgres">
-                      {t.settings.nlp2sql.postgresLabel}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label={t.settings.nlp2sql.defaultValidationModeLabel}>
-                <Select
-                  value={draft.default_validation_mode}
-                  onValueChange={(value) =>
-                    setDraft((current) => ({
-                      ...current,
-                      default_validation_mode: value as ValidationMode,
-                    }))
-                  }
-                  disabled={controlsDisabled}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="relaxed">
-                      {t.settings.nlp2sql.relaxedLabel}
-                    </SelectItem>
-                    <SelectItem value="strict">
-                      {t.settings.nlp2sql.strictLabel}
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-              <Field label={t.settings.nlp2sql.hostLabel}>
-                <Input
-                  value={draft.host}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      host: e.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.portLabel}>
-                <Input
-                  type="number"
-                  value={draft.port ?? ""}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      port: e.target.value ? Number(e.target.value) : null,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.databaseLabel}>
-                <Input
-                  value={draft.database}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      database: e.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.usernameLabel}>
-                <Input
-                  value={draft.username}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      username: e.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.passwordEnvLabel}>
-                <Input
-                  value={draft.password_env}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      password_env: e.target.value,
-                    }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.maxRowsLabel}>
-                <Input
-                  type="number"
-                  value={draft.max_rows}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      max_rows: Number(e.target.value || 0),
-                    }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.connectTimeoutLabel}>
-                <Input
-                  type="number"
-                  value={draft.connect_timeout_seconds}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      connect_timeout_seconds: Number(e.target.value || 0),
-                    }))
-                  }
-                />
-              </Field>
-              <Field label={t.settings.nlp2sql.queryTimeoutLabel}>
-                <Input
-                  type="number"
-                  value={draft.query_timeout_seconds}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      query_timeout_seconds: Number(e.target.value || 0),
-                    }))
-                  }
-                />
-              </Field>
-            </div>
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList variant="line">
+                <TabsTrigger value="connection">
+                  {t.settings.nlp2sql.tabs.connection}
+                </TabsTrigger>
+                <TabsTrigger value="knowledge">
+                  {t.settings.nlp2sql.tabs.knowledge}
+                </TabsTrigger>
+                <TabsTrigger value="files">
+                  {t.settings.nlp2sql.tabs.files}
+                </TabsTrigger>
+                <TabsTrigger value="history">
+                  {t.settings.nlp2sql.tabs.history}
+                </TabsTrigger>
+                <TabsTrigger value="jobs">
+                  {t.settings.nlp2sql.tabs.jobs}
+                </TabsTrigger>
+                <TabsTrigger value="embedding">
+                  {t.settings.nlp2sql.tabs.embedding}
+                </TabsTrigger>
+              </TabsList>
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <Field
-                label={t.settings.nlp2sql.schemaWhitelistLabel}
-                description={t.settings.nlp2sql.whitelistHint}
-              >
-                <Textarea
-                  value={formatList(draft.schema_whitelist)}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      schema_whitelist: parseList(e.target.value),
-                    }))
-                  }
+              <TabsContent value="connection" className="pt-4">
+                <div className="space-y-4">
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field label={t.settings.nlp2sql.idLabel}>
+                      <Input
+                        value={draft.id}
+                        disabled={controlsDisabled || isExisting}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            id: e.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={t.settings.nlp2sql.nameLabel}>
+                      <Input
+                        value={draft.name}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            name: e.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={t.settings.nlp2sql.dbTypeLabel}>
+                      <Select
+                        value={draft.db_type}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            db_type: value as DatabaseType,
+                            port: DEFAULT_PORTS[value as DatabaseType],
+                            service_name:
+                              value === "oracle"
+                                ? current.service_name ?? ""
+                                : null,
+                            sid: value === "oracle" ? current.sid ?? "" : null,
+                            oracle_client_path:
+                              value === "oracle"
+                                ? current.oracle_client_path ?? ""
+                                : null,
+                          }))
+                        }
+                        disabled={controlsDisabled}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="mysql">
+                            {t.settings.nlp2sql.mysqlLabel}
+                          </SelectItem>
+                          <SelectItem value="postgres">
+                            {t.settings.nlp2sql.postgresLabel}
+                          </SelectItem>
+                          <SelectItem value="oracle">
+                            {t.settings.nlp2sql.oracleLabel}
+                          </SelectItem>
+                          <SelectItem value="dm">
+                            {t.settings.nlp2sql.dmLabel}
+                          </SelectItem>
+                          <SelectItem value="kingbase">
+                            {t.settings.nlp2sql.kingbaseLabel}
+                          </SelectItem>
+                          <SelectItem value="gaussdb">
+                            {t.settings.nlp2sql.gaussdbLabel}
+                          </SelectItem>
+                          <SelectItem value="opengauss">
+                            {t.settings.nlp2sql.opengaussLabel}
+                          </SelectItem>
+                          <SelectItem value="oceanbase">
+                            {t.settings.nlp2sql.oceanbaseLabel}
+                          </SelectItem>
+                          <SelectItem value="tidb">
+                            {t.settings.nlp2sql.tidbLabel}
+                          </SelectItem>
+                          <SelectItem value="polardb">
+                            {t.settings.nlp2sql.polardbLabel}
+                          </SelectItem>
+                          <SelectItem value="goldendb">
+                            {t.settings.nlp2sql.goldendbLabel}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label={t.settings.nlp2sql.defaultValidationModeLabel}>
+                      <Select
+                        value={draft.default_validation_mode}
+                        onValueChange={(value) =>
+                          setDraft((current) => ({
+                            ...current,
+                            default_validation_mode: value as ValidationMode,
+                          }))
+                        }
+                        disabled={controlsDisabled}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="relaxed">
+                            {t.settings.nlp2sql.relaxedLabel}
+                          </SelectItem>
+                          <SelectItem value="strict">
+                            {t.settings.nlp2sql.strictLabel}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field label={t.settings.nlp2sql.hostLabel}>
+                      <Input
+                        value={draft.host}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            host: e.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={t.settings.nlp2sql.portLabel}>
+                      <Input
+                        type="number"
+                        value={draft.port ?? ""}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            port: e.target.value ? Number(e.target.value) : null,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={t.settings.nlp2sql.databaseLabel}>
+                      <Input
+                        value={draft.database}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            database: e.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={t.settings.nlp2sql.usernameLabel}>
+                      <Input
+                        value={draft.username}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            username: e.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={t.settings.nlp2sql.passwordEnvLabel}>
+                      <Input
+                        value={draft.password_env}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            password_env: e.target.value,
+                          }))
+                        }
+                      />
+                    </Field>
+                    {isOracle ? (
+                      <>
+                        <Field label={t.settings.nlp2sql.serviceNameLabel}>
+                          <Input
+                            value={draft.service_name ?? ""}
+                            disabled={controlsDisabled}
+                            onChange={(e) =>
+                              setDraft((current) => ({
+                                ...current,
+                                service_name: e.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field label={t.settings.nlp2sql.sidLabel}>
+                          <Input
+                            value={draft.sid ?? ""}
+                            disabled={controlsDisabled}
+                            onChange={(e) =>
+                              setDraft((current) => ({
+                                ...current,
+                                sid: e.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                        <Field
+                          label={t.settings.nlp2sql.oracleClientPathLabel}
+                        >
+                          <Input
+                            value={draft.oracle_client_path ?? ""}
+                            disabled={controlsDisabled}
+                            onChange={(e) =>
+                              setDraft((current) => ({
+                                ...current,
+                                oracle_client_path: e.target.value,
+                              }))
+                            }
+                          />
+                        </Field>
+                      </>
+                    ) : null}
+                    <Field label={t.settings.nlp2sql.maxRowsLabel}>
+                      <Input
+                        type="number"
+                        value={draft.max_rows}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            max_rows: Number(e.target.value || 0),
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={t.settings.nlp2sql.connectTimeoutLabel}>
+                      <Input
+                        type="number"
+                        value={draft.connect_timeout_seconds}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            connect_timeout_seconds: Number(e.target.value || 0),
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field label={t.settings.nlp2sql.queryTimeoutLabel}>
+                      <Input
+                        type="number"
+                        value={draft.query_timeout_seconds}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            query_timeout_seconds: Number(e.target.value || 0),
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <Field
+                      label={t.settings.nlp2sql.schemaWhitelistLabel}
+                      description={t.settings.nlp2sql.whitelistHint}
+                    >
+                      <Textarea
+                        value={formatList(draft.schema_whitelist)}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            schema_whitelist: parseList(e.target.value),
+                          }))
+                        }
+                      />
+                    </Field>
+                    <Field
+                      label={t.settings.nlp2sql.tableWhitelistLabel}
+                      description={t.settings.nlp2sql.whitelistHint}
+                    >
+                      <Textarea
+                        value={formatList(draft.table_whitelist)}
+                        disabled={controlsDisabled}
+                        onChange={(e) =>
+                          setDraft((current) => ({
+                            ...current,
+                            table_whitelist: parseList(e.target.value),
+                          }))
+                        }
+                      />
+                    </Field>
+                  </div>
+
+                  <Field label={t.settings.nlp2sql.descriptionLabel}>
+                    <Textarea
+                      value={draft.description}
+                      disabled={controlsDisabled}
+                      onChange={(e) =>
+                        setDraft((current) => ({
+                          ...current,
+                          description: e.target.value,
+                        }))
+                      }
+                    />
+                  </Field>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <ToggleField
+                      label={t.settings.nlp2sql.readonlyLabel}
+                      checked={draft.readonly}
+                      disabled={controlsDisabled}
+                      onCheckedChange={(checked) =>
+                        setDraft((current) => ({
+                          ...current,
+                          readonly: checked,
+                        }))
+                      }
+                    />
+                    <ToggleField
+                      label={t.settings.nlp2sql.enabledLabel}
+                      checked={draft.enabled}
+                      disabled={controlsDisabled}
+                      onCheckedChange={(checked) =>
+                        setDraft((current) => ({
+                          ...current,
+                          enabled: checked,
+                        }))
+                      }
+                    />
+                  </div>
+
+                  {statusMessage ? (
+                    <div className="bg-muted rounded-md px-3 py-2 text-sm">
+                      {statusMessage}
+                    </div>
+                  ) : null}
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      disabled={controlsDisabled || busy}
+                      onClick={handleSave}
+                    >
+                      {saveLabel}
+                    </Button>
+                    {isExisting ? (
+                      <>
+                        <Button
+                          variant="outline"
+                          disabled={controlsDisabled || busy}
+                          onClick={handleTest}
+                        >
+                          {t.settings.nlp2sql.testConnection}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={controlsDisabled || busy}
+                          onClick={handleClearSchemaCache}
+                        >
+                          {t.settings.nlp2sql.clearSchemaCache}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          disabled={controlsDisabled || busy}
+                          onClick={handleDelete}
+                        >
+                          {t.common.delete}
+                        </Button>
+                      </>
+                    ) : null}
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="knowledge" className="pt-4">
+                {selectedSource ? (
+                  <Nlp2SqlKnowledgePanel
+                    dataSourceId={selectedSource.id}
+                    controlsDisabled={controlsDisabled}
+                  />
+                ) : (
+                  <div className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">
+                    {t.settings.nlp2sql.knowledgeRequiresSource}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="files" className="pt-4">
+                {selectedSource ? (
+                  <Nlp2SqlFilesPanel
+                    dataSourceId={selectedSource.id}
+                    controlsDisabled={controlsDisabled}
+                  />
+                ) : (
+                  <div className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">
+                    {t.settings.nlp2sql.knowledgeRequiresSource}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="history" className="pt-4">
+                {selectedSource ? (
+                  <Nlp2SqlHistoryPanel
+                    dataSourceId={selectedSource.id}
+                    controlsDisabled={controlsDisabled}
+                  />
+                ) : (
+                  <div className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">
+                    {t.settings.nlp2sql.knowledgeRequiresSource}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="jobs" className="pt-4">
+                {selectedSource ? (
+                  <Nlp2SqlJobsPanel dataSourceId={selectedSource.id} />
+                ) : (
+                  <div className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">
+                    {t.settings.nlp2sql.knowledgeRequiresSource}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="embedding" className="pt-4">
+                <Nlp2SqlEmbeddingPanel
+                  controlsDisabled={controlsDisabled}
+                  dataSourceId={selectedSource?.id ?? null}
                 />
-              </Field>
-              <Field
-                label={t.settings.nlp2sql.tableWhitelistLabel}
-                description={t.settings.nlp2sql.whitelistHint}
-              >
-                <Textarea
-                  value={formatList(draft.table_whitelist)}
-                  disabled={controlsDisabled}
-                  onChange={(e) =>
-                    setDraft((current) => ({
-                      ...current,
-                      table_whitelist: parseList(e.target.value),
-                    }))
-                  }
-                />
-              </Field>
-            </div>
-
-            <Field label={t.settings.nlp2sql.descriptionLabel}>
-              <Textarea
-                value={draft.description}
-                disabled={controlsDisabled}
-                onChange={(e) =>
-                  setDraft((current) => ({
-                    ...current,
-                    description: e.target.value,
-                  }))
-                }
-              />
-            </Field>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              <ToggleField
-                label={t.settings.nlp2sql.readonlyLabel}
-                checked={draft.readonly}
-                disabled={controlsDisabled}
-                onCheckedChange={(checked) =>
-                  setDraft((current) => ({ ...current, readonly: checked }))
-                }
-              />
-              <ToggleField
-                label={t.settings.nlp2sql.enabledLabel}
-                checked={draft.enabled}
-                disabled={controlsDisabled}
-                onCheckedChange={(checked) =>
-                  setDraft((current) => ({ ...current, enabled: checked }))
-                }
-              />
-            </div>
-
-            {statusMessage && (
-              <div className="bg-muted rounded-md px-3 py-2 text-sm">
-                {statusMessage}
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Button disabled={controlsDisabled || busy} onClick={handleSave}>
-                {saveLabel}
-              </Button>
-              {isExisting && (
-                <>
-                  <Button
-                    variant="outline"
-                    disabled={controlsDisabled || busy}
-                    onClick={handleTest}
-                  >
-                    {t.settings.nlp2sql.testConnection}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={controlsDisabled || busy}
-                    onClick={handleClearSchemaCache}
-                  >
-                    {t.settings.nlp2sql.clearSchemaCache}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    disabled={controlsDisabled || busy}
-                    onClick={handleDelete}
-                  >
-                    {t.common.delete}
-                  </Button>
-                </>
-              )}
-            </div>
+              </TabsContent>
+            </Tabs>
           </section>
         </div>
       )}

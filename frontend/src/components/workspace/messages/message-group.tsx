@@ -81,6 +81,52 @@ function formatCellValue(value: unknown): string {
   return JSON.stringify(value) ?? "—";
 }
 
+function isHttpUrl(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function getNlp2SqlBucketLabel(
+  bucket: string,
+  t: ReturnType<typeof useI18n>["t"],
+): string {
+  switch (bucket) {
+    case "example_sql":
+      return t.toolCalls.nlp2sql.bucketExampleSql;
+    case "glossary":
+      return t.toolCalls.nlp2sql.bucketGlossary;
+    case "join_hint":
+      return t.toolCalls.nlp2sql.bucketJoinHint;
+    case "filter_value":
+      return t.toolCalls.nlp2sql.bucketFilterValue;
+    case "schema_note":
+      return t.toolCalls.nlp2sql.bucketSchemaNote;
+    case "documentation":
+      return t.toolCalls.nlp2sql.bucketDocumentation;
+    case "historical_sql":
+      return t.toolCalls.nlp2sql.bucketHistoricalSql;
+    case "schema":
+      return t.toolCalls.nlp2sql.bucketSchema;
+    default:
+      return bucket;
+  }
+}
+
+function getNlp2SqlMatchSourceLabel(
+  source: string,
+  t: ReturnType<typeof useI18n>["t"],
+): string {
+  switch (source) {
+    case "semantic":
+      return t.toolCalls.nlp2sql.matchSourceSemantic;
+    case "keyword":
+      return t.toolCalls.nlp2sql.matchSourceKeyword;
+    case "schema":
+      return t.toolCalls.nlp2sql.matchSourceSchema;
+    default:
+      return source;
+  }
+}
+
 function extractExportedArtifactPath(result: string): string | null {
   const match = /(\/mnt\/user-data\/outputs\/\S+)/.exec(result);
   return match?.[1] ?? null;
@@ -321,6 +367,159 @@ function renderNlp2SqlToolCall({
               </div>
             );
           })}
+        </div>
+      </ChainOfThoughtStep>
+    );
+  }
+
+  if (name === "retrieve_knowledge_context" && isRecord(result)) {
+    const buckets = Array.isArray(result.buckets)
+      ? result.buckets.filter(isRecord)
+      : [];
+    const warnings = toStringList(result.warnings);
+    const activeEmbeddingProfile =
+      typeof result.active_embedding_profile_id === "string"
+        ? result.active_embedding_profile_id
+        : "";
+
+    return (
+      <ChainOfThoughtStep
+        key={id}
+        label={t.toolCalls.nlp2sql.retrievalContext}
+        icon={SearchIcon}
+      >
+        <div className="mt-3 space-y-4">
+          <div className="flex flex-wrap gap-2">
+            {activeEmbeddingProfile ? (
+              <Badge variant="secondary">
+                {t.toolCalls.nlp2sql.activeEmbeddingProfile}:{" "}
+                {activeEmbeddingProfile}
+              </Badge>
+            ) : null}
+            {buckets.map((bucket) => {
+              const bucketName =
+                typeof bucket.bucket === "string" ? bucket.bucket : "";
+              const hits = Array.isArray(bucket.hits) ? bucket.hits : [];
+
+              return (
+                <Badge key={bucketName} variant="outline">
+                  {getNlp2SqlBucketLabel(bucketName, t)}: {hits.length}
+                </Badge>
+              );
+            })}
+          </div>
+
+          {warnings.length > 0 ? (
+            <div className="space-y-1">
+              <div className="text-muted-foreground text-xs font-medium">
+                {t.toolCalls.nlp2sql.retrievalWarnings}
+              </div>
+              <ul className="text-sm leading-6">
+                {warnings.map((warning) => (
+                  <li key={warning}>{warning}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {buckets.length > 0 ? (
+            buckets.map((bucket) => {
+              const bucketName =
+                typeof bucket.bucket === "string" ? bucket.bucket : "";
+              const hits = Array.isArray(bucket.hits)
+                ? bucket.hits.filter(isRecord)
+                : [];
+
+              return (
+                <div key={bucketName} className="space-y-2">
+                  <div className="text-muted-foreground text-xs font-medium">
+                    {getNlp2SqlBucketLabel(bucketName, t)}
+                  </div>
+                  {hits.map((hit, index) => {
+                    const title =
+                      typeof hit.title === "string" ? hit.title : bucketName;
+                    const snippet =
+                      typeof hit.snippet === "string" ? hit.snippet : "";
+                    const score =
+                      typeof hit.score === "number"
+                        ? hit.score.toFixed(2)
+                        : null;
+                    const matchSources = Array.isArray(hit.match_sources)
+                      ? hit.match_sources.filter(
+                          (item): item is string => typeof item === "string",
+                        )
+                      : [];
+                    const sourceName =
+                      typeof hit.source_name === "string" ? hit.source_name : "";
+                    const sourceUri =
+                      typeof hit.source_uri === "string" ? hit.source_uri : "";
+
+                    return (
+                      <div
+                        key={`${bucketName}-${title}-${index}`}
+                        className="space-y-2 rounded-md border px-3 py-2 text-sm"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="font-medium">{title}</div>
+                          {score ? (
+                            <Badge variant="outline">
+                              {t.toolCalls.nlp2sql.score}: {score}
+                            </Badge>
+                          ) : null}
+                        </div>
+
+                        {matchSources.length > 0 ? (
+                          <div className="flex flex-wrap gap-2">
+                            {matchSources.map((source) => (
+                              <Badge key={source} variant="secondary">
+                                {getNlp2SqlMatchSourceLabel(source, t)}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+
+                        {snippet ? (
+                          <div className="text-muted-foreground text-xs leading-5">
+                            {snippet}
+                          </div>
+                        ) : null}
+
+                        {sourceName || sourceUri ? (
+                          <div className="text-muted-foreground flex flex-wrap gap-3 text-xs">
+                            {sourceName ? (
+                              <span>
+                                {t.toolCalls.nlp2sql.sourceName}: {sourceName}
+                              </span>
+                            ) : null}
+                            {sourceUri ? (
+                              isHttpUrl(sourceUri) ? (
+                                <a
+                                  href={sourceUri}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-primary underline underline-offset-4"
+                                >
+                                  {t.toolCalls.nlp2sql.sourceUri}
+                                </a>
+                              ) : (
+                                <span>
+                                  {t.toolCalls.nlp2sql.sourceUri}: {sourceUri}
+                                </span>
+                              )
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })
+          ) : (
+            <div className="text-muted-foreground text-sm">
+              {t.settings.nlp2sql.retrievalPreviewEmpty}
+            </div>
+          )}
         </div>
       </ChainOfThoughtStep>
     );

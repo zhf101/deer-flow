@@ -13,6 +13,7 @@ from deerflow.agents.thread_state import ThreadState
 from deerflow.nlp2sql.errors import NoDataSourceSelectedError
 from deerflow.nlp2sql.export import export_last_result
 from deerflow.nlp2sql.registry import get_data_source_registry
+from deerflow.nlp2sql.retrieval_service import get_retrieval_service
 from deerflow.nlp2sql.service import get_database_service
 from deerflow.nlp2sql.session import get_session_store
 from deerflow.nlp2sql.types import ValidationMode
@@ -188,6 +189,30 @@ def get_sample_rows_tool(
         limit=limit,
     )
     return _json_dump({"rows": rows})
+
+
+@tool("retrieve_knowledge_context", parse_docstring=True)
+def retrieve_knowledge_context_tool(
+    runtime: ToolRuntime[ContextT, ThreadState],
+    query: str,
+    limit_per_bucket: int = 4,
+) -> str:
+    """Retrieve trainable SQL knowledge and schema evidence for the current thread.
+
+    Call this after `use_data_source` and before drafting SQL whenever the user's
+    question depends on business semantics, metric definitions, example SQL, join
+    conventions, or domain-specific documentation.
+
+    Args:
+        query: Natural-language business question to use for retrieval.
+        limit_per_bucket: Maximum number of hits to keep for each evidence bucket.
+    """
+    retrieval = get_retrieval_service().preview(
+        data_source_id=_get_data_source_id(runtime),
+        query=query,
+        limit_per_bucket=limit_per_bucket,
+    )
+    return _json_dump(retrieval.model_dump(mode="json"))
 
 
 @tool("validate_sql", parse_docstring=True)

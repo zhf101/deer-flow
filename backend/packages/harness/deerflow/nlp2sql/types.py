@@ -15,6 +15,15 @@ def utc_now() -> datetime:
 class DatabaseType(StrEnum):
     MYSQL = "mysql"
     POSTGRES = "postgres"
+    ORACLE = "oracle"
+    DM = "dm"
+    KINGBASE = "kingbase"
+    GAUSSDB = "gaussdb"
+    OPENGAUSS = "opengauss"
+    OCEANBASE = "oceanbase"
+    TIDB = "tidb"
+    POLARDB = "polardb"
+    GOLDENDB = "goldendb"
 
 
 class ValidationMode(StrEnum):
@@ -31,6 +40,9 @@ class DataSourceConfig(BaseModel):
     database: str = Field(..., min_length=1)
     username: str = Field(..., min_length=1)
     password_env: str = Field(..., min_length=1)
+    service_name: str | None = None
+    sid: str | None = None
+    oracle_client_path: str | None = None
     readonly: bool = True
     enabled: bool = True
     description: str = ""
@@ -44,7 +56,7 @@ class DataSourceConfig(BaseModel):
 
     def model_post_init(self, __context: Any) -> None:
         if self.port is None:
-            self.port = 3306 if self.db_type == DatabaseType.MYSQL else 5432
+            self.port = _DEFAULT_PORTS[self.db_type]
 
     def get_password(self) -> str:
         password = os.getenv(self.password_env)
@@ -60,6 +72,58 @@ class SchemaSearchHit(BaseModel):
     match_type: str
     score: float
     snippet: str
+
+
+class SchemaColumn(BaseModel):
+    name: str
+    data_type: str | None = None
+    column_type: str | None = None
+    nullable: bool | None = None
+    default: Any | None = None
+    comment: str = ""
+    source_comment: str = ""
+    user_comment: str | None = None
+    comment_source: str = "none"
+    ordinal_position: int | None = None
+    enum_values: list[Any] = Field(default_factory=list)
+
+
+class SchemaTable(BaseModel):
+    name: str
+    comment: str = ""
+    source_comment: str = ""
+    user_comment: str | None = None
+    comment_source: str = "none"
+    note_item_id: str | None = None
+    columns: list[SchemaColumn] = Field(default_factory=list)
+    primary_key: list[str] = Field(default_factory=list)
+    foreign_keys: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class DatabaseSchema(BaseModel):
+    name: str
+    tables: list[SchemaTable] = Field(default_factory=list)
+
+
+class SchemaDocument(BaseModel):
+    database: str | None = None
+    db_type: str | None = None
+    schemas: list[DatabaseSchema] = Field(default_factory=list)
+
+
+class SchemaCommentUpsertRequest(BaseModel):
+    schema_name: str = Field(..., min_length=1)
+    table_name: str = Field(..., min_length=1)
+    column_name: str | None = None
+    comment: str = ""
+
+
+class SchemaCommentUpsertResponse(BaseModel):
+    ok: bool
+    data_source_id: str
+    action: str
+    message: str
+    note_item_id: str | None = None
 
 
 class SqlValidationResult(BaseModel):
@@ -95,3 +159,18 @@ class ThreadDatabaseSession(BaseModel):
 
     def touch(self) -> None:
         self.last_used_at = utc_now()
+
+
+_DEFAULT_PORTS: dict[DatabaseType, int] = {
+    DatabaseType.MYSQL: 3306,
+    DatabaseType.POSTGRES: 5432,
+    DatabaseType.ORACLE: 1521,
+    DatabaseType.DM: 5236,
+    DatabaseType.KINGBASE: 54321,
+    DatabaseType.GAUSSDB: 8000,
+    DatabaseType.OPENGAUSS: 5432,
+    DatabaseType.OCEANBASE: 2881,
+    DatabaseType.TIDB: 4000,
+    DatabaseType.POLARDB: 3306,
+    DatabaseType.GOLDENDB: 3306,
+}

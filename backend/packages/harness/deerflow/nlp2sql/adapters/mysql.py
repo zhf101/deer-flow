@@ -36,6 +36,7 @@ def _parse_mysql_enum(column_type: str) -> list[str]:
 
 class MySQLAdapter:
     dialect = "mysql"
+    explain_prefix = "EXPLAIN FORMAT=JSON"
 
     def __init__(self, config: DataSourceConfig) -> None:
         self.config = config
@@ -97,15 +98,18 @@ class MySQLAdapter:
     def explain_query(self, sql: str, params: list[Any] | None = None) -> dict[str, Any]:
         try:
             with self._cursor() as cursor:
-                cursor.execute(f"EXPLAIN FORMAT=JSON {sql}", params or [])
-                row = cursor.fetchone() or {}
-            explain_payload = row.get("EXPLAIN")
-            if isinstance(explain_payload, str):
-                try:
-                    explain_payload = json.loads(explain_payload)
-                except json.JSONDecodeError:
-                    pass
-            return {"database": self.config.database, "plan": explain_payload or row}
+                cursor.execute(f"{self.explain_prefix} {sql}", params or [])
+                rows = list(cursor.fetchall())
+            if self.explain_prefix.upper() == "EXPLAIN FORMAT=JSON":
+                row = rows[0] if rows else {}
+                explain_payload = row.get("EXPLAIN")
+                if isinstance(explain_payload, str):
+                    try:
+                        explain_payload = json.loads(explain_payload)
+                    except json.JSONDecodeError:
+                        pass
+                return {"database": self.config.database, "plan": explain_payload or row}
+            return {"database": self.config.database, "plan": rows}
         except Exception as exc:
             raise DatabaseExecutionError(str(exc)) from exc
 
