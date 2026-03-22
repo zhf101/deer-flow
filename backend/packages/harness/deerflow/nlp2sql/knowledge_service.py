@@ -261,7 +261,6 @@ class KnowledgeService:
                     metadata=metadata,
                 ),
             )
-            self._clear_schema_cache_best_effort(data_source_id)
             return "created", item
 
         item = self.update_item(
@@ -274,7 +273,6 @@ class KnowledgeService:
                 metadata=metadata,
             ),
         )
-        self._clear_schema_cache_best_effort(data_source_id)
         return "updated", item
 
     def create_item(self, data_source_id: str, request: KnowledgeItemCreate) -> KnowledgeItem:

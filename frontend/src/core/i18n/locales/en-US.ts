@@ -389,6 +389,7 @@ export const enUS: Translations = {
       tabs: {
         connection: "Connection",
         knowledge: "Knowledge",
+        schema: "Schema",
         files: "Files",
         history: "History SQL",
         jobs: "Index Jobs",
@@ -451,6 +452,31 @@ export const enUS: Translations = {
       cacheCleared: "Schema cache cleared",
       knowledgeRequiresSource:
         "Create or select a data source before managing trainable knowledge.",
+      schemaExplorerTitle: "Schema Explorer",
+      schemaExplorerDescription:
+        "Browse schemas, tables, and columns for the current data source and maintain user-authored comments.",
+      schemaEmptyDescription:
+        "No schema metadata is available for this data source yet.",
+      schemaSearchPlaceholder: "Search schemas, tables, columns, or comments",
+      schemaSearchEmpty: "No schema entries matched your search.",
+      schemaTableCount: "tables",
+      schemaColumnsLabel: "columns",
+      schemaColumnCommentCount: "commented columns",
+      schemaNoComment: "No comment",
+      schemaUserCommentBadge: "User comment",
+      schemaSelectTableHint:
+        "Select a table on the left to inspect its structure and edit comments.",
+      schemaTableCommentTitle: "Table comment",
+      schemaColumnsTitle: "Column comments",
+      schemaDatabaseCommentLabel: "Database comment",
+      schemaEffectiveCommentLabel: "Effective comment",
+      schemaUserCommentLabel: "User comment",
+      schemaTableCommentPlaceholder:
+        "Add the business definition, grain, or usage boundary for this table",
+      schemaColumnCommentPlaceholder:
+        "Add the business meaning, metric definition, or enum semantics for this column",
+      schemaClearComment: "Clear comment",
+      schemaNotNullBadge: "Not null",
       knowledgeListTitle: "Knowledge Items",
       knowledgeListSuffix: "items",
       knowledgeNewItem: "New item",

@@ -16,6 +16,9 @@ import type {
   KnowledgeFilesResponse,
   KnowledgeItem,
   KnowledgeItemsResponse,
+  SchemaCommentUpsertRequest,
+  SchemaCommentUpsertResponse,
+  SchemaDocument,
   RetrievalPreviewRequest,
   RetrievalPreviewResponse,
   SchemaCacheClearResponse,
@@ -125,6 +128,42 @@ export async function clearSchemaCache(dataSourceId: string) {
   return parseJsonOrThrow<SchemaCacheClearResponse>(
     response,
     "Failed to clear schema cache",
+  );
+}
+
+export async function getDataSourceSchema(
+  dataSourceId: string,
+  options?: { forceRefresh?: boolean },
+) {
+  const params = new URLSearchParams();
+  if (options?.forceRefresh) {
+    params.set("force_refresh", "true");
+  }
+  const query = params.size > 0 ? `?${params.toString()}` : "";
+  const response = await fetch(
+    `${getBackendBaseURL()}/api/nlp2sql/data-sources/${encodeURIComponent(dataSourceId)}/schema${query}`,
+  );
+  return parseJsonOrThrow<SchemaDocument>(
+    response,
+    "Failed to load schema",
+  );
+}
+
+export async function upsertSchemaComment(
+  dataSourceId: string,
+  request: SchemaCommentUpsertRequest,
+) {
+  const response = await fetch(
+    `${getBackendBaseURL()}/api/nlp2sql/data-sources/${encodeURIComponent(dataSourceId)}/schema-comments`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
+  );
+  return parseJsonOrThrow<SchemaCommentUpsertResponse>(
+    response,
+    "Failed to save schema comment",
   );
 }
 

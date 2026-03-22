@@ -379,3 +379,74 @@ def test_embedding_rebuild_job_writes_vectors_for_target_profile(monkeypatch):
     assert stored_job.status == "completed"
     assert stored_job.progress_done == 1
     assert stored_job.progress_total == 1
+
+
+def test_upsert_schema_comment_creates_structured_schema_note_and_clears_cache(monkeypatch):
+    service, repository = _build_service(monkeypatch)
+    cleared: list[str] = []
+
+    class StubDatabaseService:
+        def clear_schema_cache(self, data_source_id: str):
+            cleared.append(data_source_id)
+
+    monkeypatch.setattr(
+        "deerflow.nlp2sql.service.get_database_service",
+        lambda: StubDatabaseService(),
+    )
+
+    action, item = service.upsert_schema_comment(
+        "sales-db",
+        schema_name="public",
+        table_name="orders",
+        comment="Authoritative business order fact table.",
+    )
+
+    assert action == "created"
+    assert item is not None
+    assert item.item_type == "schema_note"
+    assert item.metadata["schema_name"] == "public"
+    assert item.metadata["table_name"] == "orders"
+    assert item.metadata["note_kind"] == "user_comment"
+    assert repository.index_calls[0]["chunks"][0].chunk_text.startswith(
+        "Table comment for public.orders: "
+    )
+    assert cleared == ["sales-db"]
+
+
+def test_upsert_schema_comment_updates_existing_column_note(monkeypatch):
+    service, repository = _build_service(monkeypatch)
+
+    class StubDatabaseService:
+        def clear_schema_cache(self, _data_source_id: str):
+            return None
+
+    monkeypatch.setattr(
+        "deerflow.nlp2sql.service.get_database_service",
+        lambda: StubDatabaseService(),
+    )
+
+    _action, created = service.upsert_schema_comment(
+        "sales-db",
+        schema_name="public",
+        table_name="orders",
+        column_name="status",
+        comment="Original note",
+    )
+    assert created is not None
+
+    action, updated = service.upsert_schema_comment(
+        "sales-db",
+        schema_name="public",
+        table_name="orders",
+        column_name="status",
+        comment="Reconciled business status.",
+    )
+
+    assert action == "updated"
+    assert updated is not None
+    assert updated.id == created.id
+    assert updated.content == "Reconciled business status."
+    assert updated.metadata["column_name"] == "status"
+    assert repository.index_calls[-1]["chunks"][0].chunk_text.startswith(
+        "Column comment for public.orders.status: "
+    )

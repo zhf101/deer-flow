@@ -43,6 +43,7 @@ import { Nlp2SqlFilesPanel } from "./nlp2sql-files-panel";
 import { Nlp2SqlHistoryPanel } from "./nlp2sql-history-panel";
 import { Nlp2SqlJobsPanel } from "./nlp2sql-jobs-panel";
 import { Nlp2SqlKnowledgePanel } from "./nlp2sql-knowledge-panel";
+import { Nlp2SqlSchemaPanel } from "./nlp2sql-schema-panel";
 import { SettingsSection } from "./settings-section";
 
 const NEW_SOURCE_ID = "__new__";
@@ -359,6 +360,9 @@ export function Nlp2SqlSettingsPage() {
                 </TabsTrigger>
                 <TabsTrigger value="knowledge">
                   {t.settings.nlp2sql.tabs.knowledge}
+                </TabsTrigger>
+                <TabsTrigger value="schema">
+                  {t.settings.nlp2sql.tabs.schema}
                 </TabsTrigger>
                 <TabsTrigger value="files">
                   {t.settings.nlp2sql.tabs.files}
@@ -745,6 +749,19 @@ export function Nlp2SqlSettingsPage() {
               <TabsContent value="knowledge" className="pt-4">
                 {selectedSource ? (
                   <Nlp2SqlKnowledgePanel
+                    dataSourceId={selectedSource.id}
+                    controlsDisabled={controlsDisabled}
+                  />
+                ) : (
+                  <div className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">
+                    {t.settings.nlp2sql.knowledgeRequiresSource}
+                  </div>
+                )}
+              </TabsContent>
+
+              <TabsContent value="schema" className="pt-4">
+                {selectedSource ? (
+                  <Nlp2SqlSchemaPanel
                     dataSourceId={selectedSource.id}
                     controlsDisabled={controlsDisabled}
                   />

@@ -321,6 +321,7 @@ export interface Translations {
       tabs: {
         connection: string;
         knowledge: string;
+        schema: string;
         files: string;
         history: string;
         jobs: string;
@@ -379,6 +380,26 @@ export interface Translations {
       testSuccess: string;
       cacheCleared: string;
       knowledgeRequiresSource: string;
+      schemaExplorerTitle: string;
+      schemaExplorerDescription: string;
+      schemaEmptyDescription: string;
+      schemaSearchPlaceholder: string;
+      schemaSearchEmpty: string;
+      schemaTableCount: string;
+      schemaColumnsLabel: string;
+      schemaColumnCommentCount: string;
+      schemaNoComment: string;
+      schemaUserCommentBadge: string;
+      schemaSelectTableHint: string;
+      schemaTableCommentTitle: string;
+      schemaColumnsTitle: string;
+      schemaDatabaseCommentLabel: string;
+      schemaEffectiveCommentLabel: string;
+      schemaUserCommentLabel: string;
+      schemaTableCommentPlaceholder: string;
+      schemaColumnCommentPlaceholder: string;
+      schemaClearComment: string;
+      schemaNotNullBadge: string;
       knowledgeListTitle: string;
       knowledgeListSuffix: string;
       knowledgeNewItem: string;

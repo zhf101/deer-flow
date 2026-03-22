@@ -195,9 +195,12 @@ def test_get_cached_schema_reads_persisted_snapshot_and_warms_memory_cache():
 
     cached = service.get_cached_schema("sales-db")
 
-    assert cached == _schema_doc()
+    assert cached is not None
+    assert cached["schemas"][0]["tables"][0]["name"] == "orders"
+    assert cached["schemas"][0]["tables"][0]["source_comment"] == "Customer orders"
+    assert cached["schemas"][0]["tables"][0]["columns"][1]["source_comment"] == "Order status"
     assert snapshot_store.get_calls == ["sales-db"]
-    assert service.get_cached_schema("sales-db") == _schema_doc()
+    assert service.get_cached_schema("sales-db") == cached
     assert snapshot_store.get_calls == ["sales-db"]
 
 
@@ -214,7 +217,8 @@ def test_get_schema_persists_fetched_snapshot():
 
     schema_doc = service.get_schema(StubAdapter(), config, force_refresh=True)
 
-    assert schema_doc == _schema_doc()
+    assert schema_doc["schemas"][0]["tables"][0]["name"] == "orders"
+    assert schema_doc["schemas"][0]["tables"][0]["source_comment"] == "Customer orders"
     assert snapshot_store.upsert_calls == [(config.id, _schema_doc())]
 
 

@@ -63,6 +63,58 @@ export interface SchemaCacheClearResponse {
   message: string;
 }
 
+export interface SchemaColumn {
+  name: string;
+  data_type?: string | null;
+  column_type?: string | null;
+  nullable?: boolean | null;
+  default?: unknown;
+  comment: string;
+  source_comment: string;
+  user_comment?: string | null;
+  comment_source: "database" | "user" | "none" | string;
+  ordinal_position?: number | null;
+  enum_values: unknown[];
+}
+
+export interface SchemaTable {
+  name: string;
+  comment: string;
+  source_comment: string;
+  user_comment?: string | null;
+  comment_source: "database" | "user" | "none" | string;
+  note_item_id?: string | null;
+  columns: SchemaColumn[];
+  primary_key: string[];
+  foreign_keys: Array<Record<string, unknown>>;
+}
+
+export interface SchemaNamespace {
+  name: string;
+  tables: SchemaTable[];
+}
+
+export interface SchemaDocument {
+  database?: string | null;
+  db_type?: string | null;
+  schemas: SchemaNamespace[];
+}
+
+export interface SchemaCommentUpsertRequest {
+  schema_name: string;
+  table_name: string;
+  column_name?: string | null;
+  comment: string;
+}
+
+export interface SchemaCommentUpsertResponse {
+  ok: boolean;
+  data_source_id: string;
+  action: "created" | "updated" | "deleted" | "noop" | string;
+  message: string;
+  note_item_id?: string | null;
+}
+
 export interface KnowledgeItem {
   id: string;
   data_source_id: string;

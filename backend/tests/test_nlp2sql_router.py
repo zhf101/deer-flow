@@ -109,6 +109,58 @@ def _build_index_job(**overrides) -> IndexJob:
     return IndexJob.model_validate(payload)
 
 
+def _build_schema_doc() -> dict:
+    return {
+        "database": "sales",
+        "db_type": "postgres",
+        "schemas": [
+            {
+                "name": "public",
+                "tables": [
+                    {
+                        "name": "orders",
+                        "comment": "Business order fact table",
+                        "source_comment": "Customer orders",
+                        "user_comment": "Business order fact table",
+                        "comment_source": "user",
+                        "note_item_id": "knowledge-schema-1",
+                        "columns": [
+                            {
+                                "name": "id",
+                                "data_type": "integer",
+                                "column_type": "int4",
+                                "nullable": False,
+                                "default": None,
+                                "comment": "Primary key",
+                                "source_comment": "Primary key",
+                                "user_comment": None,
+                                "comment_source": "database",
+                                "ordinal_position": 1,
+                                "enum_values": [],
+                            },
+                            {
+                                "name": "status",
+                                "data_type": "text",
+                                "column_type": "text",
+                                "nullable": False,
+                                "default": None,
+                                "comment": "Reconciled business status",
+                                "source_comment": "Order status",
+                                "user_comment": "Reconciled business status",
+                                "comment_source": "user",
+                                "ordinal_position": 2,
+                                "enum_values": [],
+                            },
+                        ],
+                        "primary_key": ["id"],
+                        "foreign_keys": [],
+                    }
+                ],
+            }
+        ],
+    }
+
+
 def test_list_data_sources_passes_enabled_only(monkeypatch):
     config = _build_config()
     calls: list[bool] = []
@@ -215,6 +267,96 @@ def test_clear_schema_cache_calls_service(monkeypatch):
         "ok": True,
         "data_source_id": config.id,
         "message": f"Cleared schema cache for '{config.id}'",
+    }
+
+
+def test_get_data_source_schema_returns_payload(monkeypatch):
+    config = _build_config()
+    schema_doc = _build_schema_doc()
+
+    class StubRegistry:
+        def get(self, data_source_id: str):
+            assert data_source_id == config.id
+            return config
+
+    class StubService:
+        def get_schema(self, data_source_id: str, force_refresh: bool = False):
+            assert data_source_id == config.id
+            assert force_refresh is True
+            return schema_doc
+
+    monkeypatch.setattr(nlp2sql_router, "get_data_source_registry", lambda: StubRegistry())
+    monkeypatch.setattr(nlp2sql_router, "get_database_service", lambda: StubService())
+
+    with _make_client() as client:
+        response = client.get(
+            f"/api/nlp2sql/data-sources/{config.id}/schema",
+            params={"force_refresh": "true"},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["schemas"][0]["tables"][0]["comment_source"] == "user"
+    assert response.json()["schemas"][0]["tables"][0]["columns"][1]["user_comment"] == "Reconciled business status"
+
+
+def test_upsert_schema_comment_returns_payload(monkeypatch):
+    config = _build_config()
+    item = _build_knowledge_item(
+        id="knowledge-schema-1",
+        item_type="schema_note",
+        title="public.orders.status",
+        content="Reconciled business status",
+        metadata={
+            "schema_name": "public",
+            "table_name": "orders",
+            "column_name": "status",
+            "note_kind": "user_comment",
+        },
+    )
+
+    class StubRegistry:
+        def get(self, data_source_id: str):
+            assert data_source_id == config.id
+            return config
+
+    class StubKnowledgeService:
+        def upsert_schema_comment(
+            self,
+            data_source_id: str,
+            *,
+            schema_name: str,
+            table_name: str,
+            column_name: str | None = None,
+            comment: str,
+        ):
+            assert data_source_id == config.id
+            assert schema_name == "public"
+            assert table_name == "orders"
+            assert column_name == "status"
+            assert comment == "Reconciled business status"
+            return "updated", item
+
+    monkeypatch.setattr(nlp2sql_router, "get_data_source_registry", lambda: StubRegistry())
+    monkeypatch.setattr(nlp2sql_router, "get_knowledge_service", lambda: StubKnowledgeService())
+
+    with _make_client() as client:
+        response = client.put(
+            f"/api/nlp2sql/data-sources/{config.id}/schema-comments",
+            json={
+                "schema_name": "public",
+                "table_name": "orders",
+                "column_name": "status",
+                "comment": "Reconciled business status",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "data_source_id": config.id,
+        "action": "updated",
+        "message": "Updated schema comment for 'public.orders.status'",
+        "note_item_id": item.id,
     }
 
 

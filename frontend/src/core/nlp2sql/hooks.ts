@@ -10,6 +10,7 @@ import {
   deleteKnowledgeItem,
   deleteKnowledgeFile,
   deleteDataSource,
+  getDataSourceSchema,
   getDataSource,
   importHistoricalSql,
   listEmbeddingProfiles,
@@ -20,6 +21,7 @@ import {
   previewRetrieval,
   rebuildEmbeddingProfile,
   testDataSource,
+  upsertSchemaComment,
   uploadKnowledgeFiles,
   updateKnowledgeItem,
   updateDataSource,
@@ -32,6 +34,7 @@ import type {
   HistoricalSqlImportRequest,
   KnowledgeItemType,
   RetrievalPreviewRequest,
+  SchemaCommentUpsertRequest,
   UpdateKnowledgeItemRequest,
   UpdateDataSourceRequest,
 } from "./types";
@@ -113,6 +116,52 @@ export function useTestDataSource() {
 export function useClearSchemaCache() {
   return useMutation({
     mutationFn: (dataSourceId: string) => clearSchemaCache(dataSourceId),
+  });
+}
+
+export function useDataSourceSchema(
+  dataSourceId: string | null | undefined,
+  options?: { forceRefresh?: boolean },
+) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: [
+      "nlp2sql",
+      "schema",
+      dataSourceId,
+      options?.forceRefresh === true,
+    ],
+    queryFn: () =>
+      getDataSourceSchema(dataSourceId!, {
+        forceRefresh: options?.forceRefresh,
+      }),
+    enabled: !!dataSourceId,
+  });
+  return { schema: data ?? null, isLoading, error };
+}
+
+function invalidateSchema(
+  queryClient: ReturnType<typeof useQueryClient>,
+  dataSourceId: string,
+) {
+  void queryClient.invalidateQueries({
+    queryKey: ["nlp2sql", "schema", dataSourceId],
+  });
+}
+
+export function useUpsertSchemaComment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      dataSourceId,
+      request,
+    }: {
+      dataSourceId: string;
+      request: SchemaCommentUpsertRequest;
+    }) => upsertSchemaComment(dataSourceId, request),
+    onSuccess: (_data, variables) => {
+      invalidateSchema(queryClient, variables.dataSourceId);
+      invalidateKnowledgeItems(queryClient, variables.dataSourceId);
+    },
   });
 }
 
