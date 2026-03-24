@@ -3,12 +3,15 @@
 import asyncio
 import hashlib
 import os
+import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional, cast
 
 # Relax token scope verification as Google might add extra scopes (like openid)
 os.environ["OAUTHLIB_RELAX_TOKEN_SCOPE"] = "1"
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import HTMLResponse, RedirectResponse
 from google_auth_oauthlib.flow import Flow  # type: ignore
@@ -22,6 +25,10 @@ from ..auth_config import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     JWT_ALGORITHM,
     JWT_SECRET_KEY,
+    LEGACY_SSO_SUCCESS_CODE,
+    LEGACY_SSO_TIMEOUT_SECONDS,
+    LEGACY_SSO_VERIFY_URL,
+    LOCAL_REGISTRATION_ENABLED,
     PASSWORD_MIN_LENGTH,
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
@@ -33,7 +40,6 @@ from ..models.user_oauth import UserOAuth
 
 auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
-REGISTRATION_ENABLED_SETTING_KEY = "registration_enabled"
 SETUP_COMPLETED_SETTING_KEY = "setup_completed"
 
 
@@ -170,6 +176,17 @@ class RefreshTokenResponse(BaseModel):
     refresh_expires_in: Optional[int] = None
 
 
+class LegacySSOLoginRequest(BaseModel):
+    """旧系统单点登录请求。
+
+    浏览器从旧系统入口进入本项目时，只需要把旧系统 token
+    交给本项目后端。本项目后端再去旧系统验票，避免前端自己
+    解释用户身份。
+    """
+
+    token: str
+
+
 def hash_password(password: str) -> str:
     """Hash password using SHA-256"""
     return hashlib.sha256(password.encode()).hexdigest()
@@ -185,29 +202,21 @@ def has_users(db: Session) -> bool:
 
 
 def is_registration_enabled(db: Session) -> bool:
-    setting = (
-        db.query(SystemSetting)
-        .filter(SystemSetting.key == REGISTRATION_ENABLED_SETTING_KEY)
-        .first()
-    )
-    if setting is None:
-        return True
-    return str(setting.value).lower() == "true"
+    """返回当前是否允许本地注册。
+
+    当前需求已经切到“环境变量控制”，所以这里不再从数据库读开关，
+    避免前后端各有一套状态源而出现展示与提交不一致。
+    """
+
+    _ = db
+    return LOCAL_REGISTRATION_ENABLED
 
 
 def set_registration_enabled(db: Session, enabled: bool) -> None:
-    setting = (
-        db.query(SystemSetting)
-        .filter(SystemSetting.key == REGISTRATION_ENABLED_SETTING_KEY)
-        .first()
-    )
-    value = "true" if enabled else "false"
-    if setting is None:
-        setting = SystemSetting(key=REGISTRATION_ENABLED_SETTING_KEY, value=value)
-        db.add(setting)
-    else:
-        setattr(setting, "value", value)
-    db.commit()
+    """保留旧接口签名用于兼容，但环境变量模式下不再写库。"""
+
+    _ = (db, enabled)
+    return None
 
 
 def is_setup_completed(db: Session) -> bool:
@@ -292,7 +301,7 @@ async def get_register_switch(
     return RegisterSwitchResponse(
         success=True,
         registration_enabled=enabled,
-        message="Registration switch fetched successfully",
+        message="Registration switch is controlled by environment variable",
     )
 
 
@@ -305,23 +314,44 @@ async def update_register_switch(
     if not bool(cast(Any, user.is_admin)):
         raise HTTPException(status_code=403, detail="Admin privileges required")
 
-    set_registration_enabled(db, request.enabled)
+    _ = request.enabled
     return RegisterSwitchResponse(
-        success=True,
-        registration_enabled=request.enabled,
-        message="Registration switch updated successfully",
+        success=False,
+        registration_enabled=is_registration_enabled(db),
+        message="Registration switch is controlled by environment variable",
     )
 
 
 def create_user(
-    db: Session, username: str, password: str, inherit_defaults: bool = False
+    db: Session,
+    username: str,
+    password: str,
+    inherit_defaults: bool = False,
+    *,
+    external_user_id: Optional[str] = None,
+    email: Optional[str] = None,
+    oa_account: Optional[str] = None,
 ) -> User:
-    """Create a new user without default model configurations
+    """创建一个本项目用户。
 
-    Users will use admin's defaults via fallback logic until they set their own.
+    这个方法同时服务两类入口：
+    - 本项目原生注册
+    - 旧系统 SSO 自动建人
+
+    参数说明：
+    - username: 本项目内部展示与兼容字段
+    - password: 原生注册密码，或 SSO 占位密码
+    - external_user_id: 旧系统稳定身份主键；原生注册用户可为空
+    - email / oa_account: 旧系统同步过来的辅助信息
     """
     password_hash = hash_password(password)
-    user = User(username=username, password_hash=password_hash)
+    user = User(
+        username=username,
+        password_hash=password_hash,
+        external_user_id=external_user_id,
+        email=email,
+        oa_account=oa_account,
+    )
     db.add(user)
     db.flush()  # Get the user ID without committing
     db.refresh(user)
@@ -443,6 +473,191 @@ def get_user_by_username(db: Session, username: str) -> Optional[User]:
     return db.query(User).filter(User.username == username).first()
 
 
+def get_user_by_external_user_id(db: Session, external_user_id: str) -> Optional[User]:
+    """按旧系统唯一身份标识查用户。"""
+
+    return (
+        db.query(User).filter(User.external_user_id == external_user_id).first()
+    )
+
+
+def _truncate_username(username: str) -> str:
+    """把用户名裁剪到数据库字段允许的长度。"""
+
+    return username[:50]
+
+
+def _normalize_sso_username(raw_username: Optional[str], external_user_id: str) -> str:
+    """把旧系统返回的展示名整理成系统内可落库的 username。
+
+    这里故意只做最小清洗：
+    - 去掉首尾空白
+    - 把连续空白折叠成下划线
+    - 兜底回退到 external_user_id
+    """
+
+    username = (raw_username or "").strip()
+    if not username:
+        username = f"user_{external_user_id}"
+
+    username = re.sub(r"\s+", "_", username)
+    username = _truncate_username(username)
+    if username:
+        return username
+    return _truncate_username(f"user_{external_user_id}")
+
+
+def _build_unique_sso_username(
+    db: Session,
+    preferred_username: Optional[str],
+    external_user_id: str,
+    current_user_id: Optional[int] = None,
+) -> str:
+    """为 SSO 用户分配一个稳定且不冲突的 username。
+
+    设计意图：
+    - 旧系统真正的身份主键是 external_user_id
+    - username 在本项目里更多是展示名和兼容字段
+    - 一旦展示名重名，自动附加 external_user_id 后缀，避免串号
+    """
+
+    base_username = _normalize_sso_username(preferred_username, external_user_id)
+    candidate_usernames = [
+        base_username,
+        _truncate_username(f"{base_username}_{external_user_id}"),
+        _truncate_username(f"user_{external_user_id}"),
+    ]
+
+    for candidate in candidate_usernames:
+        existing_user = db.query(User).filter(User.username == candidate).first()
+        if existing_user is None or existing_user.id == current_user_id:
+            return candidate
+
+    suffix = 1
+    while True:
+        candidate = _truncate_username(f"{base_username}_{suffix}")
+        existing_user = db.query(User).filter(User.username == candidate).first()
+        if existing_user is None or existing_user.id == current_user_id:
+            return candidate
+        suffix += 1
+
+
+def _generate_placeholder_password() -> str:
+    """为 SSO 自动创建用户生成不可复用的占位密码。"""
+
+    return secrets.token_urlsafe(32)
+
+
+async def _verify_legacy_token(token: str) -> Dict[str, Any]:
+    """调用旧系统验票接口，并返回旧系统用户信息。
+
+    这里是当前方案的核心信任边界：
+    - 前端只负责把旧系统 token 交过来
+    - 本项目不直接信任前端传来的 userId / userName
+    - 必须由本项目后端主动去旧系统验票后，再决定归属哪个用户
+    """
+
+    if not LEGACY_SSO_VERIFY_URL:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Legacy SSO verify URL is not configured",
+        )
+
+    try:
+        async with httpx.AsyncClient(timeout=LEGACY_SSO_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                LEGACY_SSO_VERIFY_URL,
+                json={"token": token},
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Legacy SSO verify request failed with status {exc.response.status_code}",
+        ) from exc
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Legacy SSO verify request failed: {exc}",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Legacy SSO verify response is not valid JSON",
+        ) from exc
+
+    if payload.get("retCode") != LEGACY_SSO_SUCCESS_CODE:
+        legacy_error_message = str(payload.get("retMsg") or "Legacy token verification failed")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=legacy_error_message,
+        )
+
+    legacy_user = payload.get("data")
+    if not isinstance(legacy_user, dict):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Legacy SSO verify response missing user data",
+        )
+
+    external_user_id = str(legacy_user.get("userId") or "").strip()
+    if not external_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Legacy SSO verify response missing userId",
+        )
+
+    return legacy_user
+
+
+def _create_or_update_sso_user(db: Session, legacy_user: Dict[str, Any]) -> User:
+    """根据旧系统信息查找或自动创建本项目用户。
+
+    输入语义：
+    - legacy_user 由旧系统验票接口返回
+    - userId 是跨系统稳定主键
+
+    输出语义：
+    - 返回已经可以参与本项目 JWT 签发的 User 实体
+    - 该过程可能更新 username/email/oa_account，也可能自动建人并落库
+    """
+
+    external_user_id = str(legacy_user.get("userId") or "").strip()
+    user_name = legacy_user.get("userName")
+    user_email = legacy_user.get("userEmail")
+    user_oa = legacy_user.get("userOa")
+
+    user = get_user_by_external_user_id(db, external_user_id)
+    resolved_username = _build_unique_sso_username(
+        db,
+        str(user_name) if user_name is not None else None,
+        external_user_id,
+        current_user_id=user.id if user is not None else None,
+    )
+
+    if user is None:
+        # SSO 首次进入本项目时自动建人。
+        # 占位密码只用于满足数据库非空约束，真正登录态仍以旧系统验票为准。
+        user = create_user(
+            db,
+            resolved_username,
+            _generate_placeholder_password(),
+            inherit_defaults=False,
+            external_user_id=external_user_id,
+            email=str(user_email).strip() if user_email is not None else None,
+            oa_account=str(user_oa).strip() if user_oa is not None else None,
+        )
+        return user
+
+    user.username = resolved_username
+    user.email = str(user_email).strip() if user_email is not None else None
+    user.oa_account = str(user_oa).strip() if user_oa is not None else None
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 @auth_router.post("/login")
 async def login(request: LoginRequest, db: Session = Depends(get_db)) -> Dict[str, Any]:
     """User login endpoint"""
@@ -519,6 +734,65 @@ async def login(request: LoginRequest, db: Session = Depends(get_db)) -> Dict[st
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error during login: {str(e)}",
         )
+
+
+@auth_router.post("/sso/login")
+async def sso_login(
+    request: LegacySSOLoginRequest, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
+    """旧系统 SSO 登录入口。
+
+    业务动作：
+    - 接收前端带来的旧系统 token
+    - 向旧系统验票接口确认用户身份
+    - 按 external_user_id 查找或自动创建本项目用户
+    - 签发本项目自己的 access_token / refresh_token
+
+    这样做的目的，是让本项目后续仍然只依赖自己的 JWT 体系，
+    而不是把旧系统 token 直接当成业务鉴权凭证长期使用。
+    """
+
+    if not request.token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Legacy token is required",
+        )
+
+    legacy_user = await _verify_legacy_token(request.token.strip())
+    user = _create_or_update_sso_user(db, legacy_user)
+
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "user_id": user.id},
+        expires_delta=access_token_expires,
+    )
+    refresh_token = create_refresh_token(data={"sub": user.username, "user_id": user.id})
+
+    setattr(user, "refresh_token", refresh_token)
+    setattr(
+        user,
+        "refresh_token_expires_at",
+        datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+    )
+    db.commit()
+    db.refresh(user)
+
+    return {
+        "success": True,
+        "message": "SSO login successful",
+        "user": {
+            "id": user.id,
+            "username": user.username,
+            "is_admin": user.is_admin,
+            "loginTime": datetime.now(timezone.utc).timestamp(),
+        },
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "expires_in": ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "refresh_expires_in": REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        "user_id": user.id,
+    }
 
 
 @auth_router.post("/register", response_model=RegisterResponse)

@@ -11,6 +11,10 @@ export function getApiUrl(): string {
   return apiUrl
 }
 
+export function getLegacyLoginUrl(): string {
+  return process.env.NEXT_PUBLIC_LEGACY_LOGIN_URL || ''
+}
+
 export function getAuthHeaders(token: string | null): Record<string, string> {
   if (!token) return {}
   return {
