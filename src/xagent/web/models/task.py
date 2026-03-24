@@ -158,6 +158,10 @@ class Task(Base):  # type: ignore
         order_by="TaskChatMessage.id",
     )
     uploaded_files = relationship("UploadedFile", back_populates="task")
+    dm_flow_drafts = relationship(
+        "DMFlowDraft", back_populates="task", cascade="all, delete-orphan"
+    )
+    dm_runs = relationship("DMRun", back_populates="source_task")
 
     def __repr__(self) -> str:
         return f"<Task(id={self.id}, title='{self.title}', status='{self.status}')>"

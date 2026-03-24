@@ -60,6 +60,9 @@ class User(Base):  # type: ignore
     oauth_accounts = relationship(
         "UserOAuth", back_populates="user", cascade="all, delete-orphan"
     )
+    admin_system_scopes = relationship(
+        "AdminSystemScope", back_populates="user", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<User(id={self.id}, username='{self.username}', is_admin={self.is_admin})>"
