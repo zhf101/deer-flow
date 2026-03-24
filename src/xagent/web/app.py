@@ -10,6 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from .api.admin_users import router as admin_users_router
 from .api.agents import router as agents_router
 from .api.auth import auth_router
+from .api.datamakepool import (
+    assets_router as datamakepool_assets_router,
+    audits_router as datamakepool_audits_router,
+    conversations_router as datamakepool_conversations_router,
+    flowdrafts_router as datamakepool_flowdrafts_router,
+    runs_router as datamakepool_runs_router,
+    templates_router as datamakepool_templates_router,
+)
 from .api.chat import chat_router
 from .api.cloud_storage import cloud_router
 from .api.files import file_router
@@ -146,6 +154,12 @@ app.include_router(skills_router)
 app.include_router(system_router)
 app.include_router(templates_router)
 app.include_router(agents_router)
+app.include_router(datamakepool_conversations_router)
+app.include_router(datamakepool_flowdrafts_router)
+app.include_router(datamakepool_assets_router)
+app.include_router(datamakepool_templates_router)
+app.include_router(datamakepool_runs_router)
+app.include_router(datamakepool_audits_router)
 
 
 # 初始化数据库

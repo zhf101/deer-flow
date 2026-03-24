@@ -1,0 +1,2 @@
+"""Resolver package placeholder."""
+

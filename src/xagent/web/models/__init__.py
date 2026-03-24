@@ -2,8 +2,11 @@ from .agent import Agent
 from .admin_system_scope import AdminSystemScope
 from .chat_message import TaskChatMessage
 from .database import Base, get_db, get_engine, get_session_local
+from .dm_audit import DMAuditRecord
 from .dm_flow_draft import DMFlowDraft, DMFlowDraftSnapshot
 from .dm_run import DMRun, DMRunStep
+from .dm_runtime_link import DMTaskRunLink
+from .dm_template import DMTemplate, DMTemplateRevision, DMTemplateRevisionStep
 from .mcp import MCPServer, UserMCPServer
 from .model import Model
 from .sandbox import SandboxInfo
@@ -22,6 +25,7 @@ __all__ = [
     "get_db",
     "get_session_local",
     "AdminSystemScope",
+    "DMAuditRecord",
     "User",
     "UserModel",
     "UserDefaultModel",
@@ -35,6 +39,10 @@ __all__ = [
     "DMFlowDraftSnapshot",
     "DMRun",
     "DMRunStep",
+    "DMTaskRunLink",
+    "DMTemplate",
+    "DMTemplateRevision",
+    "DMTemplateRevisionStep",
     "TemplateStats",
     "Text2SQLDatabase",
     "ToolConfig",
