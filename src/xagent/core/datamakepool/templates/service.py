@@ -98,6 +98,42 @@ class TemplateService:
         self.db.commit()
         return {"revision_id": revision.id, "status": revision.status}
 
+    def approve_revision(self, revision_id: int, reviewer_user_id: int) -> dict[str, Any]:
+        """审批通过模板版本，并切换逻辑模板的当前发布版本。"""
+        revision = (
+            self.db.query(DMTemplateRevision)
+            .filter(DMTemplateRevision.id == revision_id)
+            .first()
+        )
+        if revision is None:
+            raise ValueError(f"Template revision {revision_id} not found")
+
+        template = revision.template
+        if template is None:
+            raise ValueError(f"Template {revision.template_id} not found")
+
+        try:
+            revision.status = "published"
+            revision.reviewed_by = reviewer_user_id
+            template.latest_published_revision_id = revision.id
+            self.db.commit()
+            return {"revision_id": revision.id, "status": revision.status}
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def list_templates(self) -> list[dict[str, Any]]:
+        """列出模板逻辑对象。"""
+        templates = self.db.query(DMTemplate).order_by(DMTemplate.created_at.desc()).all()
+        return [self._serialize_template(template) for template in templates]
+
+    def list_revisions(self, template_id: int) -> list[dict[str, Any]]:
+        """列出指定模板的全部版本。"""
+        template = self.db.query(DMTemplate).filter(DMTemplate.id == template_id).first()
+        if template is None:
+            raise ValueError(f"Template {template_id} not found")
+        return [self._serialize_revision(revision) for revision in template.revisions]
+
     def _get_or_create_template(
         self,
         run: DMRun,
@@ -191,3 +227,29 @@ class TemplateService:
                 editable_fields=node.get("editable_fields") or [],
             )
             self.db.add(revision_step)
+
+    def _serialize_template(self, template: DMTemplate) -> dict[str, Any]:
+        """将模板对象压平成 API 结构。"""
+        return {
+            "template_id": template.id,
+            "name": template.name,
+            "description": template.description,
+            "system_short": template.system_short,
+            "owner_user_id": template.owner_user_id,
+            "latest_published_revision_id": template.latest_published_revision_id,
+            "revisions_count": len(template.revisions),
+        }
+
+    def _serialize_revision(self, revision: DMTemplateRevision) -> dict[str, Any]:
+        """将模板版本对象压平成 API 结构。"""
+        return {
+            "revision_id": revision.id,
+            "template_id": revision.template_id,
+            "version_no": revision.version_no,
+            "status": revision.status,
+            "source_run_id": revision.source_run_id,
+            "created_by": revision.created_by,
+            "reviewed_by": revision.reviewed_by,
+            "review_comment": revision.review_comment,
+            "steps_count": len(revision.steps),
+        }

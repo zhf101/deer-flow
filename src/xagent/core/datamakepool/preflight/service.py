@@ -28,6 +28,11 @@ class PreflightService:
         """
         issues: list[PreflightIssue] = []
         nodes = technical_graph.get("nodes", []) if isinstance(technical_graph, dict) else []
+        known_step_ids = {
+            str(node.get("step_id") or node.get("id") or "")
+            for node in nodes
+            if isinstance(node, dict)
+        }
 
         for node in nodes:
             if not isinstance(node, dict):
@@ -37,6 +42,7 @@ class PreflightService:
             step_type = str(node.get("step_type") or "")
             pending_flags = node.get("pending_flags") or []
             resolved_plan = node.get("resolved_execution_plan") or {}
+            depends_on = node.get("depends_on") or []
 
             for flag in pending_flags:
                 issue_type = str(flag)
@@ -59,6 +65,93 @@ class PreflightService:
                         message=f"Step {step_id or '<unknown>'} has no resolved execution plan",
                         suggested_action="resolve_step",
                         payload={"step_type": step_type},
+                    )
+                )
+                continue
+
+            if step_type in {"http_step", "sql_step"}:
+                asset_ref = (
+                    resolved_plan.get("asset_id")
+                    or resolved_plan.get("asset_ref")
+                    or node.get("asset_id")
+                    or node.get("asset_ref")
+                )
+                if not asset_ref:
+                    issues.append(
+                        PreflightIssue(
+                            issue_type="asset_pending",
+                            step_id=step_id or None,
+                            message=f"Step {step_id or '<unknown>'} has no resolved asset",
+                            suggested_action=self._suggest_action("asset_pending"),
+                            payload={"step_type": step_type},
+                        )
+                    )
+
+                param_template = (
+                    resolved_plan.get("param_template")
+                    or resolved_plan.get("input_template")
+                    or node.get("param_template")
+                    or node.get("input_template")
+                )
+                if param_template in (None, {}, []):
+                    issues.append(
+                        PreflightIssue(
+                            issue_type="param_pending",
+                            step_id=step_id or None,
+                            message=f"Step {step_id or '<unknown>'} has no resolved parameter template",
+                            suggested_action=self._suggest_action("param_pending"),
+                            payload={"step_type": step_type},
+                        )
+                    )
+
+            if step_type == "sql_step":
+                governance_result = resolved_plan.get("governance_check_result") or {}
+                if governance_result and governance_result.get("status") in {
+                    "blocked",
+                    "rejected",
+                }:
+                    issues.append(
+                        PreflightIssue(
+                            issue_type="governance_blocked",
+                            step_id=step_id or None,
+                            message=f"Step {step_id or '<unknown>'} failed governance pre-check",
+                            suggested_action=self._suggest_action("governance_blocked"),
+                            payload={"step_type": step_type, "governance": governance_result},
+                        )
+                    )
+
+            if step_type in {"mapping", "http_step", "sql_step"}:
+                output_mapping = (
+                    resolved_plan.get("output_mapping") or node.get("output_mapping") or {}
+                )
+                if step_type == "mapping" and output_mapping in ({}, [], None):
+                    issues.append(
+                        PreflightIssue(
+                            issue_type="mapping_incomplete",
+                            step_id=step_id or None,
+                            message=f"Step {step_id or '<unknown>'} has no output mapping",
+                            suggested_action=self._suggest_action("mapping_incomplete"),
+                            payload={"step_type": step_type},
+                        )
+                    )
+
+            missing_dependencies = [
+                str(dep) for dep in depends_on if str(dep) and str(dep) not in known_step_ids
+            ]
+            if missing_dependencies:
+                issues.append(
+                    PreflightIssue(
+                        issue_type="dependency_incomplete",
+                        step_id=step_id or None,
+                        message=(
+                            f"Step {step_id or '<unknown>'} depends on unknown steps: "
+                            f"{', '.join(missing_dependencies)}"
+                        ),
+                        suggested_action=self._suggest_action("dependency_incomplete"),
+                        payload={
+                            "step_type": step_type,
+                            "missing_dependencies": missing_dependencies,
+                        },
                     )
                 )
 
@@ -95,4 +188,6 @@ class PreflightService:
             return "edit_step_design"
         if issue_type == "governance_blocked":
             return "review_governance"
+        if issue_type == "dependency_incomplete":
+            return "resolve_step"
         return "resolve_step"

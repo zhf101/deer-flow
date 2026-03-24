@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from xagent.web.models.dm_run import DMRun, DMRunStep
 from xagent.web.models.dm_runtime_link import DMTaskRunLink
+from xagent.web.models.dm_template import DMTemplateRevision
 
 from ..orchestration import RunRuntimeBridge
 
@@ -83,6 +84,52 @@ class RunService:
             self.db.rollback()
             raise
 
+    def get_run(self, run_id: int) -> dict[str, Any]:
+        """读取单个 Run 详情。"""
+        run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run {run_id} not found")
+        return self._serialize_run(run)
+
+    def get_run_steps(self, run_id: int) -> list[dict[str, Any]]:
+        """读取某个 Run 的步骤列表。"""
+        run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run {run_id} not found")
+        return [self._serialize_step(step) for step in run.steps]
+
+    def create_run_from_template(
+        self,
+        template_revision_id: int,
+        initiator_user_id: int,
+        system_short: Optional[str] = None,
+        input_payload: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """基于模板版本创建正式执行 Run。"""
+        revision = (
+            self.db.query(DMTemplateRevision)
+            .filter(DMTemplateRevision.id == template_revision_id)
+            .first()
+        )
+        if revision is None:
+            raise ValueError(f"Template revision {template_revision_id} not found")
+
+        if revision.status != "published":
+            raise ValueError(
+                f"Template revision {template_revision_id} is not published and cannot execute"
+            )
+
+        return self.create_run(
+            entry_type="template",
+            initiator_user_id=initiator_user_id,
+            task_id=None,
+            system_short=system_short or revision.template.system_short,
+            objective=revision.template.description or revision.template.name,
+            input_payload=input_payload,
+            resolved_input=input_payload,
+            technical_graph=revision.technical_graph or {},
+        )
+
     def _create_run_steps(
         self, run_id: int, technical_graph: dict[str, Any]
     ) -> list[dict[str, Any]]:
@@ -118,3 +165,41 @@ class RunService:
             )
 
         return created
+
+    def _serialize_run(self, run: DMRun) -> dict[str, Any]:
+        """将 Run ORM 对象压平成 API 结构。"""
+        return {
+            "run_id": run.id,
+            "entry_type": run.entry_type,
+            "source_task_id": run.source_task_id,
+            "template_id": run.template_id,
+            "template_revision_id": run.template_revision_id,
+            "initiator_user_id": run.initiator_user_id,
+            "system_short": run.system_short,
+            "objective": run.objective,
+            "input_payload": run.input_payload,
+            "resolved_input": run.resolved_input,
+            "status": run.status,
+            "final_output": run.final_output,
+            "error_summary": run.error_summary,
+            "steps_count": len(run.steps),
+        }
+
+    def _serialize_step(self, step: DMRunStep) -> dict[str, Any]:
+        """将 RunStep ORM 对象压平成 API 结构。"""
+        return {
+            "id": step.id,
+            "run_id": step.run_id,
+            "step_id": step.step_id,
+            "step_type": step.step_type,
+            "step_name": step.step_name,
+            "status": step.status,
+            "depends_on": step.depends_on or [],
+            "resolved_execution_plan_snapshot": step.resolved_execution_plan_snapshot,
+            "asset_version_snapshot_ref": step.asset_version_snapshot_ref,
+            "input_snapshot": step.input_snapshot,
+            "output_snapshot": step.output_snapshot,
+            "error_message": step.error_message,
+            "started_at": step.started_at.isoformat() if step.started_at else None,
+            "finished_at": step.finished_at.isoformat() if step.finished_at else None,
+        }

@@ -7,7 +7,9 @@ from ...models.user import User
 from ...schemas.datamakepool import (
     CreateTemplateFromRunRequest,
     ReviewResponse,
+    TemplateRevisionSummaryResponse,
     TemplateRevisionResponse,
+    TemplateSummaryResponse,
 )
 from ....core.datamakepool.templates import TemplateService
 
@@ -39,16 +41,30 @@ async def create_template_from_run(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.get("")
-async def list_templates() -> dict:
+@router.get("", response_model=list[TemplateSummaryResponse])
+async def list_templates(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[TemplateSummaryResponse]:
     """列出模板逻辑对象。"""
-    return {"status": "not_implemented"}
+    del user
+    result = TemplateService(db=db).list_templates()
+    return [TemplateSummaryResponse(**item) for item in result]
 
 
-@router.get("/{template_id}/revisions")
-async def list_template_revisions(template_id: int) -> dict:
+@router.get("/{template_id}/revisions", response_model=list[TemplateRevisionSummaryResponse])
+async def list_template_revisions(
+    template_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[TemplateRevisionSummaryResponse]:
     """列出某个模板的全部版本。"""
-    return {"template_id": template_id, "status": "not_implemented"}
+    del user
+    try:
+        result = TemplateService(db=db).list_revisions(template_id)
+        return [TemplateRevisionSummaryResponse(**item) for item in result]
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("/revisions/{revision_id}/submit-review", response_model=ReviewResponse)
@@ -67,6 +83,14 @@ async def submit_template_review(
 
 
 @router.post("/revisions/{revision_id}/approve")
-async def approve_template_revision(revision_id: int) -> dict:
+async def approve_template_revision(
+    revision_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> ReviewResponse:
     """审批通过模板版本。"""
-    return {"revision_id": revision_id, "status": "not_implemented"}
+    try:
+        result = TemplateService(db=db).approve_revision(revision_id, int(user.id))
+        return ReviewResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
