@@ -50,6 +50,9 @@ class TrialResponse(BaseModel):
     status: str
     created_steps: list[dict[str, Any]] = Field(default_factory=list)
     runtime: dict[str, Any] = Field(default_factory=dict)
+    final_output: Optional[dict[str, Any]] = None
+    error_summary: Optional[str] = None
+    steps_summary: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RunDetailResponse(BaseModel):

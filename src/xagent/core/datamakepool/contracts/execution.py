@@ -15,6 +15,23 @@ class EditableFieldSpec(BaseModel):
     validation_rules: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class ResolverInput(BaseModel):
+    """Resolver 的统一输入。
+
+    V1 先保持最小通用形状，核心目标是把探索态节点信息、上游输出和用户输入
+    整理成一份稳定输入，供 HTTP / SQL 两类 Resolver 复用。
+    """
+
+    design_intent: dict[str, Any] = Field(default_factory=dict)
+    upstream_outputs: dict[str, Any] = Field(default_factory=dict)
+    user_inputs: dict[str, Any] = Field(default_factory=dict)
+    asset_definition: dict[str, Any] = Field(default_factory=dict)
+    template_context: dict[str, Any] = Field(default_factory=dict)
+    system_defaults: dict[str, Any] = Field(default_factory=dict)
+    history_examples: list[dict[str, Any]] = Field(default_factory=list)
+    governance_rules: dict[str, Any] = Field(default_factory=dict)
+
+
 class ResolverOutput(BaseModel):
     """Resolver 的统一输出。
 

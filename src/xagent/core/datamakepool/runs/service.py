@@ -9,7 +9,7 @@ from xagent.web.models.dm_run import DMRun, DMRunStep
 from xagent.web.models.dm_runtime_link import DMTaskRunLink
 from xagent.web.models.dm_template import DMTemplateRevision
 
-from ..orchestration import RunRuntimeBridge
+from ..orchestration import RunRuntimeBridge, TrialOrchestrator
 
 
 @dataclass
@@ -128,6 +128,23 @@ class RunService:
             input_payload=input_payload,
             resolved_input=input_payload,
             technical_graph=revision.technical_graph or {},
+        )
+
+    def execute_trial(
+        self,
+        run_id: int,
+        technical_graph: dict[str, Any],
+        input_payload: Optional[dict[str, Any]] = None,
+        resolved_input: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        """执行一条已创建的 trial Run。"""
+
+        orchestrator = TrialOrchestrator(db=self.db)
+        return orchestrator.execute_run(
+            run_id=run_id,
+            technical_graph=technical_graph,
+            input_payload=input_payload,
+            resolved_input=resolved_input,
         )
 
     def _create_run_steps(

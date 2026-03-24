@@ -61,8 +61,17 @@ async def trial_flowdraft(
     try:
         flowdraft_service = FlowDraftService(db=db)
         flowdraft = flowdraft_service.get_flowdraft(flowdraft_id)
+        preflight_result = flowdraft_service.get_preflight(flowdraft_id)
+        if not preflight_result.get("is_runnable", False):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "message": "FlowDraft preflight blocked trial execution",
+                    "preflight": preflight_result,
+                },
+            )
         run_service = RunService(db=db, runtime_bridge=RunRuntimeBridge())
-        result = run_service.create_run(
+        created = run_service.create_run(
             entry_type=request.entry_type,
             initiator_user_id=request.initiator_user_id or int(user.id),
             task_id=flowdraft["task_id"],
@@ -72,6 +81,19 @@ async def trial_flowdraft(
             resolved_input=flowdraft.get("output_mapping_draft"),
             technical_graph=flowdraft.get("technical_graph"),
         )
+        executed = run_service.execute_trial(
+            run_id=created["run_id"],
+            technical_graph=flowdraft.get("technical_graph") or {},
+            input_payload=flowdraft.get("input_schema_draft"),
+            resolved_input=flowdraft.get("output_mapping_draft"),
+        )
+        result = {
+            **created,
+            **executed,
+            "entry_type": created["entry_type"],
+            "created_steps": created["created_steps"],
+            "runtime": created["runtime"],
+        }
         return TrialResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

@@ -44,6 +44,10 @@ class TemplateService:
         run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
         if run is None:
             raise ValueError(f"Run {run_id} not found")
+        if run.status != "succeeded":
+            raise ValueError(
+                f"Run {run_id} status is {run.status!r}; only succeeded runs can become templates"
+            )
 
         try:
             template = self._get_or_create_template(

@@ -2,6 +2,7 @@ from .execution import (
     EditableFieldSpec,
     ExecutorInput,
     ExecutorOutput,
+    ResolverInput,
     ResolverOutput,
 )
 from .flowdraft import FlowDraftStatus, StepType
@@ -14,6 +15,7 @@ __all__ = [
     "FlowDraftStatus",
     "PreflightIssue",
     "PreflightResult",
+    "ResolverInput",
     "ResolverOutput",
     "StepType",
 ]
