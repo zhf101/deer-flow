@@ -15,9 +15,7 @@ from xagent.web.api.model import DBModel
 
 from ...core.model.chat.basic.base import BaseLLM
 from ...core.model.image.dashscope import DashScopeImageModel
-from ...core.model.image.gemini import GeminiImageModel
 from ...core.model.image.openai import OpenAIImageModel
-from ...core.model.image.xinference import XinferenceImageModel
 
 logger = logging.getLogger(__name__)
 
@@ -502,14 +500,6 @@ def get_image_models(db: Session, user_id: Optional[int] = None) -> Dict[str, An
                         abilities=list(db_model.abilities or ["generate"]),  # pyright: ignore[reportArgumentType]
                     )
                     _add_image_model_with_id(image_models, image_model, db_model)
-                elif model_provider == "gemini":
-                    image_model = GeminiImageModel(
-                        model_name=str(db_model.model_name),
-                        api_key=api_key,
-                        base_url=base_url,
-                        abilities=list(db_model.abilities or ["generate"]),  # pyright: ignore[reportArgumentType]
-                    )
-                    _add_image_model_with_id(image_models, image_model, db_model)
                 elif model_provider == "openai":
                     image_model = OpenAIImageModel(
                         model_name=str(db_model.model_name),
@@ -518,14 +508,11 @@ def get_image_models(db: Session, user_id: Optional[int] = None) -> Dict[str, An
                         abilities=list(db_model.abilities or ["generate", "edit"]),  # pyright: ignore[reportArgumentType]
                     )
                     _add_image_model_with_id(image_models, image_model, db_model)
-                elif model_provider == "xinference":
-                    image_model = XinferenceImageModel(
-                        model_name=str(db_model.model_name),
-                        api_key=api_key,
-                        base_url=base_url,
-                        abilities=list(db_model.abilities or ["generate", "edit"]),  # pyright: ignore[reportArgumentType]
+                else:
+                    logger.warning(
+                        "Unsupported image model provider in current deployment: %s",
+                        model_provider,
                     )
-                    _add_image_model_with_id(image_models, image_model, db_model)
             except Exception as e:
                 logger.warning(
                     f"Failed to create image model for {db_model.model_name}: {e}"
@@ -885,25 +872,11 @@ def _get_models_by_category(
             model_provider = str(db_model.model_provider).strip().lower()
             try:
                 model: Any = None
-                if model_provider == "xinference":
-                    # Import appropriate adapter based on model type
-                    if ability == "asr":
-                        from ...core.model.asr.adapter import get_asr_model_instance
-
-                        model = get_asr_model_instance(db_model)
-                    elif ability == "tts":
-                        from ...core.model.tts.adapter import get_tts_model_instance
-
-                        model = get_tts_model_instance(db_model)
-                    else:
-                        raise ValueError(f"Unsupported model ability: {ability}")
-
-                    models[str(db_model.model_name)] = model
-                    logger.info(f"Added {model_type} model: {db_model.model_name}")
-                else:
-                    logger.warning(
-                        f"Unsupported {model_type} model provider: {model_provider}"
-                    )
+                logger.warning(
+                    "Unsupported %s model provider in current deployment: %s",
+                    model_type,
+                    model_provider,
+                )
             except Exception as e:
                 logger.warning(
                     f"Failed to create {model_type} model {db_model.model_name}: {e}"

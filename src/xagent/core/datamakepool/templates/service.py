@@ -1,17 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from xagent.web.models.dm_audit import DMAuditRecord
 from xagent.web.models.dm_run import DMRun
 from xagent.web.models.dm_template import (
     DMTemplate,
     DMTemplateRevision,
     DMTemplateRevisionStep,
 )
+from xagent.web.models.user import User
+
+from ..governance import GovernanceService
 
 @dataclass
 class TemplateService:
@@ -25,6 +30,7 @@ class TemplateService:
     def create_revision_from_run(
         self,
         run_id: int,
+        user: User,
         template_name: Optional[str] = None,
         description: Optional[str] = None,
         system_short: Optional[str] = None,
@@ -44,6 +50,8 @@ class TemplateService:
         run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
         if run is None:
             raise ValueError(f"Run {run_id} not found")
+        governance_service = GovernanceService(db=self.db)
+        governance_service.assert_run_access(run, user)
         if run.status != "succeeded":
             raise ValueError(
                 f"Run {run_id} status is {run.status!r}; only succeeded runs can become templates"
@@ -52,6 +60,7 @@ class TemplateService:
         try:
             template = self._get_or_create_template(
                 run=run,
+                user=user,
                 template_id=template_id,
                 template_name=template_name,
                 description=description,
@@ -88,7 +97,7 @@ class TemplateService:
             self.db.rollback()
             raise
 
-    def submit_review(self, revision_id: int) -> dict[str, Any]:
+    def submit_review(self, revision_id: int, user: User) -> dict[str, Any]:
         """提交模板版本审核。"""
         revision = (
             self.db.query(DMTemplateRevision)
@@ -98,11 +107,13 @@ class TemplateService:
         if revision is None:
             raise ValueError(f"Template revision {revision_id} not found")
 
+        GovernanceService(db=self.db).assert_can_submit_template_review(revision, user)
         revision.status = "pending_review"
+        revision.review_comment = None
         self.db.commit()
         return {"revision_id": revision.id, "status": revision.status}
 
-    def approve_revision(self, revision_id: int, reviewer_user_id: int) -> dict[str, Any]:
+    def approve_revision(self, revision_id: int, reviewer: User) -> dict[str, Any]:
         """审批通过模板版本，并切换逻辑模板的当前发布版本。"""
         revision = (
             self.db.query(DMTemplateRevision)
@@ -116,31 +127,49 @@ class TemplateService:
         if template is None:
             raise ValueError(f"Template {revision.template_id} not found")
 
+        GovernanceService(db=self.db).assert_can_approve_template_revision(revision, reviewer)
         try:
             revision.status = "published"
-            revision.reviewed_by = reviewer_user_id
+            revision.reviewed_by = int(reviewer.id)
+            revision.reviewed_at = self._now()
+            revision.published_at = revision.reviewed_at
+            revision.review_comment = "approved"
             template.latest_published_revision_id = revision.id
+            self._record_template_approval_audit(
+                revision=revision,
+                reviewer_user_id=int(reviewer.id),
+            )
             self.db.commit()
             return {"revision_id": revision.id, "status": revision.status}
         except Exception:
             self.db.rollback()
             raise
 
-    def list_templates(self) -> list[dict[str, Any]]:
+    def list_templates(self, user: User) -> list[dict[str, Any]]:
         """列出模板逻辑对象。"""
         templates = self.db.query(DMTemplate).order_by(DMTemplate.created_at.desc()).all()
-        return [self._serialize_template(template) for template in templates]
+        governance_service = GovernanceService(db=self.db)
+        visible_templates: list[DMTemplate] = []
+        for template in templates:
+            try:
+                governance_service.assert_template_access(template, user)
+                visible_templates.append(template)
+            except PermissionError:
+                continue
+        return [self._serialize_template(template) for template in visible_templates]
 
-    def list_revisions(self, template_id: int) -> list[dict[str, Any]]:
+    def list_revisions(self, template_id: int, user: User) -> list[dict[str, Any]]:
         """列出指定模板的全部版本。"""
         template = self.db.query(DMTemplate).filter(DMTemplate.id == template_id).first()
         if template is None:
             raise ValueError(f"Template {template_id} not found")
+        GovernanceService(db=self.db).assert_template_access(template, user)
         return [self._serialize_revision(revision) for revision in template.revisions]
 
     def _get_or_create_template(
         self,
         run: DMRun,
+        user: User,
         template_id: Optional[int],
         template_name: Optional[str],
         description: Optional[str],
@@ -151,6 +180,7 @@ class TemplateService:
             template = self.db.query(DMTemplate).filter(DMTemplate.id == template_id).first()
             if template is None:
                 raise ValueError(f"Template {template_id} not found")
+            GovernanceService(db=self.db).assert_template_access(template, user)
             return template
 
         template = DMTemplate(
@@ -162,6 +192,44 @@ class TemplateService:
         self.db.add(template)
         self.db.flush()
         return template
+
+    def _record_template_approval_audit(
+        self,
+        revision: DMTemplateRevision,
+        reviewer_user_id: int,
+    ) -> None:
+        """为模板发布动作补一条最小治理留痕。"""
+
+        template = revision.template
+        if template is None or revision.source_run_id is None:
+            return
+
+        self.db.add(
+            DMAuditRecord(
+                run_id=revision.source_run_id,
+                run_step_id=None,
+                actor_user_id=reviewer_user_id,
+                system_short=template.system_short,
+                audit_type="template_approval",
+                risk_level=None,
+                confirmation_mode="review",
+                target_objects=[
+                    {
+                        "template_id": template.id,
+                        "revision_id": revision.id,
+                        "system_short": template.system_short,
+                    }
+                ],
+                payload={
+                    "template_id": template.id,
+                    "revision_id": revision.id,
+                    "version_no": revision.version_no,
+                    "status": revision.status,
+                },
+                status="approved",
+                error_message=None,
+            )
+        )
 
     def _next_version_no(self, template_id: int) -> int:
         """计算模板的下一个版本号。"""
@@ -257,3 +325,6 @@ class TemplateService:
             "review_comment": revision.review_comment,
             "steps_count": len(revision.steps),
         }
+
+    def _now(self) -> datetime:
+        return datetime.now(timezone.utc)

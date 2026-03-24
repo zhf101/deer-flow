@@ -6,9 +6,7 @@ from ...model import ImageModelConfig
 from ...retry import create_retry_wrapper
 from .base import BaseImageModel
 from .dashscope import DashScopeImageModel
-from .gemini import GeminiImageModel
 from .openai import OpenAIImageModel
-from .xinference import XinferenceImageModel
 
 
 def get_image_model_instance(db_model: Any) -> BaseImageModel:
@@ -67,15 +65,7 @@ def create_image_model(model_config: ImageModelConfig) -> BaseImageModel:
 
     llm: BaseImageModel
 
-    if provider == "gemini":
-        llm = GeminiImageModel(
-            model_name=model_config.model_name,
-            api_key=model_config.api_key,
-            base_url=model_config.base_url,
-            timeout=model_config.timeout,
-            abilities=model_config.abilities,
-        )
-    elif provider == "dashscope":
+    if provider == "dashscope":
         llm = DashScopeImageModel(
             model_name=model_config.model_name,
             api_key=model_config.api_key,
@@ -89,14 +79,6 @@ def create_image_model(model_config: ImageModelConfig) -> BaseImageModel:
             model_name=model_config.model_name,
             api_key=model_config.api_key,
             base_url=model_config.base_url,
-            timeout=model_config.timeout,
-            abilities=model_config.abilities,
-        )
-    elif provider == "xinference":
-        llm = XinferenceImageModel(
-            model_name=model_config.model_name,
-            base_url=model_config.base_url,
-            api_key=model_config.api_key,
             timeout=model_config.timeout,
             abilities=model_config.abilities,
         )

@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 
 from xagent.web.models.admin_system_scope import AdminSystemScope
 from xagent.web.models.dm_audit import DMAuditRecord
+from xagent.web.models.dm_flow_draft import DMFlowDraft
 from xagent.web.models.dm_run import DMRun, DMRunStep
+from xagent.web.models.dm_template import DMTemplate, DMTemplateRevision
 from xagent.web.models.user import User
 
 from ..preflight import PreflightService
@@ -85,6 +87,28 @@ class GovernanceService:
         if run.initiator_user_id != user.id:
             raise PermissionError(f"User {user.id} cannot access run {run.id}")
 
+    def assert_flowdraft_access(self, flowdraft: DMFlowDraft, user: User) -> None:
+        """校验当前用户是否可访问 FlowDraft。
+
+        FlowDraft 目前还没有稳定的 `system_short` 归属字段，因此这一版采用更保守的策略：
+        - system_admin 可看全部
+        - 草稿创建者可看自己的草稿
+        - task 所属用户可看挂在自己任务下的草稿
+        - domain_admin 暂不因 admin scope 自动放开，避免在缺少稳定归属字段时越权
+        """
+
+        scope_context = self.get_scope_context(user)
+        if scope_context["role"] == "system_admin":
+            return
+
+        if flowdraft.created_by == user.id:
+            return
+
+        if flowdraft.task is not None and flowdraft.task.user_id == user.id:
+            return
+
+        raise PermissionError(f"User {user.id} cannot access flowdraft {flowdraft.id}")
+
     def assert_audit_access(self, audit: DMAuditRecord, user: User) -> None:
         """校验当前用户是否可查看审计记录。
 
@@ -107,6 +131,119 @@ class GovernanceService:
             )
 
         raise PermissionError(f"User {user.id} cannot access audit {audit.id}")
+
+    def assert_template_access(self, template: DMTemplate, user: User) -> None:
+        """校验当前用户是否可访问模板对象。"""
+
+        scope_context = self.get_scope_context(user)
+        if scope_context["role"] == "system_admin":
+            return
+
+        if template.owner_user_id == user.id:
+            return
+
+        if scope_context["role"] == "domain_admin":
+            if template.system_short and template.system_short in scope_context["scopes"]:
+                return
+            raise PermissionError(
+                f"User {user.id} has no template scope for system_short={template.system_short!r}"
+            )
+
+        raise PermissionError(f"User {user.id} cannot access template {template.id}")
+
+    def assert_template_revision_access(self, revision: DMTemplateRevision, user: User) -> None:
+        """校验当前用户是否可访问模板版本。"""
+
+        template = revision.template
+        if template is None:
+            raise ValueError(f"Template {revision.template_id} not found")
+        self.assert_template_access(template, user)
+
+    def assert_can_submit_template_review(
+        self, revision: DMTemplateRevision, user: User
+    ) -> None:
+        """校验当前用户是否可发起模板送审。"""
+
+        self.assert_template_revision_access(revision, user)
+        if revision.status != "draft":
+            raise ValueError(
+                f"Template revision {revision.id} status is {revision.status!r}; only draft can submit review"
+            )
+
+    def assert_can_approve_template_revision(
+        self, revision: DMTemplateRevision, user: User
+    ) -> None:
+        """校验当前用户是否可审批模板版本。"""
+
+        template = revision.template
+        if template is None:
+            raise ValueError(f"Template {revision.template_id} not found")
+
+        scope_context = self.get_scope_context(user)
+        if scope_context["role"] == "user":
+            raise PermissionError(
+                f"User {user.id} is not allowed to approve template revision {revision.id}"
+            )
+        if scope_context["role"] == "domain_admin":
+            if not template.system_short or template.system_short not in scope_context["scopes"]:
+                raise PermissionError(
+                    f"User {user.id} has no approval scope for system_short={template.system_short!r}"
+                )
+
+        if revision.status != "pending_review":
+            raise ValueError(
+                f"Template revision {revision.id} status is {revision.status!r}; only pending_review can approve"
+            )
+
+        if revision.created_by == user.id:
+            raise PermissionError(
+                f"User {user.id} cannot approve template revision {revision.id} created by self"
+            )
+
+    def assert_initiator_override_allowed(
+        self,
+        requested_initiator_user_id: int | None,
+        current_user: User,
+    ) -> int:
+        """校验调用方是否允许覆盖执行发起人。
+
+        默认规则：
+        - 不传则使用当前登录用户
+        - 传且等于当前登录用户：允许
+        - 只有 system_admin 允许替别人发起
+        """
+
+        if requested_initiator_user_id is None:
+            return int(current_user.id)
+
+        if int(requested_initiator_user_id) == int(current_user.id):
+            return int(current_user.id)
+
+        scope_context = self.get_scope_context(current_user)
+        if scope_context["role"] == "system_admin":
+            return int(requested_initiator_user_id)
+
+        raise PermissionError(
+            f"User {current_user.id} cannot override initiator_user_id to {requested_initiator_user_id}"
+        )
+
+    def assert_template_execution_access(
+        self,
+        revision: DMTemplateRevision,
+        user: User,
+        requested_system_short: str | None = None,
+    ) -> None:
+        """校验当前用户是否可基于模板版本发起执行。"""
+
+        self.assert_template_revision_access(revision, user)
+        template = revision.template
+        if template is None:
+            raise ValueError(f"Template {revision.template_id} not found")
+
+        if requested_system_short and requested_system_short != template.system_short:
+            raise PermissionError(
+                "Requested system_short does not match the published template ownership"
+            )
 
     def build_sql_audit_payload(
         self,

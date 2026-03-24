@@ -8,10 +8,7 @@ from sqlalchemy.orm import Session
 
 from ...core.model.chat.basic.adapter import create_base_llm
 from ...core.model.chat.basic.base import BaseLLM
-from ...core.model.chat.basic.claude import ClaudeLLM
-from ...core.model.chat.basic.gemini import GeminiLLM
 from ...core.model.chat.basic.openai import OpenAILLM
-from ...core.model.chat.basic.zhipu import ZhipuLLM
 from ...core.model.model import (
     ChatModelConfig,
     EmbeddingModelConfig,
@@ -805,10 +802,11 @@ def create_llm_from_env() -> Optional[BaseLLM]:
     """
     Create LLM instance from environment variables.
 
+    当前部署仅保留 OpenAI 兼容链路，因此这里只读取 OpenAI 相关环境变量。
+
     Returns:
         LLM instance or None
     """
-    # Try OpenAI first
     openai_key = os.getenv("OPENAI_API_KEY")
     if openai_key:
         try:
@@ -821,48 +819,6 @@ def create_llm_from_env() -> Optional[BaseLLM]:
             )
         except Exception as e:
             logger.error(f"Error creating OpenAI LLM from env: {e}")
-
-    # Try Zhipu
-    zhipu_key = os.getenv("ZHIPU_API_KEY")
-    if zhipu_key:
-        try:
-            model_name = os.getenv("ZHIPU_MODEL_NAME", "glm-4")
-            base_url = os.getenv("ZHIPU_BASE_URL")
-            return ZhipuLLM(
-                model_name=model_name,
-                api_key=zhipu_key,
-                base_url=base_url,
-            )
-        except Exception as e:
-            logger.error(f"Error creating Zhipu LLM from env: {e}")
-
-    # Try Gemini
-    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    if gemini_key:
-        try:
-            model_name = os.getenv("GEMINI_MODEL_NAME", "gemini-2.0-flash-exp")
-            base_url = os.getenv("GEMINI_BASE_URL")
-            return GeminiLLM(
-                model_name=model_name,
-                api_key=gemini_key,
-                base_url=base_url,
-            )
-        except Exception as e:
-            logger.error(f"Error creating Gemini LLM from env: {e}")
-
-    # Try Claude
-    claude_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
-    if claude_key:
-        try:
-            model_name = os.getenv("CLAUDE_MODEL_NAME", "claude-3-5-sonnet-20241022")
-            base_url = os.getenv("CLAUDE_BASE_URL")
-            return ClaudeLLM(
-                model_name=model_name,
-                api_key=claude_key,
-                base_url=base_url,
-            )
-        except Exception as e:
-            logger.error(f"Error creating Claude LLM from env: {e}")
 
     return None
 

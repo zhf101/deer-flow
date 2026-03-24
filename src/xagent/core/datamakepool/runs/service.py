@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from xagent.web.models.dm_run import DMRun, DMRunStep
 from xagent.web.models.dm_runtime_link import DMTaskRunLink
 from xagent.web.models.dm_template import DMTemplateRevision
+from xagent.web.models.user import User
 
+from ..governance import GovernanceService
 from ..orchestration import RunRuntimeBridge, TrialOrchestrator
 
 
@@ -105,6 +107,7 @@ class RunService:
     def create_run_from_template(
         self,
         template_revision_id: int,
+        user: User,
         initiator_user_id: int,
         system_short: Optional[str] = None,
         input_payload: Optional[dict[str, Any]] = None,
@@ -122,6 +125,12 @@ class RunService:
             raise ValueError(
                 f"Template revision {template_revision_id} is not published and cannot execute"
             )
+        governance_service = GovernanceService(db=self.db)
+        governance_service.assert_template_execution_access(
+            revision=revision,
+            user=user,
+            requested_system_short=system_short,
+        )
 
         return self.create_run(
             entry_type="template",

@@ -25,6 +25,63 @@ class FlowDraftResponse(BaseModel):
     latest_snapshot_id: Optional[int] = None
 
 
+class FlowDraftSnapshotResponse(BaseModel):
+    """FlowDraft 快照列表项。"""
+
+    snapshot_id: int
+    flowdraft_id: int
+    snapshot_type: str
+    created_by: int
+    created_at: Optional[str] = None
+
+
+class FlowDraftDiffChunkResponse(BaseModel):
+    """单块 diff 结果。"""
+
+    changed: bool
+    changed_count: int
+    changed_paths: list[str] = Field(default_factory=list)
+
+
+class FlowDraftDiffResponse(BaseModel):
+    """FlowDraft diff 响应。"""
+
+    flowdraft_id: int
+    before: dict[str, Any] = Field(default_factory=dict)
+    after: dict[str, Any] = Field(default_factory=dict)
+    business_graph_diff: FlowDraftDiffChunkResponse
+    technical_graph_diff: FlowDraftDiffChunkResponse
+    preflight_summary_diff: FlowDraftDiffChunkResponse
+
+
+class FlowDraftStepPatchRequest(BaseModel):
+    """单步 patch 请求。"""
+
+    changes: dict[str, Any] = Field(default_factory=dict)
+
+
+class FlowDraftStepPatchResponse(BaseModel):
+    """单步 patch 结果。"""
+
+    flowdraft_id: int
+    step_id: str
+    status: str
+    direct_updates: list[str] = Field(default_factory=list)
+    needs_resolution_fields: list[str] = Field(default_factory=list)
+    latest_snapshot_id: Optional[int] = None
+
+
+class FlowDraftStepResolveResponse(BaseModel):
+    """单步局部重收敛结果。"""
+
+    flowdraft_id: int
+    step_id: str
+    status: str
+    resolution_status: str
+    blocking_issues: list[dict[str, Any]] = Field(default_factory=list)
+    latest_snapshot_id: Optional[int] = None
+
+
 class TrialRequest(BaseModel):
     """发起 trial run 的最小请求体。"""
 

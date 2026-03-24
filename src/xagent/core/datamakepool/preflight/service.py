@@ -88,8 +88,10 @@ class PreflightService:
                     )
 
                 param_template = (
-                    resolved_plan.get("param_template")
+                    resolved_plan.get("query_template")
+                    or resolved_plan.get("param_template")
                     or resolved_plan.get("input_template")
+                    or node.get("query_template")
                     or node.get("param_template")
                     or node.get("input_template")
                 )

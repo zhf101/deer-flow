@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from .base import ASRResult, ASRSegment, BaseASR
-from .xinference import XinferenceASR
 
 
 def get_asr_model_instance(db_model: Any) -> BaseASR:
@@ -20,27 +19,13 @@ def get_asr_model_instance(db_model: Any) -> BaseASR:
     Raises:
         ValueError: If provider is not supported or required fields are missing
     """
-    provider = str(db_model.model_provider).lower()
-    model_name = str(db_model.model_name)
-    api_key = str(db_model.api_key) if db_model.api_key else None
-    base_url = str(db_model.base_url) if db_model.base_url else None
-
-    if provider == "xinference":
-        return XinferenceASR(
-            model=model_name,
-            model_uid=model_name,
-            base_url=base_url,
-            api_key=api_key,
-        )
-    else:
-        raise ValueError(
-            f"Unsupported ASR provider: {provider}. "
-            "Currently only 'xinference' is supported."
-        )
+    _ = db_model
+    # 当前部署已移除 xinference 依赖，语音识别能力不再从该入口创建。
+    raise ValueError("Unsupported ASR provider: current deployment only keeps OpenAI-compatible text/image model chains.")
 
 
 def get_asr_model(
-    provider: str = "xinference",
+    provider: str = "openai",
     model: Optional[str] = None,
     api_key: Optional[str] = None,
     **kwargs: Any,
@@ -49,7 +34,7 @@ def get_asr_model(
     Factory function to get ASR model instance by provider.
 
     Args:
-        provider: Model provider name (e.g., 'xinference')
+        provider: Model provider name
         model: Model name/identifier
         api_key: API key for the provider
         **kwargs: Additional provider-specific parameters
@@ -60,17 +45,8 @@ def get_asr_model(
     Raises:
         ValueError: If provider is not supported
     """
-    if provider == "xinference":
-        return XinferenceASR(
-            model=model or "whisper-base",
-            api_key=api_key,
-            **kwargs,
-        )
-    else:
-        raise ValueError(
-            f"Unsupported ASR provider: {provider}. "
-            "Currently only 'xinference' is supported."
-        )
+    _ = provider, model, api_key, kwargs
+    raise ValueError("Unsupported ASR provider: current deployment only keeps OpenAI-compatible text/image model chains.")
 
 
 __all__ = [
@@ -79,5 +55,4 @@ __all__ = [
     "BaseASR",
     "ASRResult",
     "ASRSegment",
-    "XinferenceASR",
 ]

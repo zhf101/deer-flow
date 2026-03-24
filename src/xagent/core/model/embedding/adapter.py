@@ -7,7 +7,6 @@ from ..model import EmbeddingModelConfig
 from .base import BaseEmbedding
 from .dashscope import DashScopeEmbedding
 from .openai import OpenAIEmbedding
-from .xinference import XinferenceEmbedding
 
 
 def retry_on(e: Exception) -> bool:
@@ -60,13 +59,6 @@ class EmbeddingModelAdapter(BaseEmbedding):
                 base_url=self.model_config.base_url,
                 dimension=self.model_config.dimension,
                 instruct=self.model_config.instruct,
-            )
-        elif provider == "xinference":
-            return XinferenceEmbedding(
-                model=self.model_config.model_name,
-                base_url=self.model_config.base_url,
-                api_key=self.model_config.api_key,
-                dimension=self.model_config.dimension,
             )
         else:
             raise ValueError(

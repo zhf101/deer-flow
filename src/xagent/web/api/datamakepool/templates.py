@@ -23,10 +23,10 @@ async def create_template_from_run(
     user: User = Depends(get_current_user),
 ) -> TemplateRevisionResponse:
     """从成功 Run 生成模板草稿。"""
-    del user
     try:
         result = TemplateService(db=db).create_revision_from_run(
             run_id=request.run_id,
+            user=user,
             template_id=request.template_id,
             template_name=request.template_name,
             description=request.description,
@@ -39,6 +39,8 @@ async def create_template_from_run(
         return TemplateRevisionResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("", response_model=list[TemplateSummaryResponse])
@@ -47,9 +49,11 @@ async def list_templates(
     user: User = Depends(get_current_user),
 ) -> list[TemplateSummaryResponse]:
     """列出模板逻辑对象。"""
-    del user
-    result = TemplateService(db=db).list_templates()
-    return [TemplateSummaryResponse(**item) for item in result]
+    try:
+        result = TemplateService(db=db).list_templates(user)
+        return [TemplateSummaryResponse(**item) for item in result]
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/{template_id}/revisions", response_model=list[TemplateRevisionSummaryResponse])
@@ -59,12 +63,13 @@ async def list_template_revisions(
     user: User = Depends(get_current_user),
 ) -> list[TemplateRevisionSummaryResponse]:
     """列出某个模板的全部版本。"""
-    del user
     try:
-        result = TemplateService(db=db).list_revisions(template_id)
+        result = TemplateService(db=db).list_revisions(template_id, user)
         return [TemplateRevisionSummaryResponse(**item) for item in result]
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post("/revisions/{revision_id}/submit-review", response_model=ReviewResponse)
@@ -74,12 +79,13 @@ async def submit_template_review(
     user: User = Depends(get_current_user),
 ) -> ReviewResponse:
     """提交模板版本审核。"""
-    del user
     try:
-        result = TemplateService(db=db).submit_review(revision_id)
+        result = TemplateService(db=db).submit_review(revision_id, user)
         return ReviewResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post("/revisions/{revision_id}/approve")
@@ -90,7 +96,9 @@ async def approve_template_revision(
 ) -> ReviewResponse:
     """审批通过模板版本。"""
     try:
-        result = TemplateService(db=db).approve_revision(revision_id, int(user.id))
+        result = TemplateService(db=db).approve_revision(revision_id, user)
         return ReviewResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc

@@ -28,15 +28,23 @@ async def create_run_from_template(
 ) -> TrialResponse:
     """从已发布模板创建正式执行 Run。"""
     try:
+        governance_service = GovernanceService(db=db)
+        initiator_user_id = governance_service.assert_initiator_override_allowed(
+            request.initiator_user_id,
+            user,
+        )
         result = RunService(db=db, runtime_bridge=RunRuntimeBridge()).create_run_from_template(
             template_revision_id=request.template_revision_id,
-            initiator_user_id=request.initiator_user_id or int(user.id),
+            user=user,
+            initiator_user_id=initiator_user_id,
             system_short=request.system_short,
             input_payload=request.input_payload,
         )
         return TrialResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/{run_id}", response_model=RunDetailResponse)
