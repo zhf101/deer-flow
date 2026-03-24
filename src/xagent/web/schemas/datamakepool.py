@@ -93,6 +93,61 @@ class RunStepResponse(BaseModel):
     finished_at: Optional[str] = None
 
 
+class DangerousSQLConfirmRequest(BaseModel):
+    """危险 SQL 确认请求。"""
+
+    reason: Optional[str] = None
+    run_step_ids: list[int] = Field(default_factory=list)
+    resume_execution: bool = True
+
+
+class DangerousSQLConfirmResponse(BaseModel):
+    """危险 SQL 确认结果。"""
+
+    run_id: int
+    status: str
+    confirmed_count: int
+    confirmed_step_ids: list[str] = Field(default_factory=list)
+    resumed: bool = False
+    resume_result: Optional[dict[str, Any]] = None
+
+
+class SQLAuditSummaryResponse(BaseModel):
+    """SQL 审计列表项。"""
+
+    audit_id: int
+    run_id: int
+    run_step_id: Optional[int] = None
+    system_short: Optional[str] = None
+    audit_type: str
+    risk_level: Optional[str] = None
+    confirmation_mode: Optional[str] = None
+    status: str
+    step_id: Optional[str] = None
+    step_name: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class SQLAuditDetailResponse(BaseModel):
+    """SQL 审计详情。"""
+
+    audit_id: int
+    run_id: int
+    run_step_id: Optional[int] = None
+    actor_user_id: int
+    system_short: Optional[str] = None
+    audit_type: str
+    risk_level: Optional[str] = None
+    confirmation_mode: Optional[str] = None
+    confirmed_by: Optional[int] = None
+    confirmed_at: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    target_objects: list[dict[str, Any]] = Field(default_factory=list)
+    payload: dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[str] = None
+
+
 class CreateTemplateFromRunRequest(BaseModel):
     """从成功 Run 生成模板草稿的请求体。"""
 

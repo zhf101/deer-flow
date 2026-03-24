@@ -3,13 +3,17 @@ from sqlalchemy.orm import Session
 
 from ...auth_dependencies import get_current_user
 from ...models.database import get_db
+from ...models.dm_run import DMRun
 from ...models.user import User
 from ...schemas.datamakepool import (
     CreateRunFromTemplateRequest,
+    DangerousSQLConfirmRequest,
+    DangerousSQLConfirmResponse,
     RunDetailResponse,
     RunStepResponse,
     TrialResponse,
 )
+from ....core.datamakepool.governance import GovernanceService
 from ....core.datamakepool.orchestration import RunRuntimeBridge
 from ....core.datamakepool.runs import RunService
 
@@ -42,12 +46,18 @@ async def get_run(
     user: User = Depends(get_current_user),
 ) -> RunDetailResponse:
     """读取单个 Run 详情。"""
-    del user
     try:
-        result = RunService(db=db, runtime_bridge=RunRuntimeBridge()).get_run(run_id)
+        service = RunService(db=db, runtime_bridge=RunRuntimeBridge())
+        run = db.query(DMRun).filter(DMRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run {run_id} not found")
+        GovernanceService(db=db).assert_run_access(run, user)
+        result = service.get_run(run_id)
         return RunDetailResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/{run_id}/steps", response_model=list[RunStepResponse])
@@ -57,15 +67,48 @@ async def get_run_steps(
     user: User = Depends(get_current_user),
 ) -> list[RunStepResponse]:
     """读取某个 Run 的步骤列表。"""
-    del user
     try:
-        result = RunService(db=db, runtime_bridge=RunRuntimeBridge()).get_run_steps(run_id)
+        service = RunService(db=db, runtime_bridge=RunRuntimeBridge())
+        run = db.query(DMRun).filter(DMRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run {run_id} not found")
+        GovernanceService(db=db).assert_run_access(run, user)
+        result = service.get_run_steps(run_id)
         return [RunStepResponse(**item) for item in result]
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
-@router.post("/{run_id}/confirm-dangerous-sql")
-async def confirm_dangerous_sql(run_id: int) -> dict:
+@router.post("/{run_id}/confirm-dangerous-sql", response_model=DangerousSQLConfirmResponse)
+async def confirm_dangerous_sql(
+    run_id: int,
+    request: DangerousSQLConfirmRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> DangerousSQLConfirmResponse:
     """对当前 Run 中待确认的危险 SQL 进行确认。"""
-    return {"run_id": run_id, "status": "not_implemented"}
+    try:
+        governance_result = GovernanceService(db=db).confirm_dangerous_sql(
+            run_id=run_id,
+            user=user,
+            reason=request.reason,
+            step_ids=request.run_step_ids,
+        )
+        resume_result = None
+        resumed = False
+        if request.resume_execution:
+            resume_result = RunService(db=db, runtime_bridge=RunRuntimeBridge()).resume_run(run_id)
+            governance_result["status"] = str(resume_result.get("status") or governance_result["status"])
+            resumed = True
+
+        return DangerousSQLConfirmResponse(
+            **governance_result,
+            resumed=resumed,
+            resume_result=resume_result,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc

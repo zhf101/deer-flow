@@ -39,6 +39,14 @@ class SQLExecutor:
             return ExecutorOutput(
                 execution_status="failed",
                 error_info={"message": str(exc), "type": exc.__class__.__name__},
+                audit_payload={
+                    "asset_ref": plan.get("asset_ref"),
+                    "lane": plan.get("lane"),
+                    "risk_level": plan.get("risk_level"),
+                    "confirmation_required": bool(plan.get("confirmation_required")),
+                    "governance_check_result": plan.get("governance_check_result") or {},
+                    "target_objects": plan.get("target_objects") or [],
+                },
                 raw_payload={"sql_snapshot": query_snapshot},
             )
 
@@ -73,6 +81,14 @@ class SQLExecutor:
             execution_status="succeeded",
             extracted_outputs=extracted_outputs if isinstance(extracted_outputs, dict) else {"result": extracted_outputs},
             execution_metrics={"rowcount": rowcount},
+            audit_payload={
+                "asset_ref": plan.get("asset_ref"),
+                "lane": plan.get("lane"),
+                "risk_level": plan.get("risk_level"),
+                "confirmation_required": bool(plan.get("confirmation_required")),
+                "governance_check_result": plan.get("governance_check_result") or {},
+                "target_objects": plan.get("target_objects") or [],
+            },
             raw_payload={
                 "sql_snapshot": query_snapshot,
                 "result_snapshot": result_snapshot,

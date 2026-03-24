@@ -15,6 +15,16 @@ class SQLResolver:
             or node.get("governance_check_result")
             or {}
         )
+        sql_text = existing_plan.get("sql") or existing_plan.get("statement") or node.get("sql")
+        inferred_governance = self._infer_governance(
+            sql=sql_text,
+            lane=existing_plan.get("lane") or node.get("lane"),
+            risk_level=existing_plan.get("risk_level") or node.get("risk_level"),
+            confirmation_required=(
+                existing_plan.get("confirmation_required") or node.get("confirmation_required")
+            ),
+            governance_result=governance_result,
+        )
 
         plan = {
             "step_type": "sql_step",
@@ -24,7 +34,7 @@ class SQLResolver:
                 or node.get("asset_ref")
                 or node.get("asset_id")
             ),
-            "sql": existing_plan.get("sql") or existing_plan.get("statement") or node.get("sql"),
+            "sql": sql_text,
             "param_template": (
                 existing_plan.get("param_template")
                 or existing_plan.get("input_template")
@@ -35,13 +45,10 @@ class SQLResolver:
             "output_mapping": (
                 existing_plan.get("output_mapping") or node.get("output_mapping") or {}
             ),
-            "lane": existing_plan.get("lane") or node.get("lane"),
-            "risk_level": existing_plan.get("risk_level") or node.get("risk_level"),
-            "confirmation_required": bool(
-                existing_plan.get("confirmation_required")
-                or node.get("confirmation_required")
-            ),
-            "governance_check_result": governance_result,
+            "lane": inferred_governance["lane"],
+            "risk_level": inferred_governance["risk_level"],
+            "confirmation_required": inferred_governance["confirmation_required"],
+            "governance_check_result": inferred_governance["governance_check_result"],
         }
 
         blocking_issues: list[dict[str, Any]] = []
@@ -80,6 +87,7 @@ class SQLResolver:
             resolution_rationale={
                 "strategy": "reuse_existing_sql_plan",
                 "governance_rules": resolver_input.governance_rules,
+                "governance_inference": inferred_governance,
             },
             resolved_execution_plan=plan,
             editable_fields=[
@@ -89,3 +97,74 @@ class SQLResolver:
                 EditableFieldSpec(name="sql", mode="needs_resolution"),
             ],
         )
+
+    def _infer_governance(
+        self,
+        sql: Any,
+        lane: Any,
+        risk_level: Any,
+        confirmation_required: Any,
+        governance_result: dict[str, Any],
+    ) -> dict[str, Any]:
+        """为 SQL 节点补最小治理判定。
+
+        当前规则只做 V1 第一阶段需要的粗粒度判断：
+        - `select / with / show / desc / explain` 视为 query
+        - `insert / update / delete / merge / alter / drop / truncate / create / replace`
+          视为 mutation
+        - mutation 默认要求确认
+        """
+
+        sql_text = str(sql or "").strip()
+        first_keyword = sql_text.split(None, 1)[0].lower() if sql_text else ""
+        inferred_lane = str(lane or "").strip().lower()
+        if not inferred_lane:
+            if first_keyword in {"select", "with", "show", "desc", "describe", "explain"}:
+                inferred_lane = "query"
+            elif first_keyword in {
+                "insert",
+                "update",
+                "delete",
+                "merge",
+                "alter",
+                "drop",
+                "truncate",
+                "create",
+                "replace",
+            }:
+                inferred_lane = "mutation"
+
+        inferred_risk = str(risk_level or "").strip().lower()
+        if not inferred_risk:
+            if inferred_lane == "mutation":
+                inferred_risk = "high"
+            elif inferred_lane == "query":
+                inferred_risk = "low"
+
+        requires_confirmation = bool(confirmation_required)
+        if not confirmation_required and inferred_lane == "mutation":
+            requires_confirmation = True
+
+        resolved_governance = dict(governance_result or {})
+        if not resolved_governance:
+            if requires_confirmation:
+                resolved_governance = {
+                    "status": "review_required",
+                    "reason": "mutation_sql_requires_manual_confirmation",
+                    "lane": inferred_lane,
+                    "risk_level": inferred_risk,
+                }
+            else:
+                resolved_governance = {
+                    "status": "passed",
+                    "reason": "query_sql_can_run_directly",
+                    "lane": inferred_lane,
+                    "risk_level": inferred_risk,
+                }
+
+        return {
+            "lane": inferred_lane or None,
+            "risk_level": inferred_risk or None,
+            "confirmation_required": requires_confirmation,
+            "governance_check_result": resolved_governance,
+        }

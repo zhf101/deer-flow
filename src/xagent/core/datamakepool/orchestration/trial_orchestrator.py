@@ -10,6 +10,7 @@ from xagent.web.models.dm_run import DMRun, DMRunStep
 
 from ..contracts import ExecutorInput, ExecutorOutput, ResolverInput
 from ..executors import ControlExecutor, HTTPExecutor, SQLExecutor
+from ..governance import GovernanceService
 from ..resolvers import HTTPResolver, SQLResolver
 
 
@@ -32,6 +33,7 @@ class TrialOrchestrator:
         technical_graph: dict[str, Any],
         input_payload: dict[str, Any] | None = None,
         resolved_input: dict[str, Any] | None = None,
+        resume: bool = False,
     ) -> dict[str, Any]:
         run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
         if run is None:
@@ -55,16 +57,23 @@ class TrialOrchestrator:
             return self._serialize_result(run, {})
 
         run.status = "running"
+        if resume:
+            run.final_output = None
+            run.error_summary = None
         self.db.flush()
+        governance_service = GovernanceService(db=self.db)
 
-        step_outputs: dict[str, Any] = {}
-        step_errors: dict[str, Any] = {}
+        step_outputs: dict[str, Any] = self._restore_step_outputs(run.steps) if resume else {}
+        step_errors: dict[str, Any] = self._restore_step_errors(run.steps) if resume else {}
         first_failure: str | None = None
+        first_failure_status: str | None = None
 
         for step_id in execution_order:
             node = node_map.get(step_id)
             step = step_map.get(step_id)
             if node is None or step is None:
+                continue
+            if resume and step.status == "succeeded" and step_id in step_outputs:
                 continue
 
             missing_dep = self._find_missing_dependency(step.depends_on or [], step_outputs, step_errors)
@@ -75,6 +84,7 @@ class TrialOrchestrator:
                 )
                 step_errors[step_id] = {"type": "dependency_blocked", "dependency": missing_dep}
                 first_failure = first_failure or step.error_message
+                first_failure_status = first_failure_status or "blocked"
                 break
 
             resolver_output, executor_output = self._execute_single_step(
@@ -87,6 +97,13 @@ class TrialOrchestrator:
             if resolver_output is not None:
                 step.resolved_execution_plan_snapshot = resolver_output.resolved_execution_plan
             self.db.flush()
+            self._record_step_audit(
+                governance_service=governance_service,
+                run=run,
+                step=step,
+                resolver_output=resolver_output,
+                executor_output=executor_output,
+            )
 
             if executor_output.execution_status == "succeeded":
                 outputs = executor_output.extracted_outputs or {}
@@ -99,7 +116,10 @@ class TrialOrchestrator:
                             dep: step_outputs.get(dep) for dep in (step.depends_on or [])
                         },
                     },
-                    output_snapshot=executor_output.raw_payload or {"outputs": outputs},
+                    output_snapshot={
+                        **(executor_output.raw_payload or {}),
+                        "extracted_outputs": outputs,
+                    },
                 )
                 continue
 
@@ -128,6 +148,7 @@ class TrialOrchestrator:
                 "type": executor_output.execution_status
             }
             first_failure = first_failure or step.error_message
+            first_failure_status = first_failure_status or executor_output.execution_status
             break
 
         if first_failure is None:
@@ -135,7 +156,7 @@ class TrialOrchestrator:
             run.final_output = self._choose_final_output(execution_order, node_map, step_outputs)
             run.error_summary = None
         else:
-            run.status = "failed"
+            run.status = "blocked" if first_failure_status == "blocked" else "failed"
             run.error_summary = first_failure
 
         self.db.commit()
@@ -219,6 +240,49 @@ class TrialOrchestrator:
             )
 
         return resolver_output, executor_output
+
+    def _record_step_audit(
+        self,
+        governance_service: GovernanceService,
+        run: DMRun,
+        step: DMRunStep,
+        resolver_output,
+        executor_output: ExecutorOutput,
+    ) -> None:
+        """为需要治理追踪的步骤补审计记录。
+
+        当前仅对 SQL 节点落审计，避免在 V1 第一阶段把非治理节点也卷入复杂审计结构。
+        """
+
+        if step.step_type != "sql_step":
+            return
+
+        resolved_plan = {}
+        if resolver_output is not None:
+            resolved_plan = resolver_output.resolved_execution_plan or {}
+        elif isinstance(step.resolved_execution_plan_snapshot, dict):
+            resolved_plan = step.resolved_execution_plan_snapshot
+
+        audit_payload = governance_service.build_sql_audit_payload(
+            run=run,
+            step=step,
+            resolved_plan=resolved_plan,
+            execution_status=executor_output.execution_status,
+            raw_payload=executor_output.raw_payload,
+            extracted_outputs=executor_output.extracted_outputs,
+            error_info=executor_output.error_info,
+        )
+        if executor_output.audit_payload:
+            audit_payload.update(executor_output.audit_payload)
+
+        governance_service.record_sql_audit(
+            run=run,
+            step=step,
+            actor_user_id=run.initiator_user_id,
+            execution_status=executor_output.execution_status,
+            audit_payload=audit_payload,
+            error_info=executor_output.error_info,
+        )
 
     def _topological_sort(self, nodes: list[Any]) -> list[str]:
         """按 depends_on 对 technical_graph 做最小拓扑排序。"""
@@ -311,6 +375,52 @@ class TrialOrchestrator:
         if isinstance(resolved_input, dict):
             merged.update(resolved_input)
         return merged
+
+    def _restore_step_outputs(self, steps: list[DMRunStep]) -> dict[str, Any]:
+        """从已成功步骤的输出快照恢复上游结果，供恢复执行使用。"""
+
+        restored: dict[str, Any] = {}
+        for step in steps:
+            if step.status != "succeeded" or not isinstance(step.output_snapshot, dict):
+                continue
+
+            output_snapshot = step.output_snapshot
+            extracted = output_snapshot.get("extracted_outputs")
+            if isinstance(extracted, dict):
+                restored[step.step_id] = extracted
+                continue
+
+            legacy_outputs = output_snapshot.get("outputs")
+            if isinstance(legacy_outputs, dict):
+                restored[step.step_id] = legacy_outputs
+                continue
+
+            final_output = output_snapshot.get("final_output")
+            if isinstance(final_output, dict):
+                restored[step.step_id] = final_output
+                continue
+
+            mapped_output = output_snapshot.get("mapped_output")
+            if isinstance(mapped_output, dict):
+                restored[step.step_id] = mapped_output
+                continue
+
+            if output_snapshot:
+                restored[step.step_id] = output_snapshot
+        return restored
+
+    def _restore_step_errors(self, steps: list[DMRunStep]) -> dict[str, Any]:
+        """恢复已失败或仍阻塞步骤的错误状态。"""
+
+        restored: dict[str, Any] = {}
+        for step in steps:
+            if step.status not in {"failed", "blocked"}:
+                continue
+            restored[step.step_id] = {
+                "type": step.status,
+                "message": step.error_message,
+            }
+        return restored
 
     def _choose_final_output(
         self,

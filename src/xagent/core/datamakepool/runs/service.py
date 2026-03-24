@@ -32,6 +32,8 @@ class RunService:
         entry_type: str,
         initiator_user_id: int,
         task_id: Optional[int] = None,
+        template_id: Optional[str] = None,
+        template_revision_id: Optional[str] = None,
         system_short: Optional[str] = None,
         objective: Optional[str] = None,
         input_payload: Optional[dict[str, Any]] = None,
@@ -49,6 +51,8 @@ class RunService:
             run = DMRun(
                 entry_type=entry_type,
                 source_task_id=task_id,
+                template_id=template_id,
+                template_revision_id=template_revision_id,
                 initiator_user_id=initiator_user_id,
                 system_short=system_short,
                 objective=objective,
@@ -123,6 +127,8 @@ class RunService:
             entry_type="template",
             initiator_user_id=initiator_user_id,
             task_id=None,
+            template_id=str(revision.template_id),
+            template_revision_id=str(revision.id),
             system_short=system_short or revision.template.system_short,
             objective=revision.template.description or revision.template.name,
             input_payload=input_payload,
@@ -136,6 +142,7 @@ class RunService:
         technical_graph: dict[str, Any],
         input_payload: Optional[dict[str, Any]] = None,
         resolved_input: Optional[dict[str, Any]] = None,
+        resume: bool = False,
     ) -> dict[str, Any]:
         """执行一条已创建的 trial Run。"""
 
@@ -145,6 +152,29 @@ class RunService:
             technical_graph=technical_graph,
             input_payload=input_payload,
             resolved_input=resolved_input,
+            resume=resume,
+        )
+
+    def resume_run(self, run_id: int) -> dict[str, Any]:
+        """恢复一条被治理确认后可继续执行的 Run。
+
+        当前恢复策略遵循最小闭环原则：
+        - 不重新走 FlowDraft
+        - 直接基于 RunStep 快照重建最小 technical_graph
+        - 保留已成功步骤输出，只继续执行 pending 步骤
+        """
+
+        run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run {run_id} not found")
+
+        technical_graph = self._rebuild_technical_graph_from_run(run)
+        return self.execute_trial(
+            run_id=run.id,
+            technical_graph=technical_graph,
+            input_payload=run.input_payload if isinstance(run.input_payload, dict) else None,
+            resolved_input=run.resolved_input if isinstance(run.resolved_input, dict) else None,
+            resume=True,
         )
 
     def _create_run_steps(
@@ -182,6 +212,26 @@ class RunService:
             )
 
         return created
+
+    def _rebuild_technical_graph_from_run(self, run: DMRun) -> dict[str, Any]:
+        """从 RunStep 快照重建最小 technical_graph。
+
+        恢复执行时不再依赖 FlowDraft 或 Template 的原始设计稿，
+        只依赖本次 Run 已经固化下来的执行快照，保证恢复链路可追溯、可重复。
+        """
+
+        nodes: list[dict[str, Any]] = []
+        for step in run.steps:
+            nodes.append(
+                {
+                    "step_id": step.step_id,
+                    "step_type": step.step_type,
+                    "name": step.step_name,
+                    "depends_on": step.depends_on or [],
+                    "resolved_execution_plan": step.resolved_execution_plan_snapshot or {},
+                }
+            )
+        return {"nodes": nodes}
 
     def _serialize_run(self, run: DMRun) -> dict[str, Any]:
         """将 Run ORM 对象压平成 API 结构。"""
