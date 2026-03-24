@@ -6,7 +6,10 @@ from .database import Base
 
 
 class DMTaskRunLink(Base):  # type: ignore
-    """Bridges exploration tasks to execution runs."""
+    """Task 与 Run 的桥接关系。
+
+    用于在 V1 分层宿主方案下，把探索态 task runtime 与执行态 run 业务对象连接起来。
+    """
 
     __tablename__ = "dm_task_run_links"
     __table_args__ = (
@@ -20,6 +23,7 @@ class DMTaskRunLink(Base):  # type: ignore
     run_id = Column(
         Integer, ForeignKey("dm_runs.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # link_type 用于区分这是聊天试跑还是其他执行入口建立的映射。
     link_type = Column(String(50), nullable=False, default="trial")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

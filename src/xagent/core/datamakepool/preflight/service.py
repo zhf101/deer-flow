@@ -8,9 +8,24 @@ from ..contracts import PreflightIssue, PreflightResult
 
 @dataclass
 class PreflightService:
-    """Evaluates whether a FlowDraft has converged enough to enter trial execution."""
+    """FlowDraft 试跑前预检服务。
+
+    目标是回答一个问题：当前技术图是否已经从“探索态”进入“可试跑态”。
+    """
 
     def evaluate(self, technical_graph: dict[str, Any]) -> PreflightResult:
+        """执行最小预检。
+
+        当前规则只覆盖：
+        - pending_flags
+        - 技术节点缺少 resolved_execution_plan
+
+        后续会继续补：
+        - SQL 风险规则
+        - 依赖完整性
+        - 映射完整性
+        - 资产版本锁定前置检查
+        """
         issues: list[PreflightIssue] = []
         nodes = technical_graph.get("nodes", []) if isinstance(technical_graph, dict) else []
 
@@ -36,6 +51,7 @@ class PreflightService:
                 )
 
             if step_type in {"http_step", "sql_step"} and not resolved_plan:
+                # 技术执行节点如果还没有固化执行方案，就不能进入 trial。
                 issues.append(
                     PreflightIssue(
                         issue_type="resolution_missing",
@@ -72,6 +88,7 @@ class PreflightService:
         )
 
     def _suggest_action(self, issue_type: str) -> str:
+        """根据问题类型给前台一个默认修正方向。"""
         if issue_type in {"route_pending", "asset_intent_mismatch"}:
             return "return_to_chat"
         if issue_type in {"asset_pending", "param_pending", "mapping_incomplete"}:

@@ -6,11 +6,16 @@ from .database import Base
 
 
 class DMRun(Base):  # type: ignore
-    """Execution-stage root object for trials and template runs."""
+    """执行态根对象。
+
+    它承载的是某次 trial 或某次模板正式执行，
+    与探索态 Task 分层存在，不再混用同一宿主语义。
+    """
 
     __tablename__ = "dm_runs"
 
     id = Column(Integer, primary_key=True, index=True)
+    # entry_type 用于区分 run 来源，如 chat trial 或 template execute。
     entry_type = Column(String(32), nullable=False)
     source_task_id = Column(
         Integer, ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True
@@ -20,6 +25,7 @@ class DMRun(Base):  # type: ignore
     initiator_user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # system_short 参与权限过滤和审核归属判断。
     system_short = Column(String(64), nullable=True, index=True)
     objective = Column(Text, nullable=True)
     input_payload = Column(JSON, nullable=True)
@@ -49,7 +55,10 @@ class DMRun(Base):  # type: ignore
 
 
 class DMRunStep(Base):  # type: ignore
-    """Execution snapshot for a single technical step within a run."""
+    """Run 内单个技术步骤的执行快照。
+
+    这里保存的是“这一次实际怎么跑的”，不是设计意图。
+    """
 
     __tablename__ = "dm_run_steps"
 
@@ -62,7 +71,9 @@ class DMRunStep(Base):  # type: ignore
     step_name = Column(String(255), nullable=False)
     status = Column(String(50), nullable=False, default="pending")
     depends_on = Column(JSON, nullable=False, default=list)
+    # 固化本次执行时真正使用的执行方案，避免后续设计变化污染历史回放。
     resolved_execution_plan_snapshot = Column(JSON, nullable=True)
+    # 对需要锁版本的资产，记录本次执行所绑定的版本快照引用。
     asset_version_snapshot_ref = Column(JSON, nullable=True)
     input_snapshot = Column(JSON, nullable=True)
     output_snapshot = Column(JSON, nullable=True)

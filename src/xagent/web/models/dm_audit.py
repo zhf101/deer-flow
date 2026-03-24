@@ -6,7 +6,11 @@ from .database import Base
 
 
 class DMAuditRecord(Base):  # type: ignore
-    """Execution governance and SQL audit record."""
+    """执行治理与 SQL 审计记录。
+
+    它不是通用日志，而是平台治理真相源的一部分。
+    后续风险确认、SQL 审计查询、问题追溯都会直接依赖这张表。
+    """
 
     __tablename__ = "dm_audit_records"
 
@@ -24,12 +28,14 @@ class DMAuditRecord(Base):  # type: ignore
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
     system_short = Column(String(64), nullable=True, index=True)
+    # V1 默认以 sql_execution 为主，后续可扩展到更多治理事件类型。
     audit_type = Column(String(50), nullable=False, default="sql_execution")
     risk_level = Column(String(32), nullable=True)
     confirmation_mode = Column(String(50), nullable=True)
     confirmed_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
     target_objects = Column(JSON, nullable=True)
+    # payload 保存面向审计检索和详情展示的结构化内容。
     payload = Column(JSON, nullable=False, default=dict)
     status = Column(String(50), nullable=False, default="created")
     error_message = Column(Text, nullable=True)

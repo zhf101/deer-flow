@@ -6,7 +6,12 @@ from .database import Base
 
 
 class AdminSystemScope(Base):  # type: ignore
-    """Maps a domain admin to one or more systemShort scopes."""
+    """普通管理员与 systemShort 的绑定关系。
+
+    这个模型不是业务对象本身，而是权限路由基础表。
+    后续 datamakepool 的对象级过滤与审核路由，都会依赖它来判断
+    当前普通管理员能覆盖哪些 systemShort。
+    """
 
     __tablename__ = "admin_system_scopes"
     __table_args__ = (
@@ -17,6 +22,7 @@ class AdminSystemScope(Base):  # type: ignore
     user_id = Column(
         Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
+    # system_short 是审核路由与对象归属范围，不是普通用户使用隔离字段。
     system_short = Column(String(64), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
