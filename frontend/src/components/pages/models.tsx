@@ -127,71 +127,72 @@ const LOCAL_PROVIDER_CONFIGS: Record<string, Partial<ProviderConfig>> = {
     category: ["llm", "embedding"],
     defaultBaseUrl: "https://api.openai.com/v1"
   },
-  "minimax-coding-plan": {
-    icon: <img src="/minimax.svg" alt="MiniMax" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://api.minimax.io/anthropic"
-  },
-  "minimax-cn-coding-plan": {
-    icon: <img src="/minimax.svg" alt="MiniMax" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://api.minimaxi.com/anthropic"
-  },
-  "kimi-for-coding": {
-    icon: <img src="/kimi.svg" alt="Kimi" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://api.kimi.com/coding"
-  },
-  "zai-coding-plan": {
-    icon: <img src="/zhipu.svg" alt="Z.AI" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://api.z.ai/api/coding/paas/v4"
-  },
-  "zhipuai-coding-plan": {
-    icon: <img src="/zhipu.svg" alt="Zhipu" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://open.bigmodel.cn/api/coding/paas/v4"
-  },
-  "alibaba-coding-plan": {
-    icon: <img src="/dashscope.png" alt="Alibaba Bailian" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1"
-  },
-  "alibaba-coding-plan-cn": {
-    icon: <img src="/dashscope.png" alt="Alibaba Bailian" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://coding.dashscope.aliyuncs.com/v1"
-  },
-  azure_openai: {
-    icon: <Zap className="w-6 h-6 text-blue-500" />,
-    category: ["llm"]
-    // No default base url for Azure, user must provide
-  },
-  zhipu: {
-    icon: <img src="/zhipu.svg" alt="Zhipu" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4"
-  },
-  dashscope: {
-    icon: <img src="/dashscope.png" alt="DashScope" className="w-6 h-6" />,
-    category: ["embedding", "image"],
-    defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"
-  },
-  gemini: {
-    icon: <img src="/gemini.svg" alt="Gemini" className="w-6 h-6" />,
-    category: ["llm", "image"],
-    defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta"
-  },
-  claude: {
-    icon: <img src="/claude.svg" alt="Claude" className="w-6 h-6" />,
-    category: ["llm"],
-    defaultBaseUrl: "https://api.anthropic.com/v1"
-  },
-  xinference: {
-    icon: <img src="/xagent_logo.svg" alt="Xinference" className="w-6 h-6" />,
-    category: ["llm", "embedding", "image", "speech"],
-    defaultBaseUrl: "http://localhost:9997"
-  }
+  // 以下历史 provider UI 配置先保留为注释，当前部署只展示 openai。
+  // "minimax-coding-plan": {
+  //   icon: <img src="/minimax.svg" alt="MiniMax" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://api.minimax.io/anthropic"
+  // },
+  // "minimax-cn-coding-plan": {
+  //   icon: <img src="/minimax.svg" alt="MiniMax" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://api.minimaxi.com/anthropic"
+  // },
+  // "kimi-for-coding": {
+  //   icon: <img src="/kimi.svg" alt="Kimi" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://api.kimi.com/coding"
+  // },
+  // "zai-coding-plan": {
+  //   icon: <img src="/zhipu.svg" alt="Z.AI" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://api.z.ai/api/coding/paas/v4"
+  // },
+  // "zhipuai-coding-plan": {
+  //   icon: <img src="/zhipu.svg" alt="Zhipu" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://open.bigmodel.cn/api/coding/paas/v4"
+  // },
+  // "alibaba-coding-plan": {
+  //   icon: <img src="/dashscope.png" alt="Alibaba Bailian" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://coding-intl.dashscope.aliyuncs.com/v1"
+  // },
+  // "alibaba-coding-plan-cn": {
+  //   icon: <img src="/dashscope.png" alt="Alibaba Bailian" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://coding.dashscope.aliyuncs.com/v1"
+  // },
+  // azure_openai: {
+  //   icon: <Zap className="w-6 h-6 text-blue-500" />,
+  //   category: ["llm"]
+  //   // No default base url for Azure, user must provide
+  // },
+  // zhipu: {
+  //   icon: <img src="/zhipu.svg" alt="Zhipu" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://open.bigmodel.cn/api/paas/v4"
+  // },
+  // dashscope: {
+  //   icon: <img src="/dashscope.png" alt="DashScope" className="w-6 h-6" />,
+  //   category: ["embedding", "image"],
+  //   defaultBaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  // },
+  // gemini: {
+  //   icon: <img src="/gemini.svg" alt="Gemini" className="w-6 h-6" />,
+  //   category: ["llm", "image"],
+  //   defaultBaseUrl: "https://generativelanguage.googleapis.com/v1beta"
+  // },
+  // claude: {
+  //   icon: <img src="/claude.svg" alt="Claude" className="w-6 h-6" />,
+  //   category: ["llm"],
+  //   defaultBaseUrl: "https://api.anthropic.com/v1"
+  // },
+  // xinference: {
+  //   icon: <img src="/xagent_logo.svg" alt="Xinference" className="w-6 h-6" />,
+  //   category: ["llm", "embedding", "image", "speech"],
+  //   defaultBaseUrl: "http://localhost:9997"
+  // }
 }
 
 export function ModelsPage() {

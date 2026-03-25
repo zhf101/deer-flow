@@ -48,7 +48,7 @@ class ImageModelConfig(ModelConfig):
 
 
 class EmbeddingModelConfig(ModelConfig):
-    model_provider: str = "dashscope"  # openai, zhipu, dashscope, etc.
+    model_provider: str = "openai"  # current deployment keeps openai only
     dimension: Optional[int] = None
     instruct: Optional[str] = None
 

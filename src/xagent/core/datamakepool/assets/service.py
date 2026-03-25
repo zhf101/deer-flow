@@ -434,6 +434,36 @@ class AssetService:
                 continue
         return [self._serialize_sql_asset(asset) for asset in visible_assets]
 
+    def update_sql_asset(
+        self,
+        asset_id: int,
+        user: User,
+        *,
+        name: str,
+        description: str | None,
+        system_short: str,
+    ) -> dict[str, Any]:
+        """更新 SQL 逻辑资产元信息。
+
+        这里刻意只开放逻辑资产层字段：
+        - `name`
+        - `description`
+        - `system_short`
+
+        版本层的连接配置、白名单/黑名单、mutation 开关仍然留在版本接口维护，
+        避免这批“资产对象管理动作”把逻辑对象和版本对象边界重新搅乱。
+        """
+
+        asset = self._get_sql_asset(asset_id)
+        GovernanceService(db=self.db).assert_sql_asset_access(asset, user)
+
+        asset.name = self._require_text(name, "name")
+        asset.description = self._normalize_text(description)
+        asset.system_short = self._require_text(system_short, "system_short")
+        self.db.commit()
+        self.db.refresh(asset)
+        return self._serialize_sql_asset(asset)
+
     def build_template_revision_asset_reference_summary(
         self,
         revision: DMTemplateRevision,

@@ -170,6 +170,17 @@ class SQLAssetCreateResponse(BaseModel):
     status: str
 
 
+class SQLAssetUpdateRequest(BaseModel):
+    """更新 SQL 逻辑资产元信息请求。
+
+    当前只开放逻辑对象层的元信息更新，不直接修改版本层连接与治理配置。
+    """
+
+    name: str = Field(min_length=1)
+    description: Optional[str] = None
+    system_short: str = Field(min_length=1)
+
+
 class SQLAssetVersionCreateRequest(BaseModel):
     """创建 SQL 资产新版本请求。"""
 
