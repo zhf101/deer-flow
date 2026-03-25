@@ -6,11 +6,14 @@ from ...models.database import get_db
 from ...models.user import User
 from ...schemas.datamakepool import (
     HTTPAssetCreateRequest,
+    HTTPAssetDetailResponse,
     HTTPAssetSummaryResponse,
     SQLAssetCreateRequest,
     SQLAssetCreateResponse,
     SQLAssetSummaryResponse,
+    SQLAssetVersionDetailResponse,
     SQLAssetVersionReviewResponse,
+    SQLAssetVersionSummaryResponse,
 )
 from ....core.datamakepool.assets import AssetService
 
@@ -26,6 +29,22 @@ async def list_http_assets(
     try:
         result = AssetService(db=db).list_http_assets(user)
         return [HTTPAssetSummaryResponse(**item) for item in result]
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.get("/http-assets/{asset_id}", response_model=HTTPAssetDetailResponse)
+async def get_http_asset(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> HTTPAssetDetailResponse:
+    """读取单个 HTTP 资产详情。"""
+    try:
+        result = AssetService(db=db).get_http_asset(asset_id, user)
+        return HTTPAssetDetailResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
@@ -81,6 +100,25 @@ async def list_sql_assets(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
+@router.get(
+    "/sql-assets/{asset_id}/versions",
+    response_model=list[SQLAssetVersionSummaryResponse],
+)
+async def list_sql_asset_versions(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[SQLAssetVersionSummaryResponse]:
+    """列出某个 SQL 资产的全部版本。"""
+    try:
+        result = AssetService(db=db).list_sql_asset_versions(asset_id, user)
+        return [SQLAssetVersionSummaryResponse(**item) for item in result]
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 @router.post("/sql-assets", response_model=SQLAssetCreateResponse)
 async def create_sql_asset(
     request: SQLAssetCreateRequest,
@@ -102,6 +140,25 @@ async def create_sql_asset(
         return SQLAssetCreateResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get(
+    "/sql-asset-versions/{version_id}",
+    response_model=SQLAssetVersionDetailResponse,
+)
+async def get_sql_asset_version(
+    version_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SQLAssetVersionDetailResponse:
+    """读取单个 SQL 资产版本详情。"""
+    try:
+        result = AssetService(db=db).get_sql_asset_version_detail(version_id, user)
+        return SQLAssetVersionDetailResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post(

@@ -82,6 +82,21 @@ class HTTPAssetSummaryResponse(BaseModel):
     updated_at: Optional[str] = None
 
 
+class HTTPAssetDetailResponse(HTTPAssetSummaryResponse):
+    """HTTP 资产详情。"""
+
+    query_template: dict[str, Any] = Field(default_factory=dict)
+    headers_template: dict[str, Any] = Field(default_factory=dict)
+    body_template: dict[str, Any] = Field(default_factory=dict)
+    request_schema: dict[str, Any] = Field(default_factory=dict)
+    auth_type: Optional[str] = None
+    auth_config_configured: bool = False
+    response_extraction_rules: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: int
+    max_response_bytes: int
+    created_at: Optional[str] = None
+
+
 class SQLAssetCreateRequest(BaseModel):
     """创建 SQL 资产及初始版本请求。"""
 
@@ -128,6 +143,31 @@ class SQLAssetVersionReviewResponse(BaseModel):
     status: str
     reviewed_by: Optional[int] = None
     reviewed_at: Optional[str] = None
+
+
+class SQLAssetVersionSummaryResponse(BaseModel):
+    """SQL 资产版本列表项。"""
+
+    version_id: int
+    asset_id: int
+    version_no: int
+    status: str
+    mutation_enabled: bool
+    created_by: int
+    reviewed_by: Optional[int] = None
+    review_comment: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+
+class SQLAssetVersionDetailResponse(SQLAssetVersionSummaryResponse):
+    """SQL 资产版本详情。"""
+
+    system_short: str
+    connection_config: dict[str, Any] = Field(default_factory=dict)
+    whitelist: list[str] = Field(default_factory=list)
+    blacklist: list[str] = Field(default_factory=list)
+    is_active_version: bool = False
 
 
 class FlowDraftResponse(BaseModel):
