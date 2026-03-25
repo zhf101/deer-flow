@@ -23,8 +23,6 @@ try:
 except Exception:
     __version__ = "0.0.0+unknown"
 
-from .app import app
-
 
 def run_server(
     host: str = "127.0.0.1", port: int = 8000, reload: bool = False, **kwargs: Any
@@ -40,6 +38,22 @@ def run_server(
     import uvicorn
 
     uvicorn.run("xagent.web.app:app", host=host, port=port, reload=reload, **kwargs)
+
+
+def __getattr__(name: str) -> Any:
+    """按需暴露 Web 入口对象。
+
+    历史上这里会在 import `xagent.web` 时立刻导入 `.app`，导致很多并不依赖
+    Web Server 的场景也被迫初始化整条 API / 存储依赖链。这里改成惰性加载：
+    - 保持 `from xagent.web import app` 兼容
+    - 避免子模块测试仅仅因为 import 包根就拉起所有可选依赖
+    """
+
+    if name == "app":
+        from .app import app
+
+        return app
+    raise AttributeError(f"module 'xagent.web' has no attribute {name!r}")
 
 
 __all__ = ["app", "run_server", "__version__"]

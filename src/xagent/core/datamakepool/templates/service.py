@@ -100,14 +100,7 @@ class TemplateService:
 
     def submit_review(self, revision_id: int, user: User) -> dict[str, Any]:
         """提交模板版本审核。"""
-        revision = (
-            self.db.query(DMTemplateRevision)
-            .filter(DMTemplateRevision.id == revision_id)
-            .first()
-        )
-        if revision is None:
-            raise ValueError(f"Template revision {revision_id} not found")
-
+        revision = self._get_revision(revision_id)
         GovernanceService(db=self.db).assert_can_submit_template_review(revision, user)
         revision.status = "pending_review"
         revision.review_comment = None
@@ -116,14 +109,7 @@ class TemplateService:
 
     def approve_revision(self, revision_id: int, reviewer: User) -> dict[str, Any]:
         """审批通过模板版本，并切换逻辑模板的当前发布版本。"""
-        revision = (
-            self.db.query(DMTemplateRevision)
-            .filter(DMTemplateRevision.id == revision_id)
-            .first()
-        )
-        if revision is None:
-            raise ValueError(f"Template revision {revision_id} not found")
-
+        revision = self._get_revision(revision_id)
         template = revision.template
         if template is None:
             raise ValueError(f"Template {revision.template_id} not found")
@@ -170,6 +156,20 @@ class TemplateService:
             self._serialize_revision(revision, asset_service=asset_service)
             for revision in template.revisions
         ]
+
+    def get_revision_detail(self, revision_id: int, user: User) -> dict[str, Any]:
+        """读取单个模板版本详情。
+
+        详情接口是模板工作台进入下一批能力的基础真相源：
+        - 前台不再只依赖列表摘要拼详情
+        - 审核动作后的状态、时间、步骤和图快照都从同一接口读取
+        - 后续如果接模板执行入口，也继续复用这份结构
+        """
+
+        revision = self._get_revision(revision_id)
+        GovernanceService(db=self.db).assert_template_revision_access(revision, user)
+        asset_service = AssetService(db=self.db)
+        return self._serialize_revision_detail(revision, asset_service=asset_service)
 
     def _get_or_create_template(
         self,
@@ -235,6 +235,18 @@ class TemplateService:
                 error_message=None,
             )
         )
+
+    def _get_revision(self, revision_id: int) -> DMTemplateRevision:
+        """读取模板版本对象，统一承担不存在校验。"""
+
+        revision = (
+            self.db.query(DMTemplateRevision)
+            .filter(DMTemplateRevision.id == revision_id)
+            .first()
+        )
+        if revision is None:
+            raise ValueError(f"Template revision {revision_id} not found")
+        return revision
 
     def _next_version_no(self, template_id: int) -> int:
         """计算模板的下一个版本号。"""
@@ -343,6 +355,61 @@ class TemplateService:
             "asset_references": asset_service.build_template_revision_asset_reference_summary(
                 revision
             ),
+        }
+
+    def _serialize_revision_detail(
+        self,
+        revision: DMTemplateRevision,
+        *,
+        asset_service: AssetService,
+    ) -> dict[str, Any]:
+        """把模板版本对象压平成详情响应。
+
+        这里会在列表摘要基础上继续补三类信息：
+        - 模板归属信息：用于右侧详情面板展示上下文
+        - 图快照与输入输出契约：为后续编辑/执行入口保留稳定真相源
+        - 步骤级详情：让审核人能直接看到每一步的依赖和收敛结果
+        """
+
+        template = revision.template
+        if template is None:
+            raise ValueError(f"Template {revision.template_id} not found")
+
+        return {
+            **self._serialize_revision(revision, asset_service=asset_service),
+            "template_name": template.name,
+            "template_description": template.description,
+            "system_short": template.system_short,
+            "latest_published_revision_id": template.latest_published_revision_id,
+            "is_latest_published": template.latest_published_revision_id == revision.id,
+            "business_graph_snapshot": revision.business_graph_snapshot or {},
+            "technical_graph": revision.technical_graph or {},
+            "input_schema": revision.input_schema or {},
+            "output_mapping": revision.output_mapping or {},
+            "created_at": revision.created_at.isoformat() if revision.created_at else None,
+            "reviewed_at": revision.reviewed_at.isoformat() if revision.reviewed_at else None,
+            "published_at": revision.published_at.isoformat() if revision.published_at else None,
+            "steps": [
+                self._serialize_revision_step_detail(step)
+                for step in revision.steps
+            ],
+        }
+
+    def _serialize_revision_step_detail(
+        self,
+        step: DMTemplateRevisionStep,
+    ) -> dict[str, Any]:
+        """把模板版本步骤对象压平成详情结构。"""
+
+        return {
+            "step_id": step.step_id,
+            "step_type": step.step_type,
+            "name": step.name,
+            "depends_on": step.depends_on or [],
+            "design_intent": step.design_intent or {},
+            "resolution_rationale": step.resolution_rationale or {},
+            "resolved_execution_plan": step.resolved_execution_plan or {},
+            "editable_fields": step.editable_fields or [],
         }
 
     def _now(self) -> datetime:

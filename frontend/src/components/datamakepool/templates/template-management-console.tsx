@@ -3,27 +3,36 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import {
   ArrowUpRight,
+  CheckCheck,
   Database,
   FileSearch,
   Filter,
   GitBranch,
-  Layers3,
+  GitPullRequest,
+  Layers,
+  ListTree,
   Loader2,
   RefreshCw,
   Search,
   Sparkles,
+  Workflow,
 } from "lucide-react"
 
 import {
+  approveDatamakepoolTemplateRevision,
+  getDatamakepoolTemplateRevisionDetail,
+  submitDatamakepoolTemplateRevisionReview,
   type DatamakepoolTemplateAssetReference,
+  type DatamakepoolTemplateRevisionDetail,
+  type DatamakepoolTemplateRevisionStepDetail,
   type DatamakepoolTemplateRevisionSummary,
   type DatamakepoolTemplateSummary,
   listDatamakepoolTemplateRevisions,
   listDatamakepoolTemplates,
 } from "@/lib/datamakepool"
 import { DatamakepoolShell } from "@/components/datamakepool/datamakepool-shell"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import {
   Card,
   CardContent,
@@ -34,7 +43,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { cn } from "@/lib/utils"
+import { cn, formatDate } from "@/lib/utils"
 
 function getRevisionStatusMeta(status: string): { label: string; className: string } {
   switch (status) {
@@ -81,6 +90,32 @@ function summarizeStepNames(reference: DatamakepoolTemplateAssetReference): stri
     return visibleStepNames
   }
   return `${visibleStepNames} 等 ${reference.step_names.length} 步`
+}
+
+function formatDateLabel(value?: string | null): string {
+  if (!value) {
+    return "未记录"
+  }
+  return formatDate(value)
+}
+
+function getGraphNodeCount(graph: Record<string, unknown> | null | undefined): number {
+  const nodes = graph && typeof graph === "object" ? graph.nodes : null
+  return Array.isArray(nodes) ? nodes.length : 0
+}
+
+function getObjectEntryCount(payload: Record<string, unknown> | null | undefined): number {
+  if (!payload) {
+    return 0
+  }
+  return Object.keys(payload).length
+}
+
+function stringifyPreview(payload: Record<string, unknown> | null | undefined): string | null {
+  if (!payload || !Object.keys(payload).length) {
+    return null
+  }
+  return JSON.stringify(payload, null, 2)
 }
 
 function AssetReferencePill({
@@ -194,29 +229,73 @@ function RevisionCard({
   )
 }
 
+function StepDetailCard({ step }: { step: DatamakepoolTemplateRevisionStepDetail }) {
+  const dependsOnLabel = step.depends_on.length ? step.depends_on.join("、") : "无"
+  const editableFieldsLabel = step.editable_fields.length
+    ? step.editable_fields.map((field) => String(field)).join("、")
+    : "无"
+
+  return (
+    <div className="rounded-xl border border-border/70 bg-muted/20 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="font-medium text-foreground">{step.name}</div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {step.step_type} · step_id={step.step_id}
+          </div>
+        </div>
+        <Badge variant="outline" className="border-border/70 bg-background text-foreground">
+          {step.depends_on.length} 依赖
+        </Badge>
+      </div>
+      <div className="mt-3 space-y-2 text-xs leading-5 text-muted-foreground">
+        <div>依赖步骤：{dependsOnLabel}</div>
+        <div>可编辑字段：{editableFieldsLabel}</div>
+        <div>设计意图字段：{Object.keys(step.design_intent || {}).length} 项</div>
+        <div>收敛依据字段：{Object.keys(step.resolution_rationale || {}).length} 项</div>
+      </div>
+    </div>
+  )
+}
+
 export function TemplateManagementConsole() {
   const [templates, setTemplates] = useState<DatamakepoolTemplateSummary[]>([])
   const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null)
   const [selectedRevisionId, setSelectedRevisionId] = useState<number | null>(null)
   const [revisions, setRevisions] = useState<DatamakepoolTemplateRevisionSummary[]>([])
+  const [selectedRevisionDetail, setSelectedRevisionDetail] =
+    useState<DatamakepoolTemplateRevisionDetail | null>(null)
   const [revisionsReloadTick, setRevisionsReloadTick] = useState(0)
   const [templatesError, setTemplatesError] = useState<string | null>(null)
   const [revisionsError, setRevisionsError] = useState<string | null>(null)
+  const [revisionDetailError, setRevisionDetailError] = useState<string | null>(null)
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true)
   const [isLoadingRevisions, setIsLoadingRevisions] = useState(false)
+  const [isLoadingRevisionDetail, setIsLoadingRevisionDetail] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false)
+  const [isApprovingRevision, setIsApprovingRevision] = useState(false)
   const [templateKeyword, setTemplateKeyword] = useState("")
   const [revisionStatusFilter, setRevisionStatusFilter] = useState("all")
   const selectedTemplateIdRef = useRef<number | null>(null)
+  const selectedRevisionIdRef = useRef<number | null>(null)
 
   const selectedTemplate =
     templates.find((template) => template.template_id === selectedTemplateId) ?? null
   const selectedRevision =
     revisions.find((revision) => revision.revision_id === selectedRevisionId) ?? null
+  const revisionStatus = selectedRevisionDetail?.status ?? selectedRevision?.status ?? ""
+  const revisionMeta = getRevisionStatusMeta(revisionStatus)
 
   useEffect(() => {
     selectedTemplateIdRef.current = selectedTemplateId
   }, [selectedTemplateId])
+
+  useEffect(() => {
+    selectedRevisionIdRef.current = selectedRevisionId
+  }, [selectedRevisionId])
 
   const loadTemplates = useCallback(async (showRefreshingState: boolean = false) => {
     if (showRefreshingState) {
@@ -257,8 +336,15 @@ export function TemplateManagementConsole() {
 
     try {
       const nextRevisions = await listDatamakepoolTemplateRevisions(templateId)
+      const currentRevisionId = selectedRevisionIdRef.current
+      const nextSelectedRevisionId =
+        currentRevisionId !== null &&
+        nextRevisions.some((revision) => revision.revision_id === currentRevisionId)
+          ? currentRevisionId
+          : nextRevisions[0]?.revision_id ?? null
+
       setRevisions(nextRevisions)
-      setSelectedRevisionId(nextRevisions[0]?.revision_id ?? null)
+      setSelectedRevisionId(nextSelectedRevisionId)
     } catch (error) {
       const message = error instanceof Error ? error.message : "模板版本列表加载失败"
       setRevisions([])
@@ -266,6 +352,28 @@ export function TemplateManagementConsole() {
       setRevisionsError(message)
     } finally {
       setIsLoadingRevisions(false)
+    }
+  }, [])
+
+  const loadRevisionDetail = useCallback(async (revisionId: number) => {
+    setIsLoadingRevisionDetail(true)
+    setRevisionDetailError(null)
+
+    try {
+      const detail = await getDatamakepoolTemplateRevisionDetail(revisionId)
+      if (selectedRevisionIdRef.current === revisionId) {
+        setSelectedRevisionDetail(detail)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "模板版本详情加载失败"
+      if (selectedRevisionIdRef.current === revisionId) {
+        setSelectedRevisionDetail(null)
+        setRevisionDetailError(message)
+      }
+    } finally {
+      if (selectedRevisionIdRef.current === revisionId) {
+        setIsLoadingRevisionDetail(false)
+      }
     }
   }, [])
 
@@ -277,11 +385,23 @@ export function TemplateManagementConsole() {
     if (selectedTemplateId === null) {
       setRevisions([])
       setRevisionsError(null)
+      setSelectedRevisionId(null)
       return
     }
 
     void loadRevisions(selectedTemplateId)
   }, [selectedTemplateId, revisionsReloadTick, loadRevisions])
+
+  useEffect(() => {
+    if (selectedRevisionId === null) {
+      setSelectedRevisionDetail(null)
+      setRevisionDetailError(null)
+      setIsLoadingRevisionDetail(false)
+      return
+    }
+
+    void loadRevisionDetail(selectedRevisionId)
+  }, [selectedRevisionId, loadRevisionDetail])
 
   const filteredTemplates = templates.filter((template) => {
     if (!templateKeyword.trim()) {
@@ -319,6 +439,11 @@ export function TemplateManagementConsole() {
     }
   }, [filteredRevisions, selectedRevisionId])
 
+  useEffect(() => {
+    setActionFeedback(null)
+    setActionError(null)
+  }, [selectedRevisionId])
+
   const statusMetrics = [
     {
       label: "可见模板",
@@ -337,11 +462,58 @@ export function TemplateManagementConsole() {
     },
   ]
 
+  const handleSubmitReview = useCallback(async () => {
+    if (selectedRevisionId === null || selectedTemplateId === null) {
+      return
+    }
+
+    setIsSubmittingReview(true)
+    setActionFeedback(null)
+    setActionError(null)
+    try {
+      await submitDatamakepoolTemplateRevisionReview(selectedRevisionId)
+      setActionFeedback(`修订 #${selectedRevisionId} 已提交审核。`)
+      await loadRevisions(selectedTemplateId)
+      await loadRevisionDetail(selectedRevisionId)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "模板送审失败")
+    } finally {
+      setIsSubmittingReview(false)
+    }
+  }, [loadRevisionDetail, loadRevisions, selectedRevisionId, selectedTemplateId])
+
+  const handleApproveRevision = useCallback(async () => {
+    if (selectedRevisionId === null) {
+      return
+    }
+
+    setIsApprovingRevision(true)
+    setActionFeedback(null)
+    setActionError(null)
+    try {
+      await approveDatamakepoolTemplateRevision(selectedRevisionId)
+      setActionFeedback(`修订 #${selectedRevisionId} 已审批通过并切换为当前发布版本。`)
+      await loadTemplates(true)
+      await loadRevisionDetail(selectedRevisionId)
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "模板审批失败")
+    } finally {
+      setIsApprovingRevision(false)
+    }
+  }, [loadRevisionDetail, loadTemplates, selectedRevisionId])
+
+  const businessGraphNodeCount = getGraphNodeCount(
+    selectedRevisionDetail?.business_graph_snapshot ?? null
+  )
+  const technicalGraphNodeCount = getGraphNodeCount(selectedRevisionDetail?.technical_graph ?? null)
+  const inputSchemaPreview = stringifyPreview(selectedRevisionDetail?.input_schema ?? null)
+  const outputMappingPreview = stringifyPreview(selectedRevisionDetail?.output_mapping ?? null)
+
   return (
     <DatamakepoolShell
       eyebrow="datamakepool / F24 模板管理台"
       title="模板工作台"
-      description="先把模板列表、版本沉淀和资产引用关系统一收进一个工作台视图里。视觉上保持站点主题一致，交互上优先保障扫描效率、状态可见性和后续页面复用。"
+      description="这一批把模板版本详情和审核动作正式接进工作台。交互上仍然坚持扫描效率优先，让审核人能在同一屏里完成查看、判断和状态推进。"
       metrics={statusMetrics}
       actions={
         <Button
@@ -359,11 +531,11 @@ export function TemplateManagementConsole() {
         </Button>
       }
     >
-      <div className="grid h-full min-h-0 gap-6 p-6 2xl:grid-cols-[300px_minmax(0,1fr)_320px]">
+      <div className="grid h-full min-h-0 gap-6 p-6 2xl:grid-cols-[300px_minmax(0,1fr)_360px]">
         <Card className="min-h-0 overflow-hidden border-border/70 bg-card/80 backdrop-blur-sm">
           <CardHeader className="border-b border-border/70">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
-              <Layers3 className="h-3.5 w-3.5" />
+              <Layers className="h-3.5 w-3.5" />
               模板检索
             </div>
             <CardTitle>模板列表</CardTitle>
@@ -470,17 +642,17 @@ export function TemplateManagementConsole() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="pt-0 text-sm text-muted-foreground">
-                当前页面保留版本概览和右侧检查面板，不做复杂编辑。
+                当前批次支持版本详情查看与审核状态推进，不开放复杂编辑。
               </CardContent>
             </Card>
 
             <Card className="border-border/70 bg-card/80 backdrop-blur-sm">
               <CardHeader className="gap-2">
                 <CardDescription>当前范围</CardDescription>
-                <CardTitle className="text-base">F24 首批 MVP</CardTitle>
+                <CardTitle className="text-base">F24 下一批闭环</CardTitle>
               </CardHeader>
               <CardContent className="pt-0 text-sm text-muted-foreground">
-                不包含审核动作、模板详情编辑、执行入口。
+                已接入版本详情与审核动作，执行入口仍留在后续批次。
               </CardContent>
             </Card>
           </div>
@@ -498,7 +670,8 @@ export function TemplateManagementConsole() {
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   <GitBranch className="h-4 w-4" />
-                  版本列表来自 `/api/datamakepool/templates/{template_id}/revisions`
+                  <span>版本列表来自</span>
+                  <code>/api/datamakepool/templates/{"{template_id}"}/revisions</code>
                 </div>
               </div>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -559,13 +732,28 @@ export function TemplateManagementConsole() {
           <CardHeader className="border-b border-border/70">
             <div className="flex items-center gap-2 text-xs uppercase tracking-[0.18em] text-muted-foreground">
               <FileSearch className="h-3.5 w-3.5" />
-              版本检查面板
+              版本详情与动作
             </div>
-            <CardTitle>选中版本摘要</CardTitle>
-            <CardDescription>把审核状态、资产引用和步骤命中集中在一个侧栏里，减少来回切换。</CardDescription>
+            <CardTitle>选中版本详情</CardTitle>
+            <CardDescription>详情读取和审核动作共用同一侧栏，减少状态切换成本。</CardDescription>
           </CardHeader>
           <CardContent className="min-h-0 px-0">
-            {selectedRevision ? (
+            {selectedRevision === null ? (
+              <div className="flex h-full items-center justify-center px-6 py-10 text-sm text-muted-foreground">
+                先在中间区域选择一个版本，再查看详情。
+              </div>
+            ) : isLoadingRevisionDetail && selectedRevisionDetail === null ? (
+              <div className="flex h-full items-center justify-center px-6 py-10 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                正在加载版本详情
+              </div>
+            ) : revisionDetailError ? (
+              <div className="px-6 py-6">
+                <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                  {revisionDetailError}
+                </div>
+              </div>
+            ) : (
               <ScrollArea className="h-full">
                 <div className="space-y-4 p-4">
                   <div className="rounded-2xl border border-primary/20 bg-primary/10 p-4">
@@ -575,21 +763,87 @@ export function TemplateManagementConsole() {
                           当前选中
                         </div>
                         <div className="mt-2 text-lg font-semibold text-foreground">
-                          V{selectedRevision.version_no}
+                          {selectedRevisionDetail?.template_name || selectedTemplate?.name || "模板版本"}
+                        </div>
+                        <div className="mt-2 text-sm text-muted-foreground">
+                          V{selectedRevisionDetail?.version_no ?? selectedRevision.version_no} / 修订 #
+                          {selectedRevisionDetail?.revision_id ?? selectedRevision.revision_id}
                         </div>
                       </div>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "font-medium",
-                          getRevisionStatusMeta(selectedRevision.status).className
-                        )}
-                      >
-                        {getRevisionStatusMeta(selectedRevision.status).label}
-                      </Badge>
+                      <div className="flex flex-col items-end gap-2">
+                        <Badge variant="outline" className={cn("font-medium", revisionMeta.className)}>
+                          {revisionMeta.label}
+                        </Badge>
+                        {selectedRevisionDetail?.is_latest_published ? (
+                          <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+                            当前发布
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="mt-3 text-sm text-muted-foreground">
-                      修订 #{selectedRevision.revision_id} · 步骤 {selectedRevision.steps_count}
+                      系统域：{selectedRevisionDetail?.system_short || selectedTemplate?.system_short || "未标注"}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <GitPullRequest className="h-4 w-4 text-primary" />
+                      审核动作
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {actionFeedback ? (
+                        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                          {actionFeedback}
+                        </div>
+                      ) : null}
+                      {actionError ? (
+                        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                          {actionError}
+                        </div>
+                      ) : null}
+
+                      <div className="flex flex-wrap gap-2">
+                        {revisionStatus === "draft" ? (
+                          <Button
+                            size="sm"
+                            onClick={() => void handleSubmitReview()}
+                            disabled={isSubmittingReview || isApprovingRevision}
+                          >
+                            {isSubmittingReview ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <GitPullRequest className="h-4 w-4" />
+                            )}
+                            提交审核
+                          </Button>
+                        ) : null}
+
+                        {revisionStatus === "pending_review" ? (
+                          <Button
+                            size="sm"
+                            onClick={() => void handleApproveRevision()}
+                            disabled={isSubmittingReview || isApprovingRevision}
+                          >
+                            {isApprovingRevision ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <CheckCheck className="h-4 w-4" />
+                            )}
+                            审批通过
+                          </Button>
+                        ) : null}
+
+                        {revisionStatus === "published" ? (
+                          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                            当前版本已发布，无需重复审批。
+                          </div>
+                        ) : null}
+                      </div>
+
+                      <div className="text-xs leading-5 text-muted-foreground">
+                        审核规则沿用后端治理口径：只有待审核版本可审批，且创建者不能自审。
+                      </div>
                     </div>
                   </div>
 
@@ -599,25 +853,28 @@ export function TemplateManagementConsole() {
                       审核与沉淀
                     </div>
                     <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                      <div>创建人：用户 #{selectedRevision.created_by}</div>
+                      <div>创建人：用户 #{selectedRevisionDetail?.created_by ?? selectedRevision.created_by}</div>
                       <div>
                         审核人：
-                        {selectedRevision.reviewed_by
-                          ? `用户 #${selectedRevision.reviewed_by}`
+                        {selectedRevisionDetail?.reviewed_by
+                          ? `用户 #${selectedRevisionDetail.reviewed_by}`
                           : "未审核"}
                       </div>
                       <div>
                         审核备注：
-                        {selectedRevision.review_comment?.trim()
-                          ? selectedRevision.review_comment
+                        {selectedRevisionDetail?.review_comment?.trim()
+                          ? selectedRevisionDetail.review_comment
                           : "无"}
                       </div>
                       <div>
                         来源 Run：
-                        {selectedRevision.source_run_id
-                          ? `#${selectedRevision.source_run_id}`
+                        {selectedRevisionDetail?.source_run_id
+                          ? `#${selectedRevisionDetail.source_run_id}`
                           : "未挂载"}
                       </div>
+                      <div>创建时间：{formatDateLabel(selectedRevisionDetail?.created_at)}</div>
+                      <div>审核时间：{formatDateLabel(selectedRevisionDetail?.reviewed_at)}</div>
+                      <div>发布时间：{formatDateLabel(selectedRevisionDetail?.published_at)}</div>
                     </div>
                   </div>
 
@@ -626,35 +883,37 @@ export function TemplateManagementConsole() {
                       <Database className="h-4 w-4 text-muted-foreground" />
                       资产关系
                     </div>
-                    {selectedRevision.asset_references.length ? (
+                    {(selectedRevisionDetail?.asset_references || selectedRevision.asset_references).length ? (
                       <div className="mt-3 space-y-3">
-                        {selectedRevision.asset_references.map((reference) => (
-                          <div
-                            key={`${reference.asset_type}-${reference.asset_id}-${reference.version_id ?? "logic"}-inspector`}
-                            className="rounded-xl border border-border/70 bg-muted/20 p-3"
-                          >
-                            <div className="flex items-center gap-2">
-                              <Badge
-                                variant="outline"
-                                className="border-border/70 bg-background text-foreground"
-                              >
-                                {getAssetTypeLabel(reference.asset_type)}
-                              </Badge>
-                              <div className="font-medium text-foreground">
-                                {reference.name || `资产 #${reference.asset_id}`}
+                        {(selectedRevisionDetail?.asset_references || selectedRevision.asset_references).map(
+                          (reference) => (
+                            <div
+                              key={`${reference.asset_type}-${reference.asset_id}-${reference.version_id ?? "logic"}-inspector`}
+                              className="rounded-xl border border-border/70 bg-muted/20 p-3"
+                            >
+                              <div className="flex items-center gap-2">
+                                <Badge
+                                  variant="outline"
+                                  className="border-border/70 bg-background text-foreground"
+                                >
+                                  {getAssetTypeLabel(reference.asset_type)}
+                                </Badge>
+                                <div className="font-medium text-foreground">
+                                  {reference.name || `资产 #${reference.asset_id}`}
+                                </div>
+                              </div>
+                              <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                                {reference.system_short || "未标注系统"} · 资产 #{reference.asset_id}
+                                {reference.version_id ? ` · 版本 ${reference.version_id}` : ""}
+                              </div>
+                              <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                                {reference.step_names.length
+                                  ? `命中步骤：${reference.step_names.join("、")}`
+                                  : "未记录命中步骤"}
                               </div>
                             </div>
-                            <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                              {reference.system_short || "未标注系统"} · 资产 #{reference.asset_id}
-                              {reference.version_id ? ` · 版本 ${reference.version_id}` : ""}
-                            </div>
-                            <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                              {reference.step_names.length
-                                ? `命中步骤：${reference.step_names.join("、")}`
-                                : "未记录命中步骤"}
-                            </div>
-                          </div>
-                        ))}
+                          )
+                        )}
                       </div>
                     ) : (
                       <div className="mt-3 rounded-xl border border-dashed border-border/80 px-3 py-4 text-sm text-muted-foreground">
@@ -663,15 +922,74 @@ export function TemplateManagementConsole() {
                     )}
                   </div>
 
+                  <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <ListTree className="h-4 w-4 text-muted-foreground" />
+                      步骤详情
+                    </div>
+                    {selectedRevisionDetail?.steps.length ? (
+                      <div className="mt-3 space-y-3">
+                        {selectedRevisionDetail.steps.map((step) => (
+                          <StepDetailCard key={step.step_id} step={step} />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="mt-3 rounded-xl border border-dashed border-border/80 px-3 py-4 text-sm text-muted-foreground">
+                        当前版本未记录结构化步骤详情。
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <Workflow className="h-4 w-4 text-primary" />
+                      图与契约
+                    </div>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
+                        <div className="font-medium text-foreground">图快照</div>
+                        <div className="mt-2">业务图节点：{businessGraphNodeCount}</div>
+                        <div className="mt-1">技术图节点：{technicalGraphNodeCount}</div>
+                      </div>
+                      <div className="rounded-xl border border-border/70 bg-muted/20 p-3 text-sm text-muted-foreground">
+                        <div className="font-medium text-foreground">输入输出契约</div>
+                        <div className="mt-2">
+                          输入结构字段：{getObjectEntryCount(selectedRevisionDetail?.input_schema ?? null)}
+                        </div>
+                        <div className="mt-1">
+                          输出映射字段：{getObjectEntryCount(selectedRevisionDetail?.output_mapping ?? null)}
+                        </div>
+                      </div>
+                    </div>
+
+                    {inputSchemaPreview ? (
+                      <div className="mt-3">
+                        <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                          Input Schema
+                        </div>
+                        <pre className="overflow-x-auto rounded-xl border border-border/70 bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                          {inputSchemaPreview}
+                        </pre>
+                      </div>
+                    ) : null}
+
+                    {outputMappingPreview ? (
+                      <div className="mt-3">
+                        <div className="mb-2 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                          Output Mapping
+                        </div>
+                        <pre className="overflow-x-auto rounded-xl border border-border/70 bg-muted/20 p-3 text-xs leading-5 text-muted-foreground">
+                          {outputMappingPreview}
+                        </pre>
+                      </div>
+                    ) : null}
+                  </div>
+
                   <div className="rounded-2xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-                    本批仍保持在 F24 首批 MVP，只做模板工作台的浏览与检查，不做审核提交、版本编辑和执行入口。
+                    当前批次聚焦“模板版本详情 + 审核动作”闭环，不在这里扩展版本编辑和执行入口。
                   </div>
                 </div>
               </ScrollArea>
-            ) : (
-              <div className="flex h-full items-center justify-center px-6 py-10 text-sm text-muted-foreground">
-                先在中间区域选择一个版本，再查看详情。
-              </div>
             )}
           </CardContent>
         </Card>

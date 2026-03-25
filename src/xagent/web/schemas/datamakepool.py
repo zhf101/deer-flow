@@ -577,6 +577,41 @@ class TemplateRevisionSummaryResponse(BaseModel):
     asset_references: list[TemplateAssetReferenceResponse] = Field(default_factory=list)
 
 
+class TemplateRevisionStepDetailResponse(BaseModel):
+    """模板版本详情里的单步信息。"""
+
+    step_id: str
+    step_type: str
+    name: str
+    depends_on: list[Any] = Field(default_factory=list)
+    design_intent: dict[str, Any] = Field(default_factory=dict)
+    resolution_rationale: dict[str, Any] = Field(default_factory=dict)
+    resolved_execution_plan: dict[str, Any] = Field(default_factory=dict)
+    editable_fields: list[Any] = Field(default_factory=list)
+
+
+class TemplateRevisionDetailResponse(TemplateRevisionSummaryResponse):
+    """模板版本详情响应。
+
+    这一层在列表摘要基础上补齐模板归属、图快照和步骤详情，
+    让前端工作台后续继续接编辑/执行入口时，不必再改详情真相源。
+    """
+
+    template_name: str
+    template_description: Optional[str] = None
+    system_short: str
+    latest_published_revision_id: Optional[int] = None
+    is_latest_published: bool = False
+    business_graph_snapshot: dict[str, Any] = Field(default_factory=dict)
+    technical_graph: dict[str, Any] = Field(default_factory=dict)
+    input_schema: dict[str, Any] = Field(default_factory=dict)
+    output_mapping: dict[str, Any] = Field(default_factory=dict)
+    created_at: Optional[str] = None
+    reviewed_at: Optional[str] = None
+    published_at: Optional[str] = None
+    steps: list[TemplateRevisionStepDetailResponse] = Field(default_factory=list)
+
+
 class ReviewResponse(BaseModel):
     """审核动作的最小响应。"""
 

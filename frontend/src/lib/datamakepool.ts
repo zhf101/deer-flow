@@ -35,6 +35,39 @@ export interface DatamakepoolTemplateRevisionSummary {
   asset_references: DatamakepoolTemplateAssetReference[]
 }
 
+export interface DatamakepoolTemplateRevisionStepDetail {
+  step_id: string
+  step_type: string
+  name: string
+  depends_on: string[]
+  design_intent: Record<string, unknown>
+  resolution_rationale: Record<string, unknown>
+  resolved_execution_plan: Record<string, unknown>
+  editable_fields: unknown[]
+}
+
+export interface DatamakepoolTemplateRevisionDetail
+  extends DatamakepoolTemplateRevisionSummary {
+  template_name: string
+  template_description?: string | null
+  system_short: string
+  latest_published_revision_id?: number | null
+  is_latest_published: boolean
+  business_graph_snapshot: Record<string, unknown>
+  technical_graph: Record<string, unknown>
+  input_schema: Record<string, unknown>
+  output_mapping: Record<string, unknown>
+  created_at?: string | null
+  reviewed_at?: string | null
+  published_at?: string | null
+  steps: DatamakepoolTemplateRevisionStepDetail[]
+}
+
+export interface DatamakepoolTemplateReviewResponse {
+  revision_id: number
+  status: string
+}
+
 async function parseErrorMessage(response: Response): Promise<string> {
   try {
     const payload = await response.json()
@@ -70,4 +103,46 @@ export async function listDatamakepoolTemplateRevisions(
     throw new Error(await parseErrorMessage(response))
   }
   return (await response.json()) as DatamakepoolTemplateRevisionSummary[]
+}
+
+export async function getDatamakepoolTemplateRevisionDetail(
+  revisionId: number
+): Promise<DatamakepoolTemplateRevisionDetail> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/templates/revisions/${revisionId}`
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolTemplateRevisionDetail
+}
+
+export async function submitDatamakepoolTemplateRevisionReview(
+  revisionId: number
+): Promise<DatamakepoolTemplateReviewResponse> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/templates/revisions/${revisionId}/submit-review`,
+    {
+      method: "POST",
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolTemplateReviewResponse
+}
+
+export async function approveDatamakepoolTemplateRevision(
+  revisionId: number
+): Promise<DatamakepoolTemplateReviewResponse> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/templates/revisions/${revisionId}/approve`,
+    {
+      method: "POST",
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolTemplateReviewResponse
 }

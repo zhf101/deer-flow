@@ -7,6 +7,7 @@ from ...models.user import User
 from ...schemas.datamakepool import (
     CreateTemplateFromRunRequest,
     ReviewResponse,
+    TemplateRevisionDetailResponse,
     TemplateRevisionSummaryResponse,
     TemplateRevisionResponse,
     TemplateSummaryResponse,
@@ -72,6 +73,22 @@ async def list_template_revisions(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
+@router.get("/revisions/{revision_id}", response_model=TemplateRevisionDetailResponse)
+async def get_template_revision(
+    revision_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> TemplateRevisionDetailResponse:
+    """读取单个模板版本详情。"""
+    try:
+        result = TemplateService(db=db).get_revision_detail(revision_id, user)
+        return TemplateRevisionDetailResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 @router.post("/revisions/{revision_id}/submit-review", response_model=ReviewResponse)
 async def submit_template_review(
     revision_id: int,
@@ -88,7 +105,7 @@ async def submit_template_review(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
-@router.post("/revisions/{revision_id}/approve")
+@router.post("/revisions/{revision_id}/approve", response_model=ReviewResponse)
 async def approve_template_revision(
     revision_id: int,
     db: Session = Depends(get_db),
