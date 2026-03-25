@@ -8,12 +8,16 @@ from ...schemas.datamakepool import (
     HTTPAssetCreateRequest,
     HTTPAssetDetailResponse,
     HTTPAssetSummaryResponse,
+    HTTPAssetTestRequest,
+    HTTPAssetTestResponse,
     SQLAssetCreateRequest,
     SQLAssetCreateResponse,
     SQLAssetSummaryResponse,
     SQLAssetVersionDetailResponse,
     SQLAssetVersionReviewResponse,
     SQLAssetVersionSummaryResponse,
+    SQLAssetVersionTestRequest,
+    SQLAssetVersionTestResponse,
 )
 from ....core.datamakepool.assets import AssetService
 
@@ -81,10 +85,30 @@ async def create_http_asset(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@router.post("/http-assets/{asset_id}/test")
-async def test_http_asset(asset_id: str) -> dict:
+@router.post("/http-assets/{asset_id}/test", response_model=HTTPAssetTestResponse)
+async def test_http_asset(
+    asset_id: int,
+    request: HTTPAssetTestRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> HTTPAssetTestResponse:
     """测试某个 HTTP 资产。"""
-    return {"asset_id": asset_id, "status": "not_implemented"}
+    try:
+        result = AssetService(db=db).test_http_asset(
+            asset_id=asset_id,
+            user=user,
+            query_params=request.query_params,
+            headers=request.headers,
+            body=request.body,
+            response_extraction_rules=request.response_extraction_rules,
+        )
+        return HTTPAssetTestResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.get("/sql-assets", response_model=list[SQLAssetSummaryResponse])
@@ -157,6 +181,34 @@ async def get_sql_asset_version(
         return SQLAssetVersionDetailResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.post(
+    "/sql-asset-versions/{version_id}/test",
+    response_model=SQLAssetVersionTestResponse,
+)
+async def test_sql_asset_version(
+    version_id: int,
+    request: SQLAssetVersionTestRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SQLAssetVersionTestResponse:
+    """测试 SQL 资产版本连接或查询。"""
+    try:
+        result = AssetService(db=db).test_sql_asset_version(
+            version_id=version_id,
+            user=user,
+            test_mode=request.test_mode,
+            sql=request.sql,
+            params=request.params,
+        )
+        return SQLAssetVersionTestResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 

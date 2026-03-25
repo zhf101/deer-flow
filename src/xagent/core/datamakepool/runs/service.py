@@ -238,6 +238,7 @@ class RunService:
                     "name": step.step_name,
                     "depends_on": step.depends_on or [],
                     "resolved_execution_plan": step.resolved_execution_plan_snapshot or {},
+                    "asset_version_snapshot_ref": step.asset_version_snapshot_ref,
                 }
             )
         return {"nodes": nodes}

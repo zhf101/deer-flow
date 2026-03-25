@@ -10,6 +10,7 @@ class HTTPResolver:
 
     def resolve(self, node: dict[str, Any], resolver_input: ResolverInput) -> ResolverOutput:
         existing_plan = node.get("resolved_execution_plan") or {}
+        asset_definition = resolver_input.asset_definition or {}
         plan = {
             "step_type": "http_step",
             "asset_ref": (
@@ -17,11 +18,25 @@ class HTTPResolver:
                 or existing_plan.get("asset_id")
                 or node.get("asset_ref")
                 or node.get("asset_id")
+                or asset_definition.get("asset_ref")
             ),
-            "method": str(existing_plan.get("method") or node.get("method") or "GET").upper(),
+            "method": str(
+                existing_plan.get("method")
+                or node.get("method")
+                or asset_definition.get("method")
+                or "GET"
+            ).upper(),
             "url": existing_plan.get("url") or node.get("url"),
-            "base_url": existing_plan.get("base_url") or node.get("base_url"),
-            "path_template": existing_plan.get("path_template") or node.get("path_template"),
+            "base_url": (
+                existing_plan.get("base_url")
+                or node.get("base_url")
+                or asset_definition.get("base_url")
+            ),
+            "path_template": (
+                existing_plan.get("path_template")
+                or node.get("path_template")
+                or asset_definition.get("path_template")
+            ),
             "query_template": (
                 existing_plan.get("query_template")
                 or existing_plan.get("param_template")
@@ -29,16 +44,32 @@ class HTTPResolver:
                 or node.get("query_template")
                 or node.get("param_template")
                 or node.get("input_template")
+                or asset_definition.get("query_template")
                 or {}
             ),
             "headers_template": (
-                existing_plan.get("headers_template") or node.get("headers_template") or {}
+                existing_plan.get("headers_template")
+                or node.get("headers_template")
+                or asset_definition.get("headers_template")
+                or {}
             ),
-            "body_template": existing_plan.get("body_template") or node.get("body_template"),
+            "body_template": (
+                existing_plan.get("body_template")
+                or node.get("body_template")
+                or asset_definition.get("body_template")
+            ),
             "output_mapping": (
-                existing_plan.get("output_mapping") or node.get("output_mapping") or {}
+                existing_plan.get("output_mapping")
+                or node.get("output_mapping")
+                or asset_definition.get("response_extraction_rules")
+                or {}
             ),
-            "timeout_seconds": int(existing_plan.get("timeout_seconds") or node.get("timeout_seconds") or 30),
+            "timeout_seconds": int(
+                existing_plan.get("timeout_seconds")
+                or node.get("timeout_seconds")
+                or asset_definition.get("timeout_seconds")
+                or 30
+            ),
         }
 
         blocking_issues: list[dict[str, Any]] = []
@@ -64,6 +95,12 @@ class HTTPResolver:
             resolution_rationale={
                 "strategy": "reuse_existing_http_plan",
                 "upstream_steps": sorted(resolver_input.upstream_outputs.keys()),
+                "asset_binding": {
+                    "asset_id": asset_definition.get("asset_id"),
+                    "system_short": asset_definition.get("system_short"),
+                }
+                if asset_definition
+                else {},
             },
             resolved_execution_plan=plan,
             editable_fields=[

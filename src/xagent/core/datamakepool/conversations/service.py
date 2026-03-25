@@ -33,7 +33,6 @@ class ConversationService:
     - LLM 自动规划
     - 多草稿并存
     - 聊天修正版本化策略扩展
-    - 资产中心联动
     """
 
     db: Session
@@ -92,9 +91,10 @@ class ConversationService:
     ) -> dict[str, Any]:
         """向探索态会话追加一条用户消息，并重算当前初版 FlowDraft。
 
-        当前重算策略是“基于完整用户消息转录，覆盖写回当前草稿”。
-        这样可以先把探索入口与初版生成闭环打通，后续再进入 F3/F4 时扩展
-        为更细粒度的聊天修正与版本化。
+        当前策略仍以“基于完整用户消息转录重算 bootstrap 草稿”为主，但会补一层
+        最小保护：
+        - bootstrap 草稿上的已选资产引用会尽量保留
+        - 如果技术图已经进入人工修正阶段，则不再被新的聊天消息整体覆盖
         """
 
         normalized_content = self._normalize_text(content)
@@ -115,15 +115,20 @@ class ConversationService:
 
         transcript = self._load_user_messages(int(task.id))
         generated = self._build_initial_flowdraft_payload(transcript)
+        technical_graph = self._merge_generated_technical_graph(
+            existing_graph=flowdraft.technical_graph_payload or {},
+            generated_graph=generated["technical_graph"],
+            message_count=len(transcript),
+        )
         preflight_summary = self._flowdraft_service().evaluate_preflight(
-            generated["technical_graph"]
+            technical_graph
         )
         pending_issues = preflight_summary.get("issues", [])
 
         flowdraft.title = generated["title"]
         flowdraft.objective = generated["objective"]
         flowdraft.business_graph_payload = generated["business_graph"]
-        flowdraft.technical_graph_payload = generated["technical_graph"]
+        flowdraft.technical_graph_payload = technical_graph
         flowdraft.pending_issues_payload = pending_issues
         flowdraft.preflight_summary_payload = preflight_summary
         flowdraft.input_schema_draft = generated["input_schema_draft"]
@@ -354,6 +359,73 @@ class ConversationService:
             "input_schema_draft": self._build_input_schema_draft(objective),
             "output_mapping_draft": {},
         }
+
+    def _merge_generated_technical_graph(
+        self,
+        *,
+        existing_graph: dict[str, Any],
+        generated_graph: dict[str, Any],
+        message_count: int,
+    ) -> dict[str, Any]:
+        """把聊天重算结果与现有技术图做最小合并。
+
+        目标只有两个：
+        1. 当草稿仍处于 bootstrap 阶段时，保留已选中的资产引用与版本快照
+        2. 当技术图已经进入人工修正阶段时，避免一条聊天消息把现有设计整体覆盖掉
+        """
+
+        if self._should_preserve_existing_graph(existing_graph):
+            preserved_graph = dict(existing_graph or {})
+            meta = dict(preserved_graph.get("meta") or {})
+            meta["conversation_message_count"] = message_count
+            meta.setdefault("generation_mode", "conversation_preserved")
+            preserved_graph["meta"] = meta
+            return preserved_graph
+
+        merged_graph = {
+            **(generated_graph or {}),
+            "nodes": [dict(node) for node in (generated_graph.get("nodes") or [])],
+            "edges": list(generated_graph.get("edges") or []),
+        }
+        existing_nodes = {
+            str(node.get("step_id") or node.get("id") or ""): node
+            for node in (existing_graph.get("nodes") or [])
+            if isinstance(node, dict)
+        }
+        for node in merged_graph["nodes"]:
+            step_id = str(node.get("step_id") or node.get("id") or "")
+            existing_node = existing_nodes.get(step_id)
+            if not isinstance(existing_node, dict):
+                continue
+            asset_ref = existing_node.get("asset_ref")
+            snapshot_ref = existing_node.get("asset_version_snapshot_ref")
+            if asset_ref is not None:
+                node["asset_ref"] = asset_ref
+                plan = dict(node.get("resolved_execution_plan") or {})
+                plan.setdefault("asset_ref", asset_ref)
+                node["resolved_execution_plan"] = plan
+            if snapshot_ref is not None:
+                node["asset_version_snapshot_ref"] = snapshot_ref
+        return merged_graph
+
+    def _should_preserve_existing_graph(self, technical_graph: dict[str, Any]) -> bool:
+        """判断当前技术图是否已超出 bootstrap 覆盖边界。"""
+
+        nodes = technical_graph.get("nodes", []) if isinstance(technical_graph, dict) else []
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            step_type = str(node.get("step_type") or "")
+            resolved_plan = node.get("resolved_execution_plan") or {}
+            if step_type not in {"start", "mapping", "end"}:
+                return True
+            if (
+                node.get("asset_ref") is not None
+                or node.get("asset_version_snapshot_ref") is not None
+                or resolved_plan.get("asset_ref") is not None
+            ):
+                return True
+        return False
 
     def _build_input_schema_draft(self, objective: str | None) -> dict[str, Any]:
         """生成当前阶段可稳定返回的最小输入草案。"""

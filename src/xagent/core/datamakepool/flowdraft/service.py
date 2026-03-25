@@ -9,6 +9,7 @@ from sqlalchemy.orm.attributes import flag_modified
 from xagent.web.models.dm_flow_draft import DMFlowDraft
 from xagent.web.models.user import User
 
+from ..assets import AssetService
 from ..contracts import FlowDraftStatus, ResolverInput
 from ..governance import GovernanceService
 from ..preflight import PreflightService
@@ -20,7 +21,7 @@ from ..snapshots import SnapshotService
 class FlowDraftService:
     """FlowDraft 生命周期服务。
 
-    当前这一版优先补齐最小编辑闭环：
+    当前这一版优先补齐最小编辑闭环，并开始把探索态步骤真正接到资产真相源：
 
     - 读取草稿
     - 读取预检
@@ -28,6 +29,7 @@ class FlowDraftService:
     - 对单步触发局部重收敛
     - 创建快照
     - 输出最小 diff
+    - 在 resolve 阶段把 `asset_ref` 解析成真实资产绑定和版本快照引用
     """
 
     db: Session
@@ -91,7 +93,7 @@ class FlowDraftService:
             if not isinstance(node, dict):
                 continue
             step_id = str(node.get("step_id") or node.get("id") or "")
-            resolver_output = self._resolve_node(flowdraft, node)
+            resolver_output = self._resolve_node(flowdraft, node, user=user)
             if resolver_output is not None:
                 node["resolved_execution_plan"] = resolver_output.resolved_execution_plan
                 node["resolution_rationale"] = resolver_output.resolution_rationale
@@ -304,7 +306,7 @@ class FlowDraftService:
 
         flowdraft = self.get_flowdraft_model(flowdraft_id, user)
         node = self._find_node(flowdraft, step_id)
-        resolver_output = self._resolve_node(flowdraft, node)
+        resolver_output = self._resolve_node(flowdraft, node, user=user)
 
         if resolver_output is not None:
             node["resolved_execution_plan"] = resolver_output.resolved_execution_plan
@@ -518,6 +520,8 @@ class FlowDraftService:
         node["editable_fields"] = []
         node["pending_flags"] = ["needs_resolution"]
         node.pop("resolved_execution_plan", None)
+        if field_name == "asset_ref":
+            node.pop("asset_version_snapshot_ref", None)
 
     def _validate_patch_value(
         self,
@@ -546,8 +550,16 @@ class FlowDraftService:
             return
 
         if field_name == "asset_ref":
-            if not isinstance(field_value, str) or not field_value.strip():
-                raise ValueError("Field 'asset_ref' requires non-empty string value")
+            asset_ref = AssetService(db=self.db).normalize_asset_reference(
+                field_value,
+                default_asset_type=self._default_asset_type_for_step(step_type),
+            )
+            if asset_ref is None and (
+                not isinstance(field_value, str) or not field_value.strip()
+            ):
+                raise ValueError(
+                    "Field 'asset_ref' requires structured asset ref or non-empty string value"
+                )
             return
 
         if field_name == "sql":
@@ -583,31 +595,55 @@ class FlowDraftService:
         self,
         flowdraft: DMFlowDraft,
         node: dict[str, Any],
+        user: User | None = None,
     ):
         """对单个节点触发最小重收敛。"""
 
         step_type = str(node.get("step_type") or "")
+        asset_binding = self._resolve_asset_binding_for_node(
+            step_type=step_type,
+            node=node,
+            user=user,
+        )
         if step_type == "http_step":
-            return self.http_resolver.resolve(
+            resolver_output = self.http_resolver.resolve(
                 node,
                 ResolverInput(
                     design_intent=node.get("design_intent") or {},
                     user_inputs=flowdraft.input_schema_draft or {},
+                    asset_definition=(
+                        asset_binding.get("asset_definition") if asset_binding else {}
+                    ),
                     template_context={"flowdraft_id": flowdraft.id},
                     governance_rules=node.get("governance_rules") or {},
                 ),
             )
+            self._apply_asset_binding_to_node(
+                node=node,
+                resolver_output=resolver_output,
+                asset_binding=asset_binding,
+            )
+            return resolver_output
 
         if step_type == "sql_step":
-            return self.sql_resolver.resolve(
+            resolver_output = self.sql_resolver.resolve(
                 node,
                 ResolverInput(
                     design_intent=node.get("design_intent") or {},
                     user_inputs=flowdraft.input_schema_draft or {},
+                    asset_definition=(
+                        asset_binding.get("asset_definition") if asset_binding else {}
+                    ),
                     template_context={"flowdraft_id": flowdraft.id},
                     governance_rules=node.get("governance_rules") or {},
                 ),
             )
+            self._apply_asset_binding_to_node(
+                node=node,
+                resolver_output=resolver_output,
+                asset_binding=asset_binding,
+            )
+            return resolver_output
 
         if step_type in {"mapping", "confirm", "start", "end"}:
             node["pending_flags"] = []
@@ -638,6 +674,83 @@ class FlowDraftService:
             return None
 
         raise ValueError(f"Unsupported flowdraft step type {step_type!r} for resolve")
+
+    def _resolve_asset_binding_for_node(
+        self,
+        *,
+        step_type: str,
+        node: dict[str, Any],
+        user: User | None,
+    ) -> dict[str, Any] | None:
+        """根据节点当前 `asset_ref` 解析真实资产绑定。
+
+        这一批只对结构化 `asset_ref` 做真正的资产联动；旧的自由字符串引用仍保持兼容，
+        避免把历史草稿直接打断。
+        """
+
+        raw_asset_ref = self._extract_node_asset_ref(node)
+        if raw_asset_ref is None:
+            node.pop("asset_version_snapshot_ref", None)
+            return None
+
+        asset_service = AssetService(db=self.db)
+        normalized_asset_ref = asset_service.normalize_asset_reference(
+            raw_asset_ref,
+            default_asset_type=self._default_asset_type_for_step(step_type),
+        )
+        if normalized_asset_ref is None:
+            return None
+
+        if step_type == "http_step":
+            return asset_service.resolve_http_asset_binding(
+                normalized_asset_ref,
+                user=user,
+            )
+        if step_type == "sql_step":
+            return asset_service.resolve_sql_asset_binding(
+                normalized_asset_ref,
+                user=user,
+            )
+        return None
+
+    def _apply_asset_binding_to_node(
+        self,
+        *,
+        node: dict[str, Any],
+        resolver_output,
+        asset_binding: dict[str, Any] | None,
+    ) -> None:
+        """把资产绑定结果同步回节点和执行方案。"""
+
+        if asset_binding is None:
+            return
+
+        asset_ref = asset_binding.get("asset_ref")
+        if asset_ref is not None:
+            node["asset_ref"] = asset_ref
+            if resolver_output is not None:
+                resolver_output.resolved_execution_plan["asset_ref"] = asset_ref
+
+        snapshot_ref = asset_binding.get("asset_version_snapshot_ref")
+        if snapshot_ref:
+            node["asset_version_snapshot_ref"] = snapshot_ref
+        else:
+            node.pop("asset_version_snapshot_ref", None)
+
+    def _extract_node_asset_ref(self, node: dict[str, Any]) -> Any:
+        """按“resolved plan 优先，其次节点字段”的顺序读取资产引用。"""
+
+        resolved_plan = node.get("resolved_execution_plan") or {}
+        return resolved_plan.get("asset_ref") or node.get("asset_ref") or node.get("asset_id")
+
+    def _default_asset_type_for_step(self, step_type: str) -> str | None:
+        """根据步骤类型推断默认资产类型。"""
+
+        if step_type == "http_step":
+            return "http"
+        if step_type == "sql_step":
+            return "sql"
+        return None
 
     def _derive_flowdraft_status(self, preflight_result: dict[str, Any]) -> str:
         """根据预检结果推断当前 FlowDraft 状态。"""

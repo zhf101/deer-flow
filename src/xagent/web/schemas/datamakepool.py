@@ -1,6 +1,6 @@
 """datamakepool API 请求与响应 schema。"""
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -97,6 +97,27 @@ class HTTPAssetDetailResponse(HTTPAssetSummaryResponse):
     created_at: Optional[str] = None
 
 
+class HTTPAssetTestRequest(BaseModel):
+    """HTTP 资产测试请求。"""
+
+    query_params: dict[str, Any] = Field(default_factory=dict)
+    headers: dict[str, Any] = Field(default_factory=dict)
+    body: Optional[Any] = None
+    response_extraction_rules: dict[str, Any] = Field(default_factory=dict)
+
+
+class HTTPAssetTestResponse(BaseModel):
+    """HTTP 资产测试结果。"""
+
+    asset_id: int
+    execution_status: str
+    request_snapshot: dict[str, Any] = Field(default_factory=dict)
+    response_snapshot: Optional[dict[str, Any]] = None
+    extracted_outputs: dict[str, Any] = Field(default_factory=dict)
+    execution_metrics: dict[str, Any] = Field(default_factory=dict)
+    error_info: Optional[dict[str, Any]] = None
+
+
 class SQLAssetCreateRequest(BaseModel):
     """创建 SQL 资产及初始版本请求。"""
 
@@ -168,6 +189,28 @@ class SQLAssetVersionDetailResponse(SQLAssetVersionSummaryResponse):
     whitelist: list[str] = Field(default_factory=list)
     blacklist: list[str] = Field(default_factory=list)
     is_active_version: bool = False
+
+
+class SQLAssetVersionTestRequest(BaseModel):
+    """SQL 资产版本测试请求。"""
+
+    test_mode: Literal["connection", "sql"] = "connection"
+    sql: Optional[str] = None
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class SQLAssetVersionTestResponse(BaseModel):
+    """SQL 资产版本测试结果。"""
+
+    asset_id: int
+    version_id: int
+    test_mode: str
+    execution_status: str
+    connection_summary: Optional[dict[str, Any]] = None
+    sql_snapshot: Optional[dict[str, Any]] = None
+    result_preview: Optional[dict[str, Any]] = None
+    execution_metrics: dict[str, Any] = Field(default_factory=dict)
+    error_info: Optional[dict[str, Any]] = None
 
 
 class FlowDraftResponse(BaseModel):

@@ -10,6 +10,7 @@ class SQLResolver:
 
     def resolve(self, node: dict[str, Any], resolver_input: ResolverInput) -> ResolverOutput:
         existing_plan = node.get("resolved_execution_plan") or {}
+        asset_definition = resolver_input.asset_definition or {}
         governance_result = (
             existing_plan.get("governance_check_result")
             or node.get("governance_check_result")
@@ -33,6 +34,7 @@ class SQLResolver:
                 or existing_plan.get("asset_id")
                 or node.get("asset_ref")
                 or node.get("asset_id")
+                or asset_definition.get("asset_ref")
             ),
             "sql": sql_text,
             "param_template": (
@@ -40,6 +42,7 @@ class SQLResolver:
                 or existing_plan.get("input_template")
                 or node.get("param_template")
                 or node.get("input_template")
+                or asset_definition.get("param_template")
                 or {}
             ),
             "output_mapping": (
@@ -88,6 +91,13 @@ class SQLResolver:
                 "strategy": "reuse_existing_sql_plan",
                 "governance_rules": resolver_input.governance_rules,
                 "governance_inference": inferred_governance,
+                "asset_binding": {
+                    "asset_id": asset_definition.get("asset_id"),
+                    "version_id": asset_definition.get("version_id"),
+                    "version_status": asset_definition.get("status"),
+                }
+                if asset_definition
+                else {},
             },
             resolved_execution_plan=plan,
             editable_fields=[

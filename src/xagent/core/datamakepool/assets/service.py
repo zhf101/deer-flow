@@ -4,11 +4,16 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from xagent.web.models.dm_asset import DMHTTPAsset, DMSQLAsset, DMSQLAssetVersion
 from xagent.web.models.user import User
 
+from ..contracts import ExecutorInput
+from ..executors.http import HTTPExecutor
 from ..governance import GovernanceService
 
 
@@ -16,21 +21,210 @@ from ..governance import GovernanceService
 class AssetService:
     """datamakepool 资产服务。
 
-    本阶段实现资产域前两批最小闭环：
+    本阶段实现资产域前三批最小闭环，并开始承接探索态资产引用：
 
     - HTTP 资产列表 / 创建
     - HTTP 资产详情
+    - HTTP 资产测试
     - SQL 资产列表 / 创建
     - SQL 资产版本列表 / 详情
+    - SQL 资产版本测试
     - SQL 资产版本送审 / 审批切换生效版本
+    - 结构化 `asset_ref` 解析与资产快照投影
 
     当前明确不扩展：
     - HTTP 资产编辑 / 删除
     - SQL 资产版本复制 / 编辑
-    - 真实连通测试与测试 SQL
+    - mutation SQL 测试执行
     """
 
     db: Session
+
+    def normalize_asset_reference(
+        self,
+        asset_ref: Any,
+        *,
+        default_asset_type: str | None = None,
+    ) -> dict[str, Any] | None:
+        """把前台或草稿里的资产引用统一转成结构化对象。
+
+        当前兼容三种输入：
+        - 字典：`{"asset_type": "http", "asset_id": 1}`
+        - 简写字符串：`"http:1"` / `"sql:2:5"`
+        - 纯数字字符串：结合 `default_asset_type` 推断类型
+
+        如果给到的是历史遗留的自由字符串，这里返回 `None`，上层继续沿用旧逻辑，
+        避免这批联动把旧草稿直接打断。
+        """
+
+        if asset_ref is None:
+            return None
+
+        if isinstance(asset_ref, dict):
+            raw_asset_type = asset_ref.get("asset_type") or asset_ref.get("type") or default_asset_type
+            raw_asset_id = (
+                asset_ref.get("asset_id")
+                or asset_ref.get("id")
+                or asset_ref.get("http_asset_id")
+                or asset_ref.get("sql_asset_id")
+            )
+            raw_version_id = asset_ref.get("version_id") or asset_ref.get("sql_asset_version_id")
+            return self._build_normalized_asset_reference(
+                asset_type=raw_asset_type,
+                asset_id=raw_asset_id,
+                version_id=raw_version_id,
+            )
+
+        if isinstance(asset_ref, str):
+            normalized = asset_ref.strip()
+            if not normalized:
+                return None
+
+            parts = [part.strip() for part in normalized.split(":") if part.strip()]
+            if len(parts) == 1 and parts[0].isdigit() and default_asset_type:
+                return self._build_normalized_asset_reference(
+                    asset_type=default_asset_type,
+                    asset_id=parts[0],
+                    version_id=None,
+                )
+            if len(parts) == 2 and parts[0] in {"http", "sql"} and parts[1].isdigit():
+                return self._build_normalized_asset_reference(
+                    asset_type=parts[0],
+                    asset_id=parts[1],
+                    version_id=None,
+                )
+            if (
+                len(parts) == 3
+                and parts[0] == "sql"
+                and parts[1].isdigit()
+                and parts[2].isdigit()
+            ):
+                return self._build_normalized_asset_reference(
+                    asset_type="sql",
+                    asset_id=parts[1],
+                    version_id=parts[2],
+                )
+            return None
+
+        raise ValueError("Unsupported asset_ref payload")
+
+    def resolve_http_asset_binding(
+        self,
+        asset_ref: Any,
+        *,
+        user: User | None = None,
+    ) -> dict[str, Any]:
+        """把 HTTP 资产引用解析成 resolver 可消费的资产定义与快照引用。"""
+
+        normalized = self.normalize_asset_reference(asset_ref, default_asset_type="http")
+        if normalized is None:
+            raise ValueError("HTTP asset_ref must contain a structured asset id")
+        if normalized["asset_type"] != "http":
+            raise ValueError("HTTP step can only bind http asset_ref")
+
+        asset = self._get_http_asset(int(normalized["asset_id"]))
+        if user is not None:
+            GovernanceService(db=self.db).assert_http_asset_access(asset, user)
+
+        resolved_ref = {
+            "asset_type": "http",
+            "asset_id": int(asset.id),
+        }
+        return {
+            "asset_ref": resolved_ref,
+            "asset_definition": {
+                "asset_type": "http",
+                "asset_id": int(asset.id),
+                "name": asset.name,
+                "system_short": asset.system_short,
+                "method": asset.method,
+                "base_url": asset.base_url,
+                "path_template": asset.path_template,
+                "query_template": asset.query_template or {},
+                "headers_template": asset.headers_template or {},
+                "body_template": asset.body_template,
+                "request_schema": asset.request_schema or {},
+                "response_extraction_rules": asset.response_extraction_rules or {},
+                "timeout_seconds": int(asset.timeout_seconds),
+                "enabled": bool(asset.enabled),
+                "asset_ref": resolved_ref,
+            },
+            "asset_version_snapshot_ref": {
+                "asset_type": "http",
+                "asset_id": int(asset.id),
+                "system_short": asset.system_short,
+                "name": asset.name,
+                "snapshot_kind": "http_asset",
+            },
+        }
+
+    def resolve_sql_asset_binding(
+        self,
+        asset_ref: Any,
+        *,
+        user: User | None = None,
+    ) -> dict[str, Any]:
+        """把 SQL 资产引用解析成逻辑资产 + 锁定版本快照。"""
+
+        normalized = self.normalize_asset_reference(asset_ref, default_asset_type="sql")
+        if normalized is None:
+            raise ValueError("SQL asset_ref must contain a structured asset id")
+        if normalized["asset_type"] != "sql":
+            raise ValueError("SQL step can only bind sql asset_ref")
+
+        asset = self._get_sql_asset(int(normalized["asset_id"]))
+        if user is not None:
+            GovernanceService(db=self.db).assert_sql_asset_access(asset, user)
+
+        version_id = normalized.get("version_id")
+        if version_id is None:
+            if asset.current_active_version_id is None:
+                raise ValueError(
+                    f"SQL asset {asset.id} has no active version; specify version_id explicitly"
+                )
+            version = self._get_sql_asset_version(int(asset.current_active_version_id))
+        else:
+            version = self._get_sql_asset_version(int(version_id))
+            if int(version.sql_asset_id) != int(asset.id):
+                raise ValueError(
+                    f"SQL asset version {version.id} does not belong to asset {asset.id}"
+                )
+
+        if user is not None:
+            GovernanceService(db=self.db).assert_sql_asset_version_access(version, user)
+
+        resolved_ref = {
+            "asset_type": "sql",
+            "asset_id": int(asset.id),
+            "version_id": int(version.id),
+        }
+        return {
+            "asset_ref": resolved_ref,
+            "asset_definition": {
+                "asset_type": "sql",
+                "asset_id": int(asset.id),
+                "version_id": int(version.id),
+                "version_no": int(version.version_no),
+                "system_short": asset.system_short,
+                "name": asset.name,
+                "whitelist": [str(item) for item in (version.whitelist or [])],
+                "blacklist": [str(item) for item in (version.blacklist or [])],
+                "mutation_enabled": bool(version.mutation_enabled),
+                "status": version.status,
+                "asset_ref": resolved_ref,
+            },
+            "asset_version_snapshot_ref": {
+                "asset_type": "sql",
+                "asset_id": int(asset.id),
+                "version_id": int(version.id),
+                "version_no": int(version.version_no),
+                "system_short": asset.system_short,
+                "name": asset.name,
+                "status": version.status,
+                "mutation_enabled": bool(version.mutation_enabled),
+                "snapshot_kind": "sql_asset_version",
+            },
+        }
 
     def list_http_assets(self, user: User) -> list[dict[str, Any]]:
         """列出当前用户可见的 HTTP 资产。"""
@@ -105,6 +299,55 @@ class AssetService:
         self.db.commit()
         self.db.refresh(asset)
         return self._serialize_http_asset(asset)
+
+    def test_http_asset(
+        self,
+        asset_id: int,
+        user: User,
+        *,
+        query_params: dict[str, Any] | None = None,
+        headers: dict[str, Any] | None = None,
+        body: Any = None,
+        response_extraction_rules: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """执行一次 HTTP 资产测试调用。"""
+
+        asset = self._get_http_asset(asset_id)
+        GovernanceService(db=self.db).assert_http_asset_access(asset, user)
+
+        plan = {
+            "method": asset.method,
+            "base_url": asset.base_url,
+            "path_template": asset.path_template,
+            "query_template": (
+                query_params if query_params is not None else (asset.query_template or {})
+            ),
+            "headers_template": self._merge_dicts(asset.headers_template, headers),
+            "body_template": body if body is not None else asset.body_template,
+            "output_mapping": (
+                response_extraction_rules
+                if response_extraction_rules
+                else (asset.response_extraction_rules or {})
+            ),
+            "timeout_seconds": int(asset.timeout_seconds),
+        }
+
+        output = HTTPExecutor().execute(
+            ExecutorInput(
+                resolved_execution_plan=plan,
+                runtime_values={},
+            )
+        )
+        raw_payload = output.raw_payload or {}
+        return {
+            "asset_id": asset.id,
+            "execution_status": output.execution_status,
+            "request_snapshot": raw_payload.get("request_snapshot") or {},
+            "response_snapshot": raw_payload.get("response_snapshot"),
+            "extracted_outputs": output.extracted_outputs or {},
+            "execution_metrics": output.execution_metrics or {},
+            "error_info": output.error_info,
+        }
 
     def list_sql_assets(self, user: User) -> list[dict[str, Any]]:
         """列出当前用户可见的 SQL 资产逻辑对象。"""
@@ -188,6 +431,80 @@ class AssetService:
         except Exception:
             self.db.rollback()
             raise
+
+    def test_sql_asset_version(
+        self,
+        version_id: int,
+        user: User,
+        *,
+        test_mode: str,
+        sql: str | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """执行 SQL 资产版本的连接测试或查询测试。
+
+        当前第一版只支持：
+        - `connection`: 测试连接是否可建立
+        - `sql`: 仅支持查询类 SQL 的最小测试
+        """
+
+        version = self._get_sql_asset_version(version_id)
+        GovernanceService(db=self.db).assert_sql_asset_version_access(version, user)
+        asset = version.asset
+        if asset is None:
+            raise ValueError(f"SQL asset {version.sql_asset_id} not found")
+
+        database_url = self._extract_database_url(version.connection_config or {})
+        engine = self._create_sql_test_engine(database_url)
+
+        try:
+            if test_mode == "connection":
+                connection_summary = self._test_sql_connection(engine, database_url)
+                return {
+                    "asset_id": asset.id,
+                    "version_id": version.id,
+                    "test_mode": test_mode,
+                    "execution_status": "succeeded",
+                    "connection_summary": connection_summary,
+                    "sql_snapshot": None,
+                    "result_preview": None,
+                    "execution_metrics": {},
+                    "error_info": None,
+                }
+
+            if test_mode != "sql":
+                raise ValueError(f"Unsupported sql asset test mode {test_mode!r}")
+
+            normalized_sql = self._require_text(sql, "sql")
+            if self._is_mutation_sql(normalized_sql):
+                if not version.mutation_enabled:
+                    raise ValueError(
+                        "Current SQL asset version does not allow mutation SQL test execution"
+                    )
+                raise ValueError(
+                    "SQL asset test endpoint currently only supports query statements"
+                )
+
+            execution = self._test_sql_query(
+                engine=engine,
+                sql=normalized_sql,
+                params=params or {},
+            )
+            return {
+                "asset_id": asset.id,
+                "version_id": version.id,
+                "test_mode": test_mode,
+                "execution_status": execution["execution_status"],
+                "connection_summary": {
+                    "database_type": self._infer_database_type(database_url),
+                },
+                "sql_snapshot": execution["sql_snapshot"],
+                "result_preview": execution["result_preview"],
+                "execution_metrics": execution["execution_metrics"],
+                "error_info": execution["error_info"],
+            }
+        finally:
+            engine.dispose()
 
     def submit_sql_asset_review(self, version_id: int, user: User) -> dict[str, Any]:
         """把 SQL 资产版本推进到待审核状态。"""
@@ -427,5 +744,148 @@ class AssetService:
             masked[str(key)] = value
         return masked
 
+    def _merge_dicts(
+        self,
+        base: dict[str, Any] | None,
+        override: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """合并两个字典，后者覆盖前者。"""
+
+        merged = dict(base or {})
+        merged.update(dict(override or {}))
+        return merged
+
+    def _extract_database_url(self, connection_config: dict[str, Any]) -> str:
+        """从连接配置中提取数据库 URL。"""
+
+        for key in ("url", "database_url", "uri"):
+            value = connection_config.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        raise ValueError("SQL asset version connection_config is missing database url")
+
+    def _create_sql_test_engine(self, database_url: str) -> Engine:
+        """为 SQL 资产测试创建独立 engine。"""
+
+        return create_engine(database_url, pool_pre_ping=True)
+
+    def _test_sql_connection(self, engine: Engine, database_url: str) -> dict[str, Any]:
+        """执行最小数据库连接测试。"""
+
+        table_count: int | None = None
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+            try:
+                table_count = len(inspect(connection).get_table_names())
+            except Exception:
+                table_count = None
+
+        return {
+            "database_type": self._infer_database_type(database_url),
+            "table_count": table_count,
+        }
+
+    def _test_sql_query(
+        self,
+        engine: Engine,
+        sql: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """执行查询类 SQL 的最小测试。"""
+
+        sql_snapshot = {
+            "sql": sql,
+            "params": params,
+        }
+        try:
+            with engine.connect() as connection:
+                result = connection.execute(text(sql), params)
+                rows: list[dict[str, Any]] = []
+                if result.returns_rows:
+                    rows = [dict(row._mapping) for row in result.fetchmany(20)]
+                rowcount = int(result.rowcount or 0)
+        except SQLAlchemyError as exc:
+            return {
+                "execution_status": "failed",
+                "sql_snapshot": sql_snapshot,
+                "result_preview": None,
+                "execution_metrics": {},
+                "error_info": {"message": str(exc), "type": exc.__class__.__name__},
+            }
+
+        return {
+            "execution_status": "succeeded",
+            "sql_snapshot": sql_snapshot,
+            "result_preview": {
+                "rows": rows,
+                "rowcount": rowcount,
+            },
+            "execution_metrics": {
+                "preview_rows": len(rows),
+                "rowcount": rowcount,
+            },
+            "error_info": None,
+        }
+
+    def _infer_database_type(self, database_url: str) -> str:
+        """从 URL 推断数据库类型。"""
+
+        normalized = str(database_url).strip().lower()
+        if normalized.startswith("sqlite"):
+            return "sqlite"
+        if normalized.startswith("postgresql"):
+            return "postgresql"
+        if normalized.startswith("mysql"):
+            return "mysql"
+        if normalized.startswith("mssql") or normalized.startswith("sqlserver"):
+            return "sqlserver"
+        if normalized.startswith("oracle"):
+            return "oracle"
+        return "unknown"
+
+    def _is_mutation_sql(self, sql: str) -> bool:
+        """判断 SQL 是否属于 mutation 类语句。"""
+
+        first_keyword = sql.split(None, 1)[0].lower() if sql else ""
+        return first_keyword in {
+            "insert",
+            "update",
+            "delete",
+            "merge",
+            "alter",
+            "drop",
+            "truncate",
+            "create",
+            "replace",
+        }
+
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
+
+    def _build_normalized_asset_reference(
+        self,
+        *,
+        asset_type: Any,
+        asset_id: Any,
+        version_id: Any,
+    ) -> dict[str, Any]:
+        """把零散字段组装成统一资产引用对象。"""
+
+        normalized_asset_type = str(asset_type or "").strip().lower()
+        if normalized_asset_type not in {"http", "sql"}:
+            raise ValueError("asset_ref.asset_type must be 'http' or 'sql'")
+
+        normalized_asset_id = int(asset_id)
+        if normalized_asset_id <= 0:
+            raise ValueError("asset_ref.asset_id must be positive integer")
+
+        normalized: dict[str, Any] = {
+            "asset_type": normalized_asset_type,
+            "asset_id": normalized_asset_id,
+        }
+        if version_id is not None:
+            normalized_version_id = int(version_id)
+            if normalized_version_id <= 0:
+                raise ValueError("asset_ref.version_id must be positive integer")
+            normalized["version_id"] = normalized_version_id
+        return normalized
