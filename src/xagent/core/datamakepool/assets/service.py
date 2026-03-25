@@ -31,10 +31,10 @@ class AssetService:
     - SQL 资产版本测试
     - SQL 资产版本送审 / 审批切换生效版本
     - 结构化 `asset_ref` 解析与资产快照投影
+    - HTTP 资产更新 / 删除
+    - SQL 资产版本新增 / 复制 / 草稿修改
 
     当前明确不扩展：
-    - HTTP 资产编辑 / 删除
-    - SQL 资产版本复制 / 编辑
     - mutation SQL 测试执行
     """
 
@@ -300,6 +300,76 @@ class AssetService:
         self.db.refresh(asset)
         return self._serialize_http_asset(asset)
 
+    def update_http_asset(
+        self,
+        asset_id: int,
+        user: User,
+        *,
+        name: str,
+        description: str | None,
+        system_short: str,
+        base_url: str,
+        method: str,
+        path_template: str,
+        query_template: dict[str, Any] | None,
+        headers_template: dict[str, Any] | None,
+        body_template: dict[str, Any] | None,
+        request_schema: dict[str, Any] | None,
+        auth_type: str | None,
+        auth_config_ciphertext: str | None,
+        response_extraction_rules: dict[str, Any] | None,
+        timeout_seconds: int,
+        max_response_bytes: int,
+        enabled: bool,
+    ) -> dict[str, Any]:
+        """更新一个 HTTP 资产。"""
+
+        asset = self._get_http_asset(asset_id)
+        GovernanceService(db=self.db).assert_http_asset_access(asset, user)
+
+        asset.name = self._require_text(name, "name")
+        asset.description = self._normalize_text(description)
+        asset.system_short = self._require_text(system_short, "system_short")
+        asset.base_url = self._require_text(base_url, "base_url")
+        asset.method = self._normalize_http_method(method)
+        asset.path_template = self._require_text(path_template, "path_template")
+        asset.query_template = query_template or {}
+        asset.headers_template = headers_template or {}
+        asset.body_template = body_template or {}
+        asset.request_schema = request_schema or {}
+        asset.auth_type = self._normalize_text(auth_type)
+        asset.auth_config_ciphertext = self._normalize_text(auth_config_ciphertext)
+        asset.response_extraction_rules = response_extraction_rules or {}
+        asset.timeout_seconds = self._normalize_positive_int(timeout_seconds, "timeout_seconds")
+        asset.max_response_bytes = self._normalize_positive_int(
+            max_response_bytes,
+            "max_response_bytes",
+        )
+        asset.enabled = bool(enabled)
+        self.db.commit()
+        self.db.refresh(asset)
+        return self._serialize_http_asset_detail(asset)
+
+    def delete_http_asset(
+        self,
+        asset_id: int,
+        user: User,
+    ) -> dict[str, Any]:
+        """删除一个 HTTP 资产。
+
+        当前先按设计文档要求提供最小删除动作，不额外做引用关系阻塞；
+        反向引用视图会在后续关系视图阶段补齐。
+        """
+
+        asset = self._get_http_asset(asset_id)
+        GovernanceService(db=self.db).assert_http_asset_access(asset, user)
+        self.db.delete(asset)
+        self.db.commit()
+        return {
+            "asset_id": asset_id,
+            "deleted": True,
+        }
+
     def test_http_asset(
         self,
         asset_id: int,
@@ -431,6 +501,112 @@ class AssetService:
         except Exception:
             self.db.rollback()
             raise
+
+    def create_sql_asset_version(
+        self,
+        asset_id: int,
+        user: User,
+        *,
+        connection_config: dict[str, Any] | None,
+        whitelist: list[str] | None,
+        blacklist: list[str] | None,
+        mutation_enabled: bool,
+    ) -> dict[str, Any]:
+        """为 SQL 资产新增一个草稿版本。"""
+
+        asset = self._get_sql_asset(asset_id)
+        GovernanceService(db=self.db).assert_sql_asset_access(asset, user)
+
+        try:
+            version = DMSQLAssetVersion(
+                sql_asset_id=int(asset.id),
+                version_no=self._next_sql_asset_version_no(asset),
+                status="draft",
+                connection_config=connection_config or {},
+                whitelist=self._normalize_string_list(whitelist),
+                blacklist=self._normalize_string_list(blacklist),
+                mutation_enabled=bool(mutation_enabled),
+                review_comment=None,
+                created_by=int(user.id),
+            )
+            self.db.add(version)
+            self.db.commit()
+            self.db.refresh(version)
+            return self._serialize_sql_asset_version_created(version)
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def copy_sql_asset_version(
+        self,
+        version_id: int,
+        user: User,
+    ) -> dict[str, Any]:
+        """基于已有 SQL 资产版本复制一个新的草稿版本。"""
+
+        source_version = self._get_sql_asset_version(version_id)
+        asset = source_version.asset
+        if asset is None:
+            raise ValueError(f"SQL asset {source_version.sql_asset_id} not found")
+        GovernanceService(db=self.db).assert_sql_asset_version_access(source_version, user)
+
+        try:
+            copied_version = DMSQLAssetVersion(
+                sql_asset_id=int(asset.id),
+                version_no=self._next_sql_asset_version_no(asset),
+                status="draft",
+                connection_config=dict(source_version.connection_config or {}),
+                whitelist=[str(item) for item in (source_version.whitelist or [])],
+                blacklist=[str(item) for item in (source_version.blacklist or [])],
+                mutation_enabled=bool(source_version.mutation_enabled),
+                review_comment=None,
+                created_by=int(user.id),
+            )
+            self.db.add(copied_version)
+            self.db.commit()
+            self.db.refresh(copied_version)
+            return self._serialize_sql_asset_version_created(
+                copied_version,
+                copied_from_version_id=int(source_version.id),
+            )
+        except Exception:
+            self.db.rollback()
+            raise
+
+    def update_sql_asset_version(
+        self,
+        version_id: int,
+        user: User,
+        *,
+        connection_config: dict[str, Any] | None = None,
+        whitelist: list[str] | None = None,
+        blacklist: list[str] | None = None,
+        mutation_enabled: bool | None = None,
+    ) -> dict[str, Any]:
+        """更新 SQL 资产草稿版本。"""
+
+        version = self._get_sql_asset_version(version_id)
+        GovernanceService(db=self.db).assert_sql_asset_version_access(version, user)
+        if version.status != "draft":
+            raise ValueError(
+                f"SQL asset version {version.id} status is {version.status!r}; only draft can update"
+            )
+
+        if connection_config is not None:
+            version.connection_config = connection_config
+        if whitelist is not None:
+            version.whitelist = self._normalize_string_list(whitelist)
+        if blacklist is not None:
+            version.blacklist = self._normalize_string_list(blacklist)
+        if mutation_enabled is not None:
+            version.mutation_enabled = bool(mutation_enabled)
+
+        version.review_comment = None
+        version.reviewed_by = None
+        version.reviewed_at = None
+        self.db.commit()
+        self.db.refresh(version)
+        return self._serialize_sql_asset_version_detail(version)
 
     def test_sql_asset_version(
         self,
@@ -676,6 +852,22 @@ class AssetService:
             "is_active_version": asset.current_active_version_id == version.id,
         }
 
+    def _serialize_sql_asset_version_created(
+        self,
+        version: DMSQLAssetVersion,
+        *,
+        copied_from_version_id: int | None = None,
+    ) -> dict[str, Any]:
+        """把 SQL 资产版本新增 / 复制结果压平成统一响应。"""
+
+        return {
+            "asset_id": int(version.sql_asset_id),
+            "version_id": int(version.id),
+            "version_no": int(version.version_no),
+            "status": version.status,
+            "copied_from_version_id": copied_from_version_id,
+        }
+
     def _pick_latest_sql_asset_version(
         self,
         asset: DMSQLAsset,
@@ -685,6 +877,14 @@ class AssetService:
         if not asset.versions:
             return None
         return max(asset.versions, key=lambda item: (int(item.version_no), int(item.id)))
+
+    def _next_sql_asset_version_no(self, asset: DMSQLAsset) -> int:
+        """计算 SQL 资产下一个版本号。"""
+
+        latest_version = self._pick_latest_sql_asset_version(asset)
+        if latest_version is None:
+            return 1
+        return int(latest_version.version_no) + 1
 
     def _normalize_http_method(self, method: str) -> str:
         """统一 HTTP method 格式并做最小校验。"""

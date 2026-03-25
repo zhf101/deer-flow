@@ -67,6 +67,30 @@ class HTTPAssetCreateRequest(BaseModel):
     enabled: bool = True
 
 
+class HTTPAssetUpdateRequest(BaseModel):
+    """更新 HTTP 资产请求。
+
+    当前按完整更新口径处理，避免在第一版资产管理动作里引入复杂 patch 语义。
+    """
+
+    name: str = Field(min_length=1)
+    description: Optional[str] = None
+    system_short: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    method: str = Field(min_length=1)
+    path_template: str = Field(min_length=1)
+    query_template: dict[str, Any] = Field(default_factory=dict)
+    headers_template: dict[str, Any] = Field(default_factory=dict)
+    body_template: dict[str, Any] = Field(default_factory=dict)
+    request_schema: dict[str, Any] = Field(default_factory=dict)
+    auth_type: Optional[str] = None
+    auth_config_ciphertext: Optional[str] = None
+    response_extraction_rules: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: int = Field(default=30, gt=0)
+    max_response_bytes: int = Field(default=1048576, gt=0)
+    enabled: bool = True
+
+
 class HTTPAssetSummaryResponse(BaseModel):
     """HTTP 资产列表项 / 创建结果。"""
 
@@ -118,6 +142,13 @@ class HTTPAssetTestResponse(BaseModel):
     error_info: Optional[dict[str, Any]] = None
 
 
+class AssetDeleteResponse(BaseModel):
+    """资产删除结果。"""
+
+    asset_id: int
+    deleted: bool = True
+
+
 class SQLAssetCreateRequest(BaseModel):
     """创建 SQL 资产及初始版本请求。"""
 
@@ -137,6 +168,34 @@ class SQLAssetCreateResponse(BaseModel):
     version_id: int
     version_no: int
     status: str
+
+
+class SQLAssetVersionCreateRequest(BaseModel):
+    """创建 SQL 资产新版本请求。"""
+
+    connection_config: dict[str, Any] = Field(default_factory=dict)
+    whitelist: list[str] = Field(default_factory=list)
+    blacklist: list[str] = Field(default_factory=list)
+    mutation_enabled: bool = False
+
+
+class SQLAssetVersionUpdateRequest(BaseModel):
+    """更新 SQL 资产草稿版本请求。"""
+
+    connection_config: Optional[dict[str, Any]] = None
+    whitelist: Optional[list[str]] = None
+    blacklist: Optional[list[str]] = None
+    mutation_enabled: Optional[bool] = None
+
+
+class SQLAssetVersionCreateResponse(BaseModel):
+    """SQL 资产版本新增 / 复制结果。"""
+
+    asset_id: int
+    version_id: int
+    version_no: int
+    status: str
+    copied_from_version_id: Optional[int] = None
 
 
 class SQLAssetSummaryResponse(BaseModel):

@@ -5,19 +5,24 @@ from ...auth_dependencies import get_current_user
 from ...models.database import get_db
 from ...models.user import User
 from ...schemas.datamakepool import (
+    AssetDeleteResponse,
     HTTPAssetCreateRequest,
     HTTPAssetDetailResponse,
     HTTPAssetSummaryResponse,
     HTTPAssetTestRequest,
     HTTPAssetTestResponse,
+    HTTPAssetUpdateRequest,
     SQLAssetCreateRequest,
     SQLAssetCreateResponse,
     SQLAssetSummaryResponse,
+    SQLAssetVersionCreateRequest,
+    SQLAssetVersionCreateResponse,
     SQLAssetVersionDetailResponse,
     SQLAssetVersionReviewResponse,
     SQLAssetVersionSummaryResponse,
     SQLAssetVersionTestRequest,
     SQLAssetVersionTestResponse,
+    SQLAssetVersionUpdateRequest,
 )
 from ....core.datamakepool.assets import AssetService
 
@@ -83,6 +88,62 @@ async def create_http_asset(
         return HTTPAssetSummaryResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/http-assets/{asset_id}", response_model=HTTPAssetDetailResponse)
+async def update_http_asset(
+    asset_id: int,
+    request: HTTPAssetUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> HTTPAssetDetailResponse:
+    """更新 HTTP 资产。"""
+    try:
+        result = AssetService(db=db).update_http_asset(
+            asset_id=asset_id,
+            user=user,
+            name=request.name,
+            description=request.description,
+            system_short=request.system_short,
+            base_url=request.base_url,
+            method=request.method,
+            path_template=request.path_template,
+            query_template=request.query_template,
+            headers_template=request.headers_template,
+            body_template=request.body_template,
+            request_schema=request.request_schema,
+            auth_type=request.auth_type,
+            auth_config_ciphertext=request.auth_config_ciphertext,
+            response_extraction_rules=request.response_extraction_rules,
+            timeout_seconds=request.timeout_seconds,
+            max_response_bytes=request.max_response_bytes,
+            enabled=request.enabled,
+        )
+        return HTTPAssetDetailResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.delete("/http-assets/{asset_id}", response_model=AssetDeleteResponse)
+async def delete_http_asset(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AssetDeleteResponse:
+    """删除 HTTP 资产。"""
+    try:
+        result = AssetService(db=db).delete_http_asset(asset_id, user)
+        return AssetDeleteResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post("/http-assets/{asset_id}/test", response_model=HTTPAssetTestResponse)
@@ -166,6 +227,35 @@ async def create_sql_asset(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
+@router.post(
+    "/sql-assets/{asset_id}/versions",
+    response_model=SQLAssetVersionCreateResponse,
+)
+async def create_sql_asset_version(
+    asset_id: int,
+    request: SQLAssetVersionCreateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SQLAssetVersionCreateResponse:
+    """为 SQL 资产新增草稿版本。"""
+    try:
+        result = AssetService(db=db).create_sql_asset_version(
+            asset_id=asset_id,
+            user=user,
+            connection_config=request.connection_config,
+            whitelist=request.whitelist,
+            blacklist=request.blacklist,
+            mutation_enabled=request.mutation_enabled,
+        )
+        return SQLAssetVersionCreateResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 @router.get(
     "/sql-asset-versions/{version_id}",
     response_model=SQLAssetVersionDetailResponse,
@@ -181,6 +271,56 @@ async def get_sql_asset_version(
         return SQLAssetVersionDetailResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/sql-asset-versions/{version_id}",
+    response_model=SQLAssetVersionDetailResponse,
+)
+async def update_sql_asset_version(
+    version_id: int,
+    request: SQLAssetVersionUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SQLAssetVersionDetailResponse:
+    """更新 SQL 资产草稿版本。"""
+    try:
+        result = AssetService(db=db).update_sql_asset_version(
+            version_id=version_id,
+            user=user,
+            connection_config=request.connection_config,
+            whitelist=request.whitelist,
+            blacklist=request.blacklist,
+            mutation_enabled=request.mutation_enabled,
+        )
+        return SQLAssetVersionDetailResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.post(
+    "/sql-asset-versions/{version_id}/copy",
+    response_model=SQLAssetVersionCreateResponse,
+)
+async def copy_sql_asset_version(
+    version_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SQLAssetVersionCreateResponse:
+    """基于已有 SQL 资产版本复制一个新草稿版本。"""
+    try:
+        result = AssetService(db=db).copy_sql_asset_version(version_id, user)
+        return SQLAssetVersionCreateResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
