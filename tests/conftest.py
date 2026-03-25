@@ -47,6 +47,9 @@ elif example_env_file.exists():
 else:
     print("Warning: Neither .env nor example.env file found")
 
+# 测试默认显式开启本地注册，避免依赖线上默认值导致大量认证测试失效。
+os.environ.setdefault("XAGENT_LOCAL_REGISTRATION_ENABLED", "true")
+
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -356,18 +359,19 @@ def openai_llm_config():
     }
 
 
-@pytest.fixture
-def azure_openai_llm_config():
-    """Fixture providing Azure OpenAI LLM configuration for testing."""
-    return {
-        "model_name": "gpt-4o",
-        "azure_endpoint": "https://test.openai.azure.com/",
-        "api_key": "test-api-key",
-        "api_version": "2024-08-01-preview",
-        "default_temperature": 0.7,
-        "default_max_tokens": 1024,
-        "timeout": 30.0,
-    }
+# 历史 Azure OpenAI 测试夹具先保留为注释，当前部署只保留 openai 兼容格式对话模型。
+# @pytest.fixture
+# def azure_openai_llm_config():
+#     """Fixture providing Azure OpenAI LLM configuration for testing."""
+#     return {
+#         "model_name": "gpt-4o",
+#         "azure_endpoint": "https://test.openai.azure.com/",
+#         "api_key": "test-api-key",
+#         "api_version": "2024-08-01-preview",
+#         "default_temperature": 0.7,
+#         "default_max_tokens": 1024,
+#         "timeout": 30.0,
+#     }
 
 
 @pytest.fixture
@@ -525,19 +529,19 @@ def modelhub():
             model_name="bge-reranker-v2-m3",
             api_key=os.getenv("DASHSCOPE_API_KEY", "test-dashscope-key"),
         )
-        # Add Azure OpenAI model for Azure OpenAI tests
-        azure_openai_model = ChatModelConfig(
-            id="azure-openai-chat",
-            model_provider="azure_openai",
-            model_name="gpt-4o",
-            base_url="https://test.openai.azure.com",
-            api_key=os.getenv("AZURE_OPENAI_API_KEY", "test-azure-key"),
-        )
+        # 历史 Azure OpenAI 模型样例先保留为注释，当前部署不再注册该 provider。
+        # azure_openai_model = ChatModelConfig(
+        #     id="azure-openai-chat",
+        #     model_provider="azure_openai",
+        #     model_name="gpt-4o",
+        #     base_url="https://test.openai.azure.com",
+        #     api_key=os.getenv("AZURE_OPENAI_API_KEY", "test-azure-key"),
+        # )
         hub.store(openai_model)
         hub.store(deepseek_model)
         hub.store(embedding_model)
         hub.store(dashscope_rerank_model)
-        hub.store(azure_openai_model)
+        # hub.store(azure_openai_model)
 
         yield hub
 

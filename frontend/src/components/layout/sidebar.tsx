@@ -117,6 +117,12 @@ const navigationGroups: NavigationGroup[] = [
         icon: LayoutTemplate,
         color: "text-purple-400"
       },
+      {
+        name: "DataMakePool",
+        href: "/datamakepool/templates",
+        icon: Layers,
+        color: "text-emerald-500"
+      },
     ]
   },
   {

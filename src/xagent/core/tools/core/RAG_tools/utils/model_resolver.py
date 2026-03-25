@@ -599,8 +599,13 @@ def _create_llm_from_env(
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
 ) -> Optional[ChatModelConfig]:
-    """Build LLM config from environment variables as fallback."""
-    # Try OpenAI first
+    """Build LLM config from environment variables as fallback.
+
+    当前部署只保留 OpenAI 兼容格式的对话模型接入，因此这里只保留
+    OPENAI_* 环境变量入口。历史 Zhipu fallback 逻辑以注释形式保留，
+    方便后续需要时对照恢复。
+    """
+    # 只保留 OpenAI 兼容配置入口。
     openai_config = _create_llm_config_from_provider_env(
         "OPENAI",
         "openai",
@@ -615,20 +620,20 @@ def _create_llm_from_env(
     if openai_config:
         return openai_config
 
-    # Try Zhipu
-    zhipu_config = _create_llm_config_from_provider_env(
-        "ZHIPU",
-        "zhipu",
-        "glm-4",
-        model_name=model_name,
-        api_key=api_key,
-        base_url=base_url,
-        timeout_sec=timeout_sec,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-    if zhipu_config:
-        return zhipu_config
+    # 历史 Zhipu fallback 逻辑先保留为注释，当前部署不启用。
+    # zhipu_config = _create_llm_config_from_provider_env(
+    #     "ZHIPU",
+    #     "zhipu",
+    #     "glm-4",
+    #     model_name=model_name,
+    #     api_key=api_key,
+    #     base_url=base_url,
+    #     timeout_sec=timeout_sec,
+    #     temperature=temperature,
+    #     max_tokens=max_tokens,
+    # )
+    # if zhipu_config:
+    #     return zhipu_config
 
     return None
 

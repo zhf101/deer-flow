@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from xagent.web.api import auth as auth_api
 from xagent.web.api.auth import auth_router
 from xagent.web.models.database import Base, get_db
 from xagent.web.models.user import User
@@ -318,12 +319,86 @@ class TestAuthAPI:
             headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert disable_response.status_code == 200
-        assert disable_response.json()["registration_enabled"] is False
+        data = disable_response.json()
+        assert data["success"] is False
+        assert data["registration_enabled"] is True
+        assert "environment variable" in data["message"]
+
+    def test_register_disabled_by_env(self, test_db, monkeypatch):
+        monkeypatch.setattr(auth_api, "LOCAL_REGISTRATION_ENABLED", False)
+        setup_first_admin()
 
         register_response = client.post(
             "/api/auth/register", json={"username": "blocked", "password": "blocked123"}
         )
         assert register_response.status_code == 200
-        data = register_response.json()
-        assert data["success"] is False
-        assert data["message"] == "Registration is disabled"
+        register_data = register_response.json()
+        assert register_data["success"] is False
+        assert register_data["message"] == "Registration is disabled"
+
+    def test_sso_login_auto_creates_user(self, test_db, monkeypatch):
+        """测试旧系统登录首次进入时会自动创建本项目用户。"""
+
+        async def fake_verify_legacy_token(token: str):
+            assert token == "legacy-token"
+            return {
+                "userId": "U1001",
+                "userName": "legacy_user",
+                "userEmail": "legacy@example.com",
+                "userOa": "oa_legacy_user",
+            }
+
+        monkeypatch.setattr(auth_api, "_verify_legacy_token", fake_verify_legacy_token)
+
+        response = client.post(
+            "/api/auth/sso/login",
+            json={"token": "legacy-token"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["user"]["username"] == "legacy_user"
+        assert data["access_token"]
+        assert data["refresh_token"]
+
+        db = TestingSessionLocal()
+        user = db.query(User).filter(User.external_user_id == "U1001").first()
+        assert user is not None
+        assert user.username == "legacy_user"
+        assert user.email == "legacy@example.com"
+        assert user.oa_account == "oa_legacy_user"
+        db.close()
+
+    def test_sso_login_handles_duplicate_username(self, test_db, monkeypatch):
+        """测试旧系统用户名冲突时会自动分配不冲突的 username。"""
+
+        setup_first_admin(username="legacy_user", password="admin123")
+
+        async def fake_verify_legacy_token(token: str):
+            assert token == "legacy-token"
+            return {
+                "userId": "U2002",
+                "userName": "legacy_user",
+                "userEmail": "duplicate@example.com",
+                "userOa": "oa_duplicate",
+            }
+
+        monkeypatch.setattr(auth_api, "_verify_legacy_token", fake_verify_legacy_token)
+
+        response = client.post(
+            "/api/auth/sso/login",
+            json={"token": "legacy-token"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["success"] is True
+        assert data["user"]["username"] != "legacy_user"
+
+        db = TestingSessionLocal()
+        user = db.query(User).filter(User.external_user_id == "U2002").first()
+        assert user is not None
+        assert user.username != "legacy_user"
+        assert user.username.startswith("legacy_user")
+        db.close()

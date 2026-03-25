@@ -1481,12 +1481,12 @@ async def fetch_provider_models(
             detail=f"Unsupported provider: {provider}. Supported providers: {list(PROVIDER_FETCHERS.keys())}",
         )
 
-    # For Azure OpenAI, base_url is required
-    if provider.lower() == "azure_openai" and not base_url:
-        raise HTTPException(
-            status_code=400,
-            detail="base_url is required for Azure OpenAI provider",
-        )
+    # 历史 Azure OpenAI 特判先保留为注释，当前部署只允许 openai provider。
+    # if provider.lower() == "azure_openai" and not base_url:
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail="base_url is required for Azure OpenAI provider",
+    #     )
 
     try:
         models = await fetch_models_from_provider(provider, api_key, base_url)
