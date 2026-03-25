@@ -16,6 +16,7 @@ from ...schemas.datamakepool import (
     SQLAssetCreateRequest,
     SQLAssetCreateResponse,
     SQLAssetSummaryResponse,
+    SQLAssetUpdateRequest,
     SQLAssetVersionCreateRequest,
     SQLAssetVersionCreateResponse,
     SQLAssetVersionDetailResponse,
@@ -264,6 +265,49 @@ async def create_sql_asset(
         return SQLAssetCreateResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete("/sql-assets/{asset_id}", response_model=AssetDeleteResponse)
+async def delete_sql_asset(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> AssetDeleteResponse:
+    """删除 SQL 逻辑资产。"""
+    try:
+        result = AssetService(db=db).delete_sql_asset(asset_id, user)
+        return AssetDeleteResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.put("/sql-assets/{asset_id}", response_model=SQLAssetSummaryResponse)
+async def update_sql_asset(
+    asset_id: int,
+    request: SQLAssetUpdateRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SQLAssetSummaryResponse:
+    """更新 SQL 逻辑资产元信息。"""
+    try:
+        result = AssetService(db=db).update_sql_asset(
+            asset_id=asset_id,
+            user=user,
+            name=request.name,
+            description=request.description,
+            system_short=request.system_short,
+        )
+        return SQLAssetSummaryResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post(

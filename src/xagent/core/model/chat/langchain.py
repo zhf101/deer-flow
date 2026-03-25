@@ -1,17 +1,19 @@
 """Model adapter"""
-
-import os
 from typing import Any, Callable, Optional, Sequence, Union
 
 from langchain.tools import BaseTool
-from langchain_community.chat_models import ChatZhipuAI
 from langchain_core.language_models import BaseChatModel
 from langchain_core.runnables import Runnable, RunnableConfig
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
+from langchain_openai import ChatOpenAI
 
 from ...model import ChatModelConfig, ModelConfig
 from ...retry import ExponentialBackoff, RetryStrategy, create_retry_wrapper
 from .error import retry_on
+
+# 历史多 provider LangChain 导入先保留为注释，避免直接删除原始实现。
+# import os
+# from langchain_community.chat_models import ChatZhipuAI
+# from langchain_openai import AzureChatOpenAI
 
 
 class ChatModelRetryWrapper(Runnable):
@@ -107,39 +109,40 @@ def create_base_chat_model(
             base_url=model.base_url,
             timeout=model.timeout,
         )
-    elif model.model_provider in (
-        "alibaba-coding-plan",
-        "alibaba-coding-plan-cn",
-        "zai-coding-plan",
-        "zhipuai-coding-plan",
-    ):
-        return ChatOpenAI(
-            model=model.model_name,
-            temperature=temp,
-            max_tokens=model.default_max_tokens,
-            api_key=model.api_key,
-            base_url=model.base_url,
-            timeout=model.timeout,
-        )
-    elif model.model_provider == "zhipu":
-        return ChatZhipuAI(
-            model=model.model_name,
-            temperature=temp,
-            max_tokens=model.default_max_tokens,
-            api_key=model.api_key,
-            api_base=model.base_url,
-        )
-    elif model.model_provider == "azure_openai":
-        api_version = os.getenv("OPENAI_API_VERSION", "2024-08-01-preview")
-        return AzureChatOpenAI(
-            deployment_name=model.model_name,
-            azure_endpoint=model.base_url,
-            api_key=model.api_key,
-            api_version=api_version,
-            temperature=temp,
-            max_tokens=model.default_max_tokens,
-            timeout=model.timeout,
-        )
+    # 以下历史 provider LangChain 适配分支先保留为注释，当前部署仅保留 openai。
+    # elif model.model_provider in (
+    #     "alibaba-coding-plan",
+    #     "alibaba-coding-plan-cn",
+    #     "zai-coding-plan",
+    #     "zhipuai-coding-plan",
+    # ):
+    #     return ChatOpenAI(
+    #         model=model.model_name,
+    #         temperature=temp,
+    #         max_tokens=model.default_max_tokens,
+    #         api_key=model.api_key,
+    #         base_url=model.base_url,
+    #         timeout=model.timeout,
+    #     )
+    # elif model.model_provider == "zhipu":
+    #     return ChatZhipuAI(
+    #         model=model.model_name,
+    #         temperature=temp,
+    #         max_tokens=model.default_max_tokens,
+    #         api_key=model.api_key,
+    #         api_base=model.base_url,
+    #     )
+    # elif model.model_provider == "azure_openai":
+    #     api_version = os.getenv("OPENAI_API_VERSION", "2024-08-01-preview")
+    #     return AzureChatOpenAI(
+    #         deployment_name=model.model_name,
+    #         azure_endpoint=model.base_url,
+    #         api_key=model.api_key,
+    #         api_version=api_version,
+    #         temperature=temp,
+    #         max_tokens=model.default_max_tokens,
+    #         timeout=model.timeout,
+    #     )
     else:
         raise TypeError(f"Unsupported LLM model provider: {model.model_provider}")
 

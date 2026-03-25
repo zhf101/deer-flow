@@ -161,7 +161,7 @@ class OpenAILLM(BaseLLM):
                 completion_params["output_config"] = output_config
 
         # Handle thinking mode using extra_body as specified in the requirements
-        # Only add enable_thinking if the client supports this parameter (e.g., standard OpenAI)
+        # 这里只保留标准 OpenAI 兼容链路；如果目标端不支持该参数，则直接跳过。
         extra_body = {}
 
         # Check if this is a thinking-only model (only supports thinking_mode, not chat)
@@ -173,7 +173,7 @@ class OpenAILLM(BaseLLM):
         is_streaming = completion_params.get("stream", False)
 
         if not self.supports_enable_thinking_param:
-            # Skip all enable_thinking logic for clients that don't support it (e.g., Azure OpenAI)
+            # 当前客户端若不支持 enable_thinking，则统一跳过这组参数。
             pass
         elif is_thinking_only:
             # For thinking-only models, thinking mode is inherent - no extra_body needed
@@ -452,7 +452,7 @@ class OpenAILLM(BaseLLM):
                 completion_params["output_config"] = output_config
 
         # Handle thinking mode using extra_body as specified in the requirements
-        # Only add enable_thinking if the client supports this parameter (e.g., standard OpenAI)
+        # 这里只保留标准 OpenAI 兼容链路；如果目标端不支持该参数，则直接跳过。
         extra_body = {}
 
         # Check if this is a thinking-only model (only supports thinking_mode, not chat)
@@ -464,7 +464,7 @@ class OpenAILLM(BaseLLM):
         is_streaming = completion_params.get("stream", False)
 
         if not self.supports_enable_thinking_param:
-            # Skip all enable_thinking logic for clients that don't support it (e.g., Azure OpenAI)
+            # 当前客户端若不支持 enable_thinking，则统一跳过这组参数。
             pass
         elif is_thinking_only:
             # For thinking-only models, thinking mode is inherent - no extra_body needed
@@ -936,8 +936,8 @@ class OpenAILLM(BaseLLM):
             for tool_call in delta.tool_calls:
                 call_id = tool_call.id
 
-                # Handle Azure OpenAI's incremental tool call format
-                # where later chunks may have null id but have arguments
+                # 兼容增量 tool call 分片场景：
+                # 某些兼容端后续 chunk 可能没有 id，但会继续补 arguments。
                 if call_id is None and accumulated_tool_calls:
                     # Try to associate with the most recent tool call by index
                     if tool_call.index is not None:

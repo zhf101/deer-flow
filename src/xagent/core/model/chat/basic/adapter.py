@@ -1,12 +1,11 @@
-import os
-
 from ....model import ChatModelConfig, ModelConfig
 from ....retry import create_retry_wrapper
 from ..error import retry_on
-from .azure_openai import AzureOpenAILLM
 from .base import BaseLLM
 from .openai import OpenAILLM
 # 历史多 provider 导入先保留为注释，避免直接删除原始实现。
+# import os
+# from .azure_openai import AzureOpenAILLM
 # from .claude import ClaudeLLM
 # from .gemini import GeminiLLM
 # from .xinference import XinferenceLLM
@@ -30,21 +29,22 @@ def create_base_llm(model: ModelConfig) -> BaseLLM:
             timeout=model.timeout,
             abilities=model.abilities,
         )
-    elif model.model_provider in (
-        "alibaba-coding-plan",
-        "alibaba-coding-plan-cn",
-        "zai-coding-plan",
-        "zhipuai-coding-plan",
-    ):
-        llm = OpenAILLM(
-            model_name=model.model_name,
-            api_key=model.api_key,
-            base_url=model.base_url,
-            default_temperature=model.default_temperature,
-            default_max_tokens=model.default_max_tokens,
-            timeout=model.timeout,
-            abilities=model.abilities,
-        )
+    # 下面这组历史 OpenAI 兼容 provider 分支先保留为注释，当前部署不启用。
+    # elif model.model_provider in (
+    #     "alibaba-coding-plan",
+    #     "alibaba-coding-plan-cn",
+    #     "zai-coding-plan",
+    #     "zhipuai-coding-plan",
+    # ):
+    #     llm = OpenAILLM(
+    #         model_name=model.model_name,
+    #         api_key=model.api_key,
+    #         base_url=model.base_url,
+    #         default_temperature=model.default_temperature,
+    #         default_max_tokens=model.default_max_tokens,
+    #         timeout=model.timeout,
+    #         abilities=model.abilities,
+    #     )
     # 下面这组 coding plan 历史实现先保留为注释，避免直接删除你的原始代码。
     # 若后续要重新启用，需要恢复 ClaudeLLM 导入并重新安装对应 SDK。
     # elif model.model_provider in (
@@ -61,17 +61,17 @@ def create_base_llm(model: ModelConfig) -> BaseLLM:
     #         timeout=model.timeout,
     #         abilities=model.abilities,
     #     )
-    elif model.model_provider == "azure_openai":
-        llm = AzureOpenAILLM(
-            model_name=model.model_name,
-            azure_endpoint=model.base_url,  # Reuse base_url as azure_endpoint
-            api_key=model.api_key,
-            api_version=os.getenv("OPENAI_API_VERSION", "2024-08-01-preview"),
-            default_temperature=model.default_temperature,
-            default_max_tokens=model.default_max_tokens,
-            timeout=model.timeout,
-            abilities=model.abilities,
-        )
+    # elif model.model_provider == "azure_openai":
+    #     llm = AzureOpenAILLM(
+    #         model_name=model.model_name,
+    #         azure_endpoint=model.base_url,  # Reuse base_url as azure_endpoint
+    #         api_key=model.api_key,
+    #         api_version=os.getenv("OPENAI_API_VERSION", "2024-08-01-preview"),
+    #         default_temperature=model.default_temperature,
+    #         default_max_tokens=model.default_max_tokens,
+    #         timeout=model.timeout,
+    #         abilities=model.abilities,
+    #     )
     # 以下历史 provider 分支先保留为注释，当前部署不启用。
     # elif model.model_provider == "zhipu":
     #     llm = ZhipuLLM(

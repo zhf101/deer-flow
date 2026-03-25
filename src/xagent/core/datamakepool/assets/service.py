@@ -464,6 +464,43 @@ class AssetService:
         self.db.refresh(asset)
         return self._serialize_sql_asset(asset)
 
+    def delete_sql_asset(
+        self,
+        asset_id: int,
+        user: User,
+    ) -> dict[str, Any]:
+        """删除 SQL 逻辑资产。
+
+        当前删除边界保持保守：
+        - 先校验对象访问权限
+        - 如果已有模板版本引用这个逻辑资产，则阻断删除
+
+        之所以只拦模板引用，是因为这一批关系真相源首先补齐的就是“模板/版本 -> 资产”
+        反查能力；等后续如果设计明确要求把更多引用源纳入统一治理，再继续扩展。
+        """
+
+        asset = self._get_sql_asset(asset_id)
+        GovernanceService(db=self.db).assert_sql_asset_access(asset, user)
+
+        referenced_revision_count = self._count_template_references_for_asset(
+            matcher=lambda item: (
+                item.get("asset_type") == "sql" and int(item.get("asset_id") or 0) == int(asset.id)
+            )
+        )
+        if referenced_revision_count > 0:
+            raise ValueError(
+                "SQL asset "
+                f"{asset.id} is referenced by {referenced_revision_count} template revision(s); "
+                "delete is blocked"
+            )
+
+        self.db.delete(asset)
+        self.db.commit()
+        return {
+            "asset_id": asset_id,
+            "deleted": True,
+        }
+
     def build_template_revision_asset_reference_summary(
         self,
         revision: DMTemplateRevision,
@@ -1123,6 +1160,28 @@ class AssetService:
             )
 
         return results
+
+    def _count_template_references_for_asset(
+        self,
+        *,
+        matcher: Any,
+    ) -> int:
+        """统计命中某个资产的模板版本数量。
+
+        这个统计用于删除前治理阻断，因此不能复用带用户可见性过滤的查询口径；
+        只要系统里已有模板版本稳定引用该资产，就应视为删除风险。
+        """
+
+        revisions = self.db.query(DMTemplateRevision).all()
+        count = 0
+        for revision in revisions:
+            matched = any(
+                matcher(item)
+                for item in self.build_template_revision_asset_reference_summary(revision)
+            )
+            if matched:
+                count += 1
+        return count
 
     def _iter_template_revision_asset_reference_items(
         self,
