@@ -279,11 +279,15 @@ export function RunDetailConsole({
   runId,
   returnTemplateId = null,
   returnRevisionId = null,
+  returnHref,
+  returnLabel = "返回模板",
   showCreatedNotice = false,
 }: {
   runId: number
   returnTemplateId?: number | null
   returnRevisionId?: number | null
+  returnHref?: string
+  returnLabel?: string
   showCreatedNotice?: boolean
 }) {
   const [runDetail, setRunDetail] = useState<DatamakepoolRunDetail | null>(null)
@@ -388,10 +392,11 @@ export function RunDetailConsole({
   const runningStepsCount = runSteps.filter((step) => step.status === "running").length
   const pendingAuditCount = sqlAudits.filter((audit) => audit.status === "pending_confirmation").length
   const confirmedAuditCount = sqlAudits.filter((audit) => audit.status === "confirmed").length
-  const returnTemplateHref =
-    returnTemplateId && returnRevisionId
+  const resolvedReturnHref =
+    returnHref ||
+    (returnTemplateId && returnRevisionId
       ? `/datamakepool/templates?templateId=${returnTemplateId}&revisionId=${returnRevisionId}`
-      : "/datamakepool/templates"
+      : "/datamakepool/templates")
 
   return (
     <DatamakepoolShell
@@ -440,9 +445,9 @@ export function RunDetailConsole({
             variant="outline"
             className="border-border/80 bg-background/70 backdrop-blur-sm"
           >
-            <Link href={returnTemplateHref}>
+            <Link href={resolvedReturnHref}>
               <ArrowLeft className="h-4 w-4" />
-              返回模板
+              {returnLabel}
             </Link>
           </Button>
           <Button
@@ -654,11 +659,18 @@ export function RunDetailConsole({
                 {runDetail?.template_revision_id ? `#${runDetail.template_revision_id}` : "无"}
               </div>
               <div>系统域：{runDetail?.system_short || "未标注"}</div>
-              <div>回跳定位：{returnTemplateId && returnRevisionId ? "已保留" : "仅返回模板列表"}</div>
+              <div>
+                回跳定位：
+                {returnHref
+                  ? "已切回探索入口"
+                  : returnTemplateId && returnRevisionId
+                    ? "已保留"
+                    : "仅返回模板列表"}
+              </div>
               <Button asChild variant="outline" className="w-full">
-                <Link href={returnTemplateHref}>
+                <Link href={resolvedReturnHref}>
                   <ArrowLeft className="h-4 w-4" />
-                  回到对应模板版本
+                  {returnLabel}
                 </Link>
               </Button>
             </CardContent>

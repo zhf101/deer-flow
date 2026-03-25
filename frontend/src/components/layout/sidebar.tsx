@@ -119,7 +119,7 @@ const navigationGroups: NavigationGroup[] = [
       },
       {
         name: "DataMakePool",
-        href: "/datamakepool/templates",
+        href: "/datamakepool/chat",
         icon: Layers,
         color: "text-emerald-500"
       },

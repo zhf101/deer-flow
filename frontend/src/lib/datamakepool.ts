@@ -98,6 +98,71 @@ export interface DatamakepoolAssetTemplateReference {
   step_names: string[]
 }
 
+export interface DatamakepoolConversationSummary {
+  conversation_id: number
+  task_id: number
+  flowdraft_id: number
+  title: string
+  objective?: string | null
+  flowdraft_status: string
+  created_at?: string | null
+  updated_at?: string | null
+}
+
+export interface DatamakepoolFlowdraftIssue {
+  issue_type: string
+  step_id?: string | null
+  message: string
+  severity?: string | null
+  suggested_action?: string | null
+  payload: Record<string, unknown>
+}
+
+export interface DatamakepoolFlowdraftPreflightSummary {
+  is_runnable: boolean
+  issues: DatamakepoolFlowdraftIssue[]
+  grouped_by_type: Record<string, DatamakepoolFlowdraftIssue[]>
+  grouped_by_step: Record<string, DatamakepoolFlowdraftIssue[]>
+  suggested_actions: string[]
+}
+
+export interface DatamakepoolConversationMessageResponse {
+  conversation_id: number
+  message_id: number
+  assistant_message_id?: number | null
+  flowdraft_id: number
+  flowdraft_status: string
+  title?: string | null
+  objective?: string | null
+  assistant_summary?: string | null
+  pending_issues: DatamakepoolFlowdraftIssue[]
+  latest_snapshot_id?: number | null
+}
+
+export interface DatamakepoolFlowdraft {
+  id: number
+  task_id: number
+  status: string
+  title?: string | null
+  objective?: string | null
+  business_graph: Record<string, unknown>
+  technical_graph: Record<string, unknown>
+  pending_issues: DatamakepoolFlowdraftIssue[]
+  preflight_summary?: DatamakepoolFlowdraftPreflightSummary | null
+  input_schema_draft?: Record<string, unknown> | null
+  output_mapping_draft?: Record<string, unknown> | null
+  latest_snapshot_id?: number | null
+}
+
+export interface DatamakepoolFlowdraftResolveResponse {
+  flowdraft_id: number
+  status: string
+  resolved_steps: string[]
+  blocked_steps: Record<string, unknown>[]
+  pending_issues: DatamakepoolFlowdraftIssue[]
+  latest_snapshot_id?: number | null
+}
+
 export interface DatamakepoolTemplateRevisionSummary {
   revision_id: number
   template_id: number
@@ -258,6 +323,134 @@ async function parseErrorMessage(response: Response): Promise<string> {
   }
 
   return `请求失败（${response.status}）`
+}
+
+/**
+ * 探索入口前台与模板/资产台共用同一个 datamakepool 真相源文件。
+ * 这里补的是聊天探索页 MVP 需要的最小会话与 FlowDraft API。
+ */
+export async function createDatamakepoolConversation(payload?: {
+  title?: string
+  objective?: string
+}): Promise<DatamakepoolConversationSummary> {
+  const response = await apiRequest(`${getApiUrl()}/api/datamakepool/conversations`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: payload?.title,
+      objective: payload?.objective,
+    }),
+  })
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolConversationSummary
+}
+
+export async function postDatamakepoolConversationMessage(
+  conversationId: number,
+  payload: {
+    content: string
+  }
+): Promise<DatamakepoolConversationMessageResponse> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/conversations/${conversationId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        content: payload.content,
+      }),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolConversationMessageResponse
+}
+
+export async function getDatamakepoolConversationFlowdraft(
+  conversationId: number
+): Promise<DatamakepoolFlowdraft> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/conversations/${conversationId}/flowdraft`
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolFlowdraft
+}
+
+export async function getDatamakepoolFlowdraft(
+  flowdraftId: number
+): Promise<DatamakepoolFlowdraft> {
+  const response = await apiRequest(`${getApiUrl()}/api/datamakepool/flowdrafts/${flowdraftId}`)
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolFlowdraft
+}
+
+export async function getDatamakepoolFlowdraftPreflight(
+  flowdraftId: number
+): Promise<DatamakepoolFlowdraftPreflightSummary> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/flowdrafts/${flowdraftId}/preflight`,
+    {
+      method: "POST",
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolFlowdraftPreflightSummary
+}
+
+export async function resolveDatamakepoolFlowdraft(
+  flowdraftId: number
+): Promise<DatamakepoolFlowdraftResolveResponse> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/flowdrafts/${flowdraftId}/resolve`,
+    {
+      method: "POST",
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolFlowdraftResolveResponse
+}
+
+export async function trialDatamakepoolFlowdraft(
+  flowdraftId: number,
+  payload?: {
+    entry_type?: string
+    initiator_user_id?: number
+    system_short?: string
+  }
+): Promise<DatamakepoolRunCreateResponse> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/flowdrafts/${flowdraftId}/trial`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        entry_type: payload?.entry_type ?? "chat",
+        initiator_user_id: payload?.initiator_user_id,
+        system_short: payload?.system_short,
+      }),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolRunCreateResponse
 }
 
 /**

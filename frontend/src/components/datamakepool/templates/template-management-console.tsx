@@ -637,6 +637,12 @@ export function TemplateManagementConsole({
       actions={
         <div className="flex flex-wrap gap-2">
           <Button asChild variant="outline" className="border-border/80 bg-background/70 backdrop-blur-sm">
+            <Link href="/datamakepool/chat">
+              <Sparkles className="h-4 w-4" />
+              探索入口
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="border-border/80 bg-background/70 backdrop-blur-sm">
             <Link href="/datamakepool/http-assets">
               <Database className="h-4 w-4" />
               HTTP 资产

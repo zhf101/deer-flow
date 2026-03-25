@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
-import { ArrowLeft, Database, Loader2, Plus, RefreshCw } from "lucide-react"
+import { ArrowLeft, Database, Loader2, Plus, RefreshCw, Sparkles } from "lucide-react"
 
 import {
   createDatamakepoolSqlAsset,
@@ -223,6 +223,12 @@ export function SqlAssetManagementConsole() {
       ]}
       actions={
         <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" className="border-border/80 bg-background/70 backdrop-blur-sm">
+            <Link href="/datamakepool/chat">
+              <Sparkles className="h-4 w-4" />
+              探索入口
+            </Link>
+          </Button>
           <Button asChild variant="outline" className="border-border/80 bg-background/70 backdrop-blur-sm">
             <Link href="/datamakepool/templates">
               <ArrowLeft className="h-4 w-4" />
