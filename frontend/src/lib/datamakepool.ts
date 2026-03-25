@@ -118,6 +118,40 @@ export interface DatamakepoolFlowdraftIssue {
   payload: Record<string, unknown>
 }
 
+export interface DatamakepoolEditableFieldSpec {
+  name: string
+  mode: "direct_edit" | "needs_resolution"
+  editor?: string | null
+  widget?: string | null
+  required?: boolean
+  validation_rules?: Record<string, unknown>[]
+}
+
+export interface DatamakepoolFlowdraftStepNode {
+  id?: string
+  step_id: string
+  step_type: string
+  step_name?: string
+  depends_on?: string[]
+  pending_flags?: string[]
+  design_intent?: Record<string, unknown>
+  resolution_rationale?: Record<string, unknown>
+  resolved_execution_plan?: Record<string, unknown>
+  asset_version_snapshot_ref?: Record<string, unknown>
+  editable_fields?: DatamakepoolEditableFieldSpec[]
+  asset_ref?: unknown
+  mapping?: Record<string, unknown>
+  output_mapping?: Record<string, unknown>
+  query_template?: Record<string, unknown>
+  headers_template?: Record<string, unknown>
+  body_template?: Record<string, unknown>
+  param_template?: Record<string, unknown>
+  sql?: string
+  confirmation_required?: boolean
+  auto_confirm?: boolean
+  [key: string]: unknown
+}
+
 export interface DatamakepoolFlowdraftPreflightSummary {
   is_runnable: boolean
   issues: DatamakepoolFlowdraftIssue[]
@@ -159,6 +193,56 @@ export interface DatamakepoolFlowdraftResolveResponse {
   status: string
   resolved_steps: string[]
   blocked_steps: Record<string, unknown>[]
+  pending_issues: DatamakepoolFlowdraftIssue[]
+  latest_snapshot_id?: number | null
+}
+
+export interface DatamakepoolFlowdraftSnapshot {
+  snapshot_id: number
+  flowdraft_id: number
+  snapshot_type: string
+  created_by: number
+  created_at?: string | null
+}
+
+export interface DatamakepoolFlowdraftDiffChunk {
+  changed: boolean
+  changed_count: number
+  changed_paths: string[]
+  changed_step_ids: string[]
+}
+
+export interface DatamakepoolFlowdraftDiff {
+  flowdraft_id: number
+  before: {
+    snapshot_id?: number | null
+    label: string
+  }
+  after: {
+    snapshot_id?: number | null
+    label: string
+  }
+  business_graph_diff: DatamakepoolFlowdraftDiffChunk
+  technical_graph_diff: DatamakepoolFlowdraftDiffChunk
+  preflight_summary_diff: DatamakepoolFlowdraftDiffChunk
+}
+
+export interface DatamakepoolFlowdraftStepPatchResponse {
+  flowdraft_id: number
+  step_id: string
+  status: string
+  direct_updates: string[]
+  needs_resolution_fields: string[]
+  pending_issues: DatamakepoolFlowdraftIssue[]
+  latest_snapshot_id?: number | null
+}
+
+export interface DatamakepoolFlowdraftStepResolveResponse {
+  flowdraft_id: number
+  step_id: string
+  status: string
+  resolution_status: string
+  blocking_issues: DatamakepoolFlowdraftIssue[]
   pending_issues: DatamakepoolFlowdraftIssue[]
   latest_snapshot_id?: number | null
 }
@@ -312,11 +396,40 @@ export interface DatamakepoolRunSqlAuditSummaryResponse {
   items: DatamakepoolSqlAuditSummaryItem[]
 }
 
+export interface DatamakepoolSqlAuditDetail {
+  audit_id: number
+  run_id: number
+  run_step_id?: number | null
+  actor_user_id: number
+  system_short?: string | null
+  audit_type: string
+  risk_level?: string | null
+  confirmation_mode?: string | null
+  confirmed_by?: number | null
+  confirmed_at?: string | null
+  status: string
+  error_message?: string | null
+  target_objects: Record<string, unknown>[]
+  payload: Record<string, unknown>
+  created_at?: string | null
+}
+
 async function parseErrorMessage(response: Response): Promise<string> {
   try {
     const payload = await response.json()
     if (typeof payload?.detail === "string" && payload.detail.trim()) {
       return payload.detail
+    }
+    if (
+      payload?.detail &&
+      typeof payload.detail === "object" &&
+      typeof payload.detail.message === "string" &&
+      payload.detail.message.trim()
+    ) {
+      return payload.detail.message
+    }
+    if (typeof payload?.message === "string" && payload.message.trim()) {
+      return payload.message
     }
   } catch {
     // 保持最小降级，统一回落到状态码描述。
@@ -395,6 +508,43 @@ export async function getDatamakepoolFlowdraft(
   return (await response.json()) as DatamakepoolFlowdraft
 }
 
+export async function listDatamakepoolFlowdraftSnapshots(
+  flowdraftId: number
+): Promise<DatamakepoolFlowdraftSnapshot[]> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/flowdrafts/${flowdraftId}/snapshots`
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolFlowdraftSnapshot[]
+}
+
+export async function getDatamakepoolFlowdraftDiff(
+  flowdraftId: number,
+  options?: {
+    beforeSnapshotId?: number | null
+    afterSnapshotId?: number | null
+  }
+): Promise<DatamakepoolFlowdraftDiff> {
+  const params = new URLSearchParams()
+  if (options?.beforeSnapshotId) {
+    params.set("before_snapshot_id", String(options.beforeSnapshotId))
+  }
+  if (options?.afterSnapshotId) {
+    params.set("after_snapshot_id", String(options.afterSnapshotId))
+  }
+
+  const query = params.toString()
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/flowdrafts/${flowdraftId}/diff${query ? `?${query}` : ""}`
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolFlowdraftDiff
+}
+
 export async function getDatamakepoolFlowdraftPreflight(
   flowdraftId: number
 ): Promise<DatamakepoolFlowdraftPreflightSummary> {
@@ -423,6 +573,45 @@ export async function resolveDatamakepoolFlowdraft(
     throw new Error(await parseErrorMessage(response))
   }
   return (await response.json()) as DatamakepoolFlowdraftResolveResponse
+}
+
+export async function patchDatamakepoolFlowdraftStep(
+  flowdraftId: number,
+  stepId: string,
+  changes: Record<string, unknown>
+): Promise<DatamakepoolFlowdraftStepPatchResponse> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/flowdrafts/${flowdraftId}/steps/${stepId}`,
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        changes,
+      }),
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolFlowdraftStepPatchResponse
+}
+
+export async function resolveDatamakepoolFlowdraftStep(
+  flowdraftId: number,
+  stepId: string
+): Promise<DatamakepoolFlowdraftStepResolveResponse> {
+  const response = await apiRequest(
+    `${getApiUrl()}/api/datamakepool/flowdrafts/${flowdraftId}/steps/${stepId}/resolve`,
+    {
+      method: "POST",
+    }
+  )
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolFlowdraftStepResolveResponse
 }
 
 export async function trialDatamakepoolFlowdraft(
@@ -714,6 +903,24 @@ export async function getDatamakepoolRunSqlAudits(
     throw new Error(await parseErrorMessage(response))
   }
   return (await response.json()) as DatamakepoolRunSqlAuditSummaryResponse
+}
+
+export async function listDatamakepoolSqlAudits(): Promise<DatamakepoolSqlAuditSummaryItem[]> {
+  const response = await apiRequest(`${getApiUrl()}/api/datamakepool/audits/sql`)
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolSqlAuditSummaryItem[]
+}
+
+export async function getDatamakepoolSqlAuditDetail(
+  auditId: number
+): Promise<DatamakepoolSqlAuditDetail> {
+  const response = await apiRequest(`${getApiUrl()}/api/datamakepool/audits/sql/${auditId}`)
+  if (!response.ok) {
+    throw new Error(await parseErrorMessage(response))
+  }
+  return (await response.json()) as DatamakepoolSqlAuditDetail
 }
 
 export async function confirmDatamakepoolDangerousSql(

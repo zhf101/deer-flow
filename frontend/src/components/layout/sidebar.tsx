@@ -18,14 +18,10 @@ import {
   X,
   ChevronDown,
   ChevronRight,
-  Sparkles,
-  Zap,
   Settings,
   Wrench,
   Users,
   Brain,
-  Server,
-  HardDrive,
   Layers,
   MessageSquare,
   Loader2,
@@ -33,6 +29,7 @@ import {
   CheckCircle2,
   XCircle,
   PauseCircle,
+  FileSearch,
   Bot,
   BookOpen,
   Box,
@@ -41,6 +38,7 @@ import {
   Tag,
   Github,
   Star,
+  type LucideIcon,
 } from "lucide-react"
 import {
   Dialog,
@@ -78,7 +76,7 @@ function formatStars(stars: number): string {
 interface NavigationItem {
   name: string
   href: string
-  icon: any
+  icon: LucideIcon
   color?: string
   children?: NavigationItem[]
   showTasks?: boolean
@@ -122,6 +120,12 @@ const navigationGroups: NavigationGroup[] = [
         href: "/datamakepool/chat",
         icon: Layers,
         color: "text-emerald-500"
+      },
+      {
+        name: "DataMakePool Audit",
+        href: "/datamakepool/audits",
+        icon: FileSearch,
+        color: "text-amber-500"
       },
     ]
   },
@@ -185,7 +189,11 @@ const baseUserMenuItems: NavigationItem[] = [
   }
 ]
 
-const getUserMenuItemsForUser = (user: any): NavigationItem[] => {
+const getUserMenuItemsForUser = (
+  user: {
+    is_admin?: boolean | null
+  } | null | undefined
+): NavigationItem[] => {
   const menuItems = [...baseUserMenuItems]
 
   if (user?.is_admin) {

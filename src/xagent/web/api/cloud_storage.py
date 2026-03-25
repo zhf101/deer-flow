@@ -1,7 +1,7 @@
 """Cloud Storage API Endpoints"""
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 # 历史 Google Drive 依赖导入先保留为注释，避免直接删除原始实现。

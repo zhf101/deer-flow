@@ -5,7 +5,7 @@ from typing import Any
 import requests
 
 from ...contracts import ExecutorInput, ExecutorOutput
-from ...orchestration.runtime_values import build_value_context, render_template
+from ..runtime_values import build_value_context, render_template
 
 
 class HTTPExecutor:
