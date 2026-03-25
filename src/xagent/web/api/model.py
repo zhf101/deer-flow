@@ -38,6 +38,8 @@ logger = logging.getLogger(__name__)
 # Create router
 model_router = APIRouter(prefix="/api/models", tags=["models"])
 
+SUPPORTED_MODEL_PROVIDERS = {"openai"}
+
 
 def _decode_model_identifier(model_id: str) -> str:
     """Decode a model identifier from the URL path."""
@@ -102,10 +104,17 @@ async def create_model(
 ) -> ModelWithAccessInfo:
     """Create a new model configuration"""
 
+    normalized_provider = str(model.model_provider).strip().lower()
+    if normalized_provider not in SUPPORTED_MODEL_PROVIDERS:
+        raise HTTPException(
+            status_code=400,
+            detail="Unsupported provider: current deployment only allows openai",
+        )
+
     # Debug logging
     logger.info(f"🔍 Creating model: {model.model_id}")
     logger.info(f"  Category: {model.category}")
-    logger.info(f"  Provider: {model.model_provider}")
+    logger.info(f"  Provider: {normalized_provider}")
     logger.info(f"  Abilities: {model.abilities}")
     logger.info(f"  Model name: {model.model_name}")
 
@@ -122,13 +131,13 @@ async def create_model(
             detail="Only administrators can share models with all users",
         )
 
-    base_url = model.base_url or default_base_url_for_provider(model.model_provider)
+    base_url = model.base_url or default_base_url_for_provider(normalized_provider)
 
     if model.category == "llm":
         config: ModelConfig = ChatModelConfig(
             id=model.model_id,
             model_name=model.model_name,
-            model_provider=model.model_provider,
+            model_provider=normalized_provider,
             base_url=base_url,
             api_key=model.api_key,
             default_temperature=model.temperature,
@@ -140,7 +149,7 @@ async def create_model(
         config = EmbeddingModelConfig(
             id=model.model_id,
             model_name=model.model_name,
-            model_provider=model.model_provider,
+            model_provider=normalized_provider,
             base_url=base_url,
             api_key=model.api_key,
             timeout=180.0,
@@ -152,7 +161,7 @@ async def create_model(
         config = ImageModelConfig(
             id=model.model_id,
             model_name=model.model_name,
-            model_provider=model.model_provider,
+            model_provider=normalized_provider,
             base_url=base_url,
             api_key=model.api_key,
             default_temperature=model.temperature,
@@ -166,7 +175,7 @@ async def create_model(
         config = SpeechModelConfig(
             id=model.model_id,
             model_name=model.model_name,
-            model_provider=model.model_provider,
+            model_provider=normalized_provider,
             base_url=base_url,
             api_key=model.api_key,
             timeout=180.0,

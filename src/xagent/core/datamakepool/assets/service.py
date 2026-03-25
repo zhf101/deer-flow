@@ -10,6 +10,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from xagent.web.models.dm_asset import DMHTTPAsset, DMSQLAsset, DMSQLAssetVersion
+from xagent.web.models.dm_template import DMTemplateRevision
 from xagent.web.models.user import User
 
 from ..contracts import ExecutorInput
@@ -433,6 +434,92 @@ class AssetService:
                 continue
         return [self._serialize_sql_asset(asset) for asset in visible_assets]
 
+    def build_template_revision_asset_reference_summary(
+        self,
+        revision: DMTemplateRevision,
+    ) -> list[dict[str, Any]]:
+        """从模板版本技术图中整理去重后的资产引用摘要。
+
+        这里的目标不是给前台返回整份 technical_graph，而是提炼出“这版模板到底
+        引用了哪些 HTTP / SQL 资产、涉及哪些步骤”，为模板详情和关系视图提供
+        最小真相源。
+        """
+
+        grouped: dict[tuple[str, int, int | None], dict[str, Any]] = {}
+        for item in self._iter_template_revision_asset_reference_items(revision):
+            key = (
+                item["asset_type"],
+                int(item["asset_id"]),
+                int(item["version_id"]) if item.get("version_id") is not None else None,
+            )
+            current = grouped.get(key)
+            if current is None:
+                current = {
+                    "asset_type": item["asset_type"],
+                    "asset_id": int(item["asset_id"]),
+                    "version_id": (
+                        int(item["version_id"]) if item.get("version_id") is not None else None
+                    ),
+                    "name": item.get("name"),
+                    "system_short": item.get("system_short"),
+                    "snapshot_kind": item.get("snapshot_kind"),
+                    "step_ids": [],
+                    "step_names": [],
+                }
+                grouped[key] = current
+
+            for field_name in ("name", "system_short", "snapshot_kind"):
+                if current.get(field_name) is None and item.get(field_name) is not None:
+                    current[field_name] = item.get(field_name)
+
+            step_id = item.get("step_id")
+            if step_id and step_id not in current["step_ids"]:
+                current["step_ids"].append(step_id)
+            step_name = item.get("step_name")
+            if step_name and step_name not in current["step_names"]:
+                current["step_names"].append(step_name)
+
+        return sorted(
+            grouped.values(),
+            key=lambda current: (
+                str(current["asset_type"]),
+                int(current["asset_id"]),
+                int(current["version_id"] or 0),
+            ),
+        )
+
+    def list_http_asset_template_references(
+        self,
+        asset_id: int,
+        user: User,
+    ) -> list[dict[str, Any]]:
+        """列出引用某个 HTTP 资产的模板版本摘要。"""
+
+        asset = self._get_http_asset(asset_id)
+        GovernanceService(db=self.db).assert_http_asset_access(asset, user)
+        return self._list_template_references_for_asset(
+            user=user,
+            matcher=lambda item: (
+                item.get("asset_type") == "http" and int(item.get("asset_id") or 0) == int(asset.id)
+            ),
+        )
+
+    def list_sql_asset_template_references(
+        self,
+        asset_id: int,
+        user: User,
+    ) -> list[dict[str, Any]]:
+        """列出引用某个 SQL 逻辑资产的模板版本摘要。"""
+
+        asset = self._get_sql_asset(asset_id)
+        GovernanceService(db=self.db).assert_sql_asset_access(asset, user)
+        return self._list_template_references_for_asset(
+            user=user,
+            matcher=lambda item: (
+                item.get("asset_type") == "sql" and int(item.get("asset_id") or 0) == int(asset.id)
+            ),
+        )
+
     def list_sql_asset_versions(self, asset_id: int, user: User) -> list[dict[str, Any]]:
         """列出某个 SQL 资产的全部版本。"""
 
@@ -466,6 +553,14 @@ class AssetService:
     ) -> dict[str, Any]:
         """创建 SQL 资产逻辑对象及其初始草稿版本。"""
 
+        normalized_connection_config = self._validate_sql_connection_config(connection_config or {})
+        normalized_whitelist = self._normalize_string_list(whitelist)
+        normalized_blacklist = self._normalize_string_list(blacklist)
+        self._validate_sql_access_policy(
+            whitelist=normalized_whitelist,
+            blacklist=normalized_blacklist,
+        )
+
         try:
             asset = DMSQLAsset(
                 name=self._require_text(name, "name"),
@@ -480,9 +575,9 @@ class AssetService:
                 sql_asset_id=int(asset.id),
                 version_no=1,
                 status="draft",
-                connection_config=connection_config or {},
-                whitelist=self._normalize_string_list(whitelist),
-                blacklist=self._normalize_string_list(blacklist),
+                connection_config=normalized_connection_config,
+                whitelist=normalized_whitelist,
+                blacklist=normalized_blacklist,
                 mutation_enabled=bool(mutation_enabled),
                 review_comment=None,
                 created_by=int(user.id),
@@ -516,15 +611,22 @@ class AssetService:
 
         asset = self._get_sql_asset(asset_id)
         GovernanceService(db=self.db).assert_sql_asset_access(asset, user)
+        normalized_connection_config = self._validate_sql_connection_config(connection_config or {})
+        normalized_whitelist = self._normalize_string_list(whitelist)
+        normalized_blacklist = self._normalize_string_list(blacklist)
+        self._validate_sql_access_policy(
+            whitelist=normalized_whitelist,
+            blacklist=normalized_blacklist,
+        )
 
         try:
             version = DMSQLAssetVersion(
                 sql_asset_id=int(asset.id),
                 version_no=self._next_sql_asset_version_no(asset),
                 status="draft",
-                connection_config=connection_config or {},
-                whitelist=self._normalize_string_list(whitelist),
-                blacklist=self._normalize_string_list(blacklist),
+                connection_config=normalized_connection_config,
+                whitelist=normalized_whitelist,
+                blacklist=normalized_blacklist,
                 mutation_enabled=bool(mutation_enabled),
                 review_comment=None,
                 created_by=int(user.id),
@@ -593,13 +695,17 @@ class AssetService:
             )
 
         if connection_config is not None:
-            version.connection_config = connection_config
+            version.connection_config = self._validate_sql_connection_config(connection_config)
         if whitelist is not None:
             version.whitelist = self._normalize_string_list(whitelist)
         if blacklist is not None:
             version.blacklist = self._normalize_string_list(blacklist)
         if mutation_enabled is not None:
             version.mutation_enabled = bool(mutation_enabled)
+        self._validate_sql_access_policy(
+            whitelist=[str(item) for item in (version.whitelist or [])],
+            blacklist=[str(item) for item in (version.blacklist or [])],
+        )
 
         version.review_comment = None
         version.reviewed_by = None
@@ -630,7 +736,14 @@ class AssetService:
         if asset is None:
             raise ValueError(f"SQL asset {version.sql_asset_id} not found")
 
-        database_url = self._extract_database_url(version.connection_config or {})
+        normalized_connection_config = self._validate_sql_connection_config(
+            version.connection_config or {}
+        )
+        database_url = self._extract_database_url(normalized_connection_config)
+        validation_summary = self._build_sql_validation_summary(
+            connection_config=normalized_connection_config,
+            version=version,
+        )
         engine = self._create_sql_test_engine(database_url)
 
         try:
@@ -642,6 +755,12 @@ class AssetService:
                     "test_mode": test_mode,
                     "execution_status": "succeeded",
                     "connection_summary": connection_summary,
+                    "validation_summary": validation_summary,
+                    "policy_summary": self._build_sql_test_policy_summary(
+                        version=version,
+                        test_mode=test_mode,
+                        sql=None,
+                    ),
                     "sql_snapshot": None,
                     "result_preview": None,
                     "execution_metrics": {},
@@ -652,14 +771,49 @@ class AssetService:
                 raise ValueError(f"Unsupported sql asset test mode {test_mode!r}")
 
             normalized_sql = self._require_text(sql, "sql")
+            policy_summary = self._build_sql_test_policy_summary(
+                version=version,
+                test_mode=test_mode,
+                sql=normalized_sql,
+            )
             if self._is_mutation_sql(normalized_sql):
                 if not version.mutation_enabled:
-                    raise ValueError(
-                        "Current SQL asset version does not allow mutation SQL test execution"
-                    )
-                raise ValueError(
-                    "SQL asset test endpoint currently only supports query statements"
-                )
+                    return {
+                        "asset_id": asset.id,
+                        "version_id": version.id,
+                        "test_mode": test_mode,
+                        "execution_status": "blocked",
+                        "connection_summary": {
+                            "database_type": self._infer_database_type(database_url),
+                        },
+                        "validation_summary": validation_summary,
+                        "policy_summary": policy_summary,
+                        "sql_snapshot": {"sql": normalized_sql, "params": params or {}},
+                        "result_preview": None,
+                        "execution_metrics": {},
+                        "error_info": {
+                            "type": "mutation_sql_blocked",
+                            "message": "Current SQL asset version does not allow mutation SQL test execution",
+                        },
+                    }
+                return {
+                    "asset_id": asset.id,
+                    "version_id": version.id,
+                    "test_mode": test_mode,
+                    "execution_status": "blocked",
+                    "connection_summary": {
+                        "database_type": self._infer_database_type(database_url),
+                    },
+                    "validation_summary": validation_summary,
+                    "policy_summary": policy_summary,
+                    "sql_snapshot": {"sql": normalized_sql, "params": params or {}},
+                    "result_preview": None,
+                    "execution_metrics": {},
+                    "error_info": {
+                        "type": "mutation_sql_not_supported",
+                        "message": "SQL asset test endpoint currently only supports query statements",
+                    },
+                }
 
             execution = self._test_sql_query(
                 engine=engine,
@@ -674,6 +828,8 @@ class AssetService:
                 "connection_summary": {
                     "database_type": self._infer_database_type(database_url),
                 },
+                "validation_summary": validation_summary,
+                "policy_summary": policy_summary,
                 "sql_snapshot": execution["sql_snapshot"],
                 "result_preview": execution["result_preview"],
                 "execution_metrics": execution["execution_metrics"],
@@ -868,6 +1024,162 @@ class AssetService:
             "copied_from_version_id": copied_from_version_id,
         }
 
+    def _list_template_references_for_asset(
+        self,
+        *,
+        user: User,
+        matcher: Any,
+    ) -> list[dict[str, Any]]:
+        """扫描模板版本并返回命中某个资产的反向引用摘要。
+
+        当前先按“实时从模板版本技术图提取”的方式提供真相源，避免为了关系视图
+        过早引入额外表结构；如果后续模板规模明显变大，再考虑把这层摘要持久化。
+        """
+
+        governance_service = GovernanceService(db=self.db)
+        revisions = (
+            self.db.query(DMTemplateRevision)
+            .order_by(DMTemplateRevision.created_at.desc(), DMTemplateRevision.id.desc())
+            .all()
+        )
+
+        results: list[dict[str, Any]] = []
+        for revision in revisions:
+            template = revision.template
+            if template is None:
+                continue
+            try:
+                governance_service.assert_template_access(template, user)
+            except PermissionError:
+                continue
+
+            matched_items = [
+                item
+                for item in self.build_template_revision_asset_reference_summary(revision)
+                if matcher(item)
+            ]
+            if not matched_items:
+                continue
+
+            matched_version_ids = sorted(
+                {
+                    int(item["version_id"])
+                    for item in matched_items
+                    if item.get("version_id") is not None
+                }
+            )
+            step_ids: list[str] = []
+            step_names: list[str] = []
+            for item in matched_items:
+                for step_id in item.get("step_ids") or []:
+                    if step_id not in step_ids:
+                        step_ids.append(step_id)
+                for step_name in item.get("step_names") or []:
+                    if step_name not in step_names:
+                        step_names.append(step_name)
+
+            results.append(
+                {
+                    "template_id": int(template.id),
+                    "template_name": template.name,
+                    "template_system_short": template.system_short,
+                    "revision_id": int(revision.id),
+                    "revision_version_no": int(revision.version_no),
+                    "revision_status": revision.status,
+                    "matched_version_ids": matched_version_ids,
+                    "step_ids": step_ids,
+                    "step_names": step_names,
+                }
+            )
+
+        return results
+
+    def _iter_template_revision_asset_reference_items(
+        self,
+        revision: DMTemplateRevision,
+    ) -> list[dict[str, Any]]:
+        """遍历模板版本中的原始资产引用条目。
+
+        优先读取 `asset_version_snapshot_ref`，因为它是试跑沉淀后的锁定快照；
+        如果还没有快照，则退回 `resolved_execution_plan.asset_ref`，兼容早期或
+        仍在演进中的模板结构。
+        """
+
+        technical_graph = revision.technical_graph or {}
+        nodes = technical_graph.get("nodes", []) if isinstance(technical_graph, dict) else []
+        items: list[dict[str, Any]] = []
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+
+            snapshot_ref = (
+                node.get("asset_version_snapshot_ref")
+                if isinstance(node.get("asset_version_snapshot_ref"), dict)
+                else {}
+            )
+            resolved_plan = (
+                node.get("resolved_execution_plan")
+                if isinstance(node.get("resolved_execution_plan"), dict)
+                else {}
+            )
+
+            normalized_asset_ref = self._try_normalize_template_asset_reference(
+                resolved_plan.get("asset_ref") or node.get("asset_ref")
+            )
+            asset_type = snapshot_ref.get("asset_type") or (
+                normalized_asset_ref.get("asset_type") if normalized_asset_ref else None
+            )
+            asset_id = snapshot_ref.get("asset_id") or (
+                normalized_asset_ref.get("asset_id") if normalized_asset_ref else None
+            )
+            if asset_type is None or asset_id is None:
+                continue
+
+            item: dict[str, Any] = {
+                "asset_type": str(asset_type),
+                "asset_id": int(asset_id),
+            }
+            version_id = snapshot_ref.get("version_id") or (
+                normalized_asset_ref.get("version_id") if normalized_asset_ref else None
+            )
+            if version_id is not None:
+                item["version_id"] = int(version_id)
+
+            name = self._normalize_text(snapshot_ref.get("name"))
+            if name:
+                item["name"] = name
+            system_short = self._normalize_text(snapshot_ref.get("system_short"))
+            if system_short:
+                item["system_short"] = system_short
+            snapshot_kind = self._normalize_text(snapshot_ref.get("snapshot_kind"))
+            if snapshot_kind:
+                item["snapshot_kind"] = snapshot_kind
+
+            step_id = self._normalize_text(str(node.get("step_id") or node.get("id") or ""))
+            if step_id:
+                item["step_id"] = step_id
+            step_name = self._normalize_text(node.get("name"))
+            if step_name:
+                item["step_name"] = step_name
+
+            items.append(item)
+        return items
+
+    def _try_normalize_template_asset_reference(
+        self,
+        asset_ref: Any,
+    ) -> dict[str, Any] | None:
+        """尝试把模板中的资产引用转成统一结构。
+
+        这里是只读兼容逻辑，不应因为某一条历史脏数据就把整版模板列表查询打断，
+        所以任何不兼容结构都降级为 `None`，交给上层继续忽略。
+        """
+
+        try:
+            return self.normalize_asset_reference(asset_ref)
+        except Exception:
+            return None
+
     def _pick_latest_sql_asset_version(
         self,
         asset: DMSQLAsset,
@@ -963,6 +1275,96 @@ class AssetService:
             if isinstance(value, str) and value.strip():
                 return value.strip()
         raise ValueError("SQL asset version connection_config is missing database url")
+
+    def _validate_sql_connection_config(
+        self,
+        connection_config: dict[str, Any],
+    ) -> dict[str, Any]:
+        """校验 SQL 连接配置并返回标准化结果。
+
+        当前先保证最小可执行性：
+        - 必须是对象
+        - 必须包含 `url / database_url / uri` 之一
+        - URL 需要是非空字符串
+        """
+
+        if not isinstance(connection_config, dict):
+            raise ValueError("SQL asset version connection_config must be object")
+
+        normalized = dict(connection_config)
+        database_url = self._extract_database_url(normalized)
+        canonical_url = database_url.strip()
+        for key in ("url", "database_url", "uri"):
+            if key in normalized:
+                normalized[key] = canonical_url
+        if not any(key in normalized for key in ("url", "database_url", "uri")):
+            normalized["url"] = canonical_url
+        return normalized
+
+    def _validate_sql_access_policy(
+        self,
+        *,
+        whitelist: list[str],
+        blacklist: list[str],
+    ) -> None:
+        """校验 SQL 资产版本的最小访问策略。"""
+
+        overlap = sorted(set(whitelist) & set(blacklist))
+        if overlap:
+            raise ValueError(
+                "SQL asset version whitelist and blacklist contain overlapping entries: "
+                + ", ".join(overlap)
+            )
+
+    def _build_sql_validation_summary(
+        self,
+        *,
+        connection_config: dict[str, Any],
+        version: DMSQLAssetVersion,
+    ) -> dict[str, Any]:
+        """生成 SQL 资产测试可复用的配置校验摘要。"""
+
+        database_url = self._extract_database_url(connection_config)
+        return {
+            "database_url_configured": True,
+            "database_type": self._infer_database_type(database_url),
+            "connection_config_keys": sorted(str(key) for key in connection_config.keys()),
+            "whitelist_count": len(version.whitelist or []),
+            "blacklist_count": len(version.blacklist or []),
+            "mutation_enabled": bool(version.mutation_enabled),
+        }
+
+    def _build_sql_test_policy_summary(
+        self,
+        *,
+        version: DMSQLAssetVersion,
+        test_mode: str,
+        sql: str | None,
+    ) -> dict[str, Any]:
+        """生成 SQL 测试策略摘要，供前台和排障统一消费。"""
+
+        mutation_detected = self._is_mutation_sql(sql or "")
+        mutation_enabled = bool(version.mutation_enabled)
+        if test_mode == "connection":
+            can_execute = True
+            blocking_reason = None
+        elif mutation_detected and not mutation_enabled:
+            can_execute = False
+            blocking_reason = "mutation_disabled"
+        elif mutation_detected:
+            can_execute = False
+            blocking_reason = "mutation_test_not_supported"
+        else:
+            can_execute = True
+            blocking_reason = None
+
+        return {
+            "requested_mode": test_mode,
+            "mutation_detected": mutation_detected,
+            "mutation_enabled": mutation_enabled,
+            "can_execute": can_execute,
+            "blocking_reason": blocking_reason,
+        }
 
     def _create_sql_test_engine(self, database_url: str) -> Engine:
         """为 SQL 资产测试创建独立 engine。"""

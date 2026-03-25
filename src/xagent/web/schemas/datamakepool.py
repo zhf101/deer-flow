@@ -266,10 +266,39 @@ class SQLAssetVersionTestResponse(BaseModel):
     test_mode: str
     execution_status: str
     connection_summary: Optional[dict[str, Any]] = None
+    validation_summary: dict[str, Any] = Field(default_factory=dict)
+    policy_summary: dict[str, Any] = Field(default_factory=dict)
     sql_snapshot: Optional[dict[str, Any]] = None
     result_preview: Optional[dict[str, Any]] = None
     execution_metrics: dict[str, Any] = Field(default_factory=dict)
     error_info: Optional[dict[str, Any]] = None
+
+
+class TemplateAssetReferenceResponse(BaseModel):
+    """模板版本里的单条资产引用摘要。"""
+
+    asset_type: str
+    asset_id: int
+    version_id: Optional[int] = None
+    name: Optional[str] = None
+    system_short: Optional[str] = None
+    snapshot_kind: Optional[str] = None
+    step_ids: list[str] = Field(default_factory=list)
+    step_names: list[str] = Field(default_factory=list)
+
+
+class AssetTemplateReferenceResponse(BaseModel):
+    """资产侧查看模板反向引用时返回的引用摘要。"""
+
+    template_id: int
+    template_name: str
+    template_system_short: str
+    revision_id: int
+    revision_version_no: int
+    revision_status: str
+    matched_version_ids: list[int] = Field(default_factory=list)
+    step_ids: list[str] = Field(default_factory=list)
+    step_names: list[str] = Field(default_factory=list)
 
 
 class FlowDraftResponse(BaseModel):
@@ -534,6 +563,7 @@ class TemplateRevisionSummaryResponse(BaseModel):
     reviewed_by: Optional[int] = None
     review_comment: Optional[str] = None
     steps_count: int
+    asset_references: list[TemplateAssetReferenceResponse] = Field(default_factory=list)
 
 
 class ReviewResponse(BaseModel):

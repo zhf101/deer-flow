@@ -69,26 +69,27 @@ async def fetch_openai_models(
 #     return await XinferenceLLM.list_available_models(base_url=base_url, api_key=api_key)
 
 
-async def fetch_alibaba_coding_plan_models(
-    api_key: str, base_url: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    """Return curated Alibaba Bailian coding plan models."""
-    _ = api_key, base_url
-    return _static_model_list(
-        curated_models_for_provider("alibaba-coding-plan"),
-        owned_by="alibaba-coding-plan",
-    )
-
-
-async def fetch_alibaba_coding_plan_cn_models(
-    api_key: str, base_url: Optional[str] = None
-) -> List[Dict[str, Any]]:
-    """Return curated Alibaba Bailian coding plan models (China)."""
-    _ = api_key, base_url
-    return _static_model_list(
-        curated_models_for_provider("alibaba-coding-plan-cn"),
-        owned_by="alibaba-coding-plan-cn",
-    )
+# 以下 coding plan 拉模型逻辑先保留为注释，避免直接删除你的原始实现。
+# async def fetch_alibaba_coding_plan_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Return curated Alibaba Bailian coding plan models."""
+#     _ = api_key, base_url
+#     return _static_model_list(
+#         curated_models_for_provider("alibaba-coding-plan"),
+#         owned_by="alibaba-coding-plan",
+#     )
+#
+#
+# async def fetch_alibaba_coding_plan_cn_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Return curated Alibaba Bailian coding plan models (China)."""
+#     _ = api_key, base_url
+#     return _static_model_list(
+#         curated_models_for_provider("alibaba-coding-plan-cn"),
+#         owned_by="alibaba-coding-plan-cn",
+#     )
 
 
 # 以下 coding plan 拉模型逻辑先保留为注释，避免直接删除你的原始实现。
@@ -132,10 +133,10 @@ PROVIDER_FETCHERS: Dict[str, Any] = {
     # "gemini": fetch_gemini_models,
     # "google": fetch_gemini_models,
     # "xinference": fetch_xinference_models,
-    "zai-coding-plan": fetch_openai_models,
-    "zhipuai-coding-plan": fetch_openai_models,
-    "alibaba-coding-plan": fetch_alibaba_coding_plan_models,
-    "alibaba-coding-plan-cn": fetch_alibaba_coding_plan_cn_models,
+    # "zai-coding-plan": fetch_openai_models,
+    # "zhipuai-coding-plan": fetch_openai_models,
+    # "alibaba-coding-plan": fetch_alibaba_coding_plan_models,
+    # "alibaba-coding-plan-cn": fetch_alibaba_coding_plan_cn_models,
     # 以下 coding plan 注册项先保留为注释，当前部署不启用。
     # "minimax-coding-plan": fetch_minimax_coding_plan_models,
     # "minimax-cn-coding-plan": fetch_minimax_cn_coding_plan_models,
@@ -151,7 +152,7 @@ async def fetch_models_from_provider(
     """Fetch available models from a specific provider.
 
     Args:
-        provider: Provider name (openai, zai-coding-plan, etc.)
+        provider: Provider name (currently only openai)
         api_key: API key for the provider
         base_url: Custom base URL (optional)
 

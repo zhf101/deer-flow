@@ -1,10 +1,11 @@
 from typing import Any, Optional
 
 _PROVIDER_ALIASES: dict[str, str] = {
-    "zai_coding_plan": "zai-coding-plan",
-    "zhipuai_coding_plan": "zhipuai-coding-plan",
-    "alibaba_coding_plan": "alibaba-coding-plan",
-    "alibaba_coding_plan_cn": "alibaba-coding-plan-cn",
+    # 以下历史 coding plan 别名先保留为注释，当前部署不启用。
+    # "zai_coding_plan": "zai-coding-plan",
+    # "zhipuai_coding_plan": "zhipuai-coding-plan",
+    # "alibaba_coding_plan": "alibaba-coding-plan",
+    # "alibaba_coding_plan_cn": "alibaba-coding-plan-cn",
     # 以下 coding plan 别名先保留为注释，当前部署不启用。
     # "minimax_coding_plan": "minimax-coding-plan",
     # "minimax_cn_coding_plan": "minimax-cn-coding-plan",
@@ -14,15 +15,15 @@ _PROVIDER_ALIASES: dict[str, str] = {
 # Provider default base URLs used when callers omit an explicit base URL.
 _DEFAULT_BASE_URL_BY_PROVIDER: dict[str, str] = {
     "openai": "https://api.openai.com/v1",
-    "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     # 以下历史 provider 默认地址先保留为注释，当前部署不启用。
+    # "dashscope": "https://dashscope.aliyuncs.com/compatible-mode/v1",
     # "zhipu": "https://open.bigmodel.cn/api/paas/v4",
     # Opencode / models.dev naming
-    "zai-coding-plan": "https://api.z.ai/api/coding/paas/v4",
-    "zhipuai-coding-plan": "https://open.bigmodel.cn/api/coding/paas/v4",
+    # "zai-coding-plan": "https://api.z.ai/api/coding/paas/v4",
+    # "zhipuai-coding-plan": "https://open.bigmodel.cn/api/coding/paas/v4",
     # Alibaba Bailian (Model Studio) coding plan
-    "alibaba-coding-plan": "https://coding-intl.dashscope.aliyuncs.com/v1",
-    "alibaba-coding-plan-cn": "https://coding.dashscope.aliyuncs.com/v1",
+    # "alibaba-coding-plan": "https://coding-intl.dashscope.aliyuncs.com/v1",
+    # "alibaba-coding-plan-cn": "https://coding.dashscope.aliyuncs.com/v1",
     # 以下 coding plan 默认地址先保留为注释，当前部署不启用。
     # "minimax-coding-plan": "https://api.minimax.io/anthropic",
     # "minimax-cn-coding-plan": "https://api.minimaxi.com/anthropic",
@@ -30,22 +31,23 @@ _DEFAULT_BASE_URL_BY_PROVIDER: dict[str, str] = {
 }
 
 _CURATED_MODELS_BY_PROVIDER: dict[str, tuple[str, ...]] = {
-    "alibaba-coding-plan": (
-        "glm-4.7",
-        "glm-5",
-        "qwen3-coder-next",
-        "qwen3-coder-plus",
-        "qwen3-max-2026-01-23",
-        "qwen3.5-plus",
-    ),
-    "alibaba-coding-plan-cn": (
-        "glm-4.7",
-        "glm-5",
-        "qwen3-coder-next",
-        "qwen3-coder-plus",
-        "qwen3-max-2026-01-23",
-        "qwen3.5-plus",
-    ),
+    # 以下 coding plan 模型清单先保留为注释，当前部署不启用。
+    # "alibaba-coding-plan": (
+    #     "glm-4.7",
+    #     "glm-5",
+    #     "qwen3-coder-next",
+    #     "qwen3-coder-plus",
+    #     "qwen3-max-2026-01-23",
+    #     "qwen3.5-plus",
+    # ),
+    # "alibaba-coding-plan-cn": (
+    #     "glm-4.7",
+    #     "glm-5",
+    #     "qwen3-coder-next",
+    #     "qwen3-coder-plus",
+    #     "qwen3-max-2026-01-23",
+    #     "qwen3.5-plus",
+    # ),
     # 以下 coding plan 模型清单先保留为注释，当前部署不启用。
     # "minimax-coding-plan": (
     #     "MiniMax-M2",
@@ -87,46 +89,46 @@ _SUPPORTED_PROVIDER_METADATA: tuple[dict[str, Any], ...] = (
     #     "description": "Xinference models for local inference",
     #     "requires_base_url": True,
     # },
-    {
-        "id": "dashscope",
-        "name": "DashScope",
-        "description": "Alibaba Cloud's DashScope models",
-        "requires_base_url": False,
-    },
-    {
-        "id": "alibaba-coding-plan",
-        "name": "Alibaba Coding Plan",
-        "description": "Alibaba Bailian (Model Studio) coding plan",
-        "requires_base_url": False,
-        "compatibility": "openai_compatible",
-    },
-    {
-        "id": "alibaba-coding-plan-cn",
-        "name": "Alibaba Coding Plan (China)",
-        "description": "Alibaba Bailian (Model Studio) coding plan (China)",
-        "requires_base_url": False,
-        "compatibility": "openai_compatible",
-    },
+    # {
+    #     "id": "dashscope",
+    #     "name": "DashScope",
+    #     "description": "Alibaba Cloud's DashScope models",
+    #     "requires_base_url": False,
+    # },
+    # {
+    #     "id": "alibaba-coding-plan",
+    #     "name": "Alibaba Coding Plan",
+    #     "description": "Alibaba Bailian (Model Studio) coding plan",
+    #     "requires_base_url": False,
+    #     "compatibility": "openai_compatible",
+    # },
+    # {
+    #     "id": "alibaba-coding-plan-cn",
+    #     "name": "Alibaba Coding Plan (China)",
+    #     "description": "Alibaba Bailian (Model Studio) coding plan (China)",
+    #     "requires_base_url": False,
+    #     "compatibility": "openai_compatible",
+    # },
     # {
     #     "id": "zhipu",
     #     "name": "Zhipu AI",
     #     "description": "Zhipu AI models (GLM series) using zai SDK",
     #     "requires_base_url": False,
     # },
-    {
-        "id": "zai-coding-plan",
-        "name": "Z.AI Coding Plan",
-        "description": "GLM coding plan via Z.AI",
-        "requires_base_url": False,
-        "compatibility": "openai_compatible",
-    },
-    {
-        "id": "zhipuai-coding-plan",
-        "name": "Zhipu AI Coding Plan",
-        "description": "GLM coding plan via Zhipu AI",
-        "requires_base_url": False,
-        "compatibility": "openai_compatible",
-    },
+    # {
+    #     "id": "zai-coding-plan",
+    #     "name": "Z.AI Coding Plan",
+    #     "description": "GLM coding plan via Z.AI",
+    #     "requires_base_url": False,
+    #     "compatibility": "openai_compatible",
+    # },
+    # {
+    #     "id": "zhipuai-coding-plan",
+    #     "name": "Zhipu AI Coding Plan",
+    #     "description": "GLM coding plan via Zhipu AI",
+    #     "requires_base_url": False,
+    #     "compatibility": "openai_compatible",
+    # },
     # 以下 coding plan provider 元数据先保留为注释，当前部署不启用。
     # {
     #     "id": "minimax-coding-plan",

@@ -5,6 +5,7 @@ from ...auth_dependencies import get_current_user
 from ...models.database import get_db
 from ...models.user import User
 from ...schemas.datamakepool import (
+    AssetTemplateReferenceResponse,
     AssetDeleteResponse,
     HTTPAssetCreateRequest,
     HTTPAssetDetailResponse,
@@ -52,6 +53,25 @@ async def get_http_asset(
     try:
         result = AssetService(db=db).get_http_asset(asset_id, user)
         return HTTPAssetDetailResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.get(
+    "/http-assets/{asset_id}/template-references",
+    response_model=list[AssetTemplateReferenceResponse],
+)
+async def list_http_asset_template_references(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[AssetTemplateReferenceResponse]:
+    """列出引用某个 HTTP 资产的模板版本摘要。"""
+    try:
+        result = AssetService(db=db).list_http_asset_template_references(asset_id, user)
+        return [AssetTemplateReferenceResponse(**item) for item in result]
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -198,6 +218,25 @@ async def list_sql_asset_versions(
     try:
         result = AssetService(db=db).list_sql_asset_versions(asset_id, user)
         return [SQLAssetVersionSummaryResponse(**item) for item in result]
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.get(
+    "/sql-assets/{asset_id}/template-references",
+    response_model=list[AssetTemplateReferenceResponse],
+)
+async def list_sql_asset_template_references(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> list[AssetTemplateReferenceResponse]:
+    """列出引用某个 SQL 逻辑资产的模板版本摘要。"""
+    try:
+        result = AssetService(db=db).list_sql_asset_template_references(asset_id, user)
+        return [AssetTemplateReferenceResponse(**item) for item in result]
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:

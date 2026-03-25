@@ -16,6 +16,7 @@ from xagent.web.models.dm_template import (
 )
 from xagent.web.models.user import User
 
+from ..assets import AssetService
 from ..governance import GovernanceService
 
 @dataclass
@@ -164,7 +165,11 @@ class TemplateService:
         if template is None:
             raise ValueError(f"Template {template_id} not found")
         GovernanceService(db=self.db).assert_template_access(template, user)
-        return [self._serialize_revision(revision) for revision in template.revisions]
+        asset_service = AssetService(db=self.db)
+        return [
+            self._serialize_revision(revision, asset_service=asset_service)
+            for revision in template.revisions
+        ]
 
     def _get_or_create_template(
         self,
@@ -313,8 +318,18 @@ class TemplateService:
             "revisions_count": len(template.revisions),
         }
 
-    def _serialize_revision(self, revision: DMTemplateRevision) -> dict[str, Any]:
-        """将模板版本对象压平成 API 结构。"""
+    def _serialize_revision(
+        self,
+        revision: DMTemplateRevision,
+        *,
+        asset_service: AssetService,
+    ) -> dict[str, Any]:
+        """将模板版本对象压平成 API 结构。
+
+        除基础审核信息外，这里额外补一份“模板正向引用了哪些资产”的摘要，
+        让模板列表/详情后续可以直接承接关系视图，而不必重新扫描整份技术图。
+        """
+
         return {
             "revision_id": revision.id,
             "template_id": revision.template_id,
@@ -325,6 +340,9 @@ class TemplateService:
             "reviewed_by": revision.reviewed_by,
             "review_comment": revision.review_comment,
             "steps_count": len(revision.steps),
+            "asset_references": asset_service.build_template_revision_asset_reference_summary(
+                revision
+            ),
         }
 
     def _now(self) -> datetime:
