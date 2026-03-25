@@ -20,8 +20,9 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import JSONResponse
-from googleapiclient.discovery import build  # type: ignore
-from googleapiclient.http import MediaIoBaseDownload  # type: ignore
+# 历史 Google Drive 导入知识库依赖先保留为注释，避免直接删除原始实现。
+# from googleapiclient.discovery import build  # type: ignore
+# from googleapiclient.http import MediaIoBaseDownload  # type: ignore
 from pydantic import BaseModel
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
@@ -68,7 +69,8 @@ from ..kb_physical_sync import collection_physical_lock, move_collection_dir_to_
 from ..models.database import get_db
 from ..models.uploaded_file import UploadedFile
 from ..models.user import User
-from .cloud_storage import get_google_credentials
+# 历史 Google Drive 凭证入口先保留为注释，当前部署不启用 Drive 导入知识库。
+# from .cloud_storage import get_google_credentials
 
 T = TypeVar("T", bound=Callable[..., Any])
 logger = logging.getLogger(__name__)
@@ -452,131 +454,118 @@ async def ingest(
     )
 
 
-@kb_router.post("/ingest-cloud", response_model=List[IngestionResult])
-async def ingest_cloud(
-    request: CloudIngestRequest,
-    db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
-) -> List[IngestionResult]:
-    """Ingest files from cloud storage."""
-    results = []
-
-    # Common configuration setup
-    final_chunk_size = (
-        request.chunk_size if request.chunk_size and request.chunk_size > 0 else 1000
-    )
-    final_chunk_overlap = (
-        request.chunk_overlap
-        if request.chunk_overlap and request.chunk_overlap >= 0
-        else 200
-    )
-    if final_chunk_overlap >= final_chunk_size:
-        final_chunk_overlap = min(int(final_chunk_size * 0.2), final_chunk_size - 1)
-
-    config = IngestionConfig(
-        parse_method=request.parse_method or ParseMethod.DEFAULT,
-        chunk_strategy=request.chunk_strategy or ChunkStrategy.RECURSIVE,
-        chunk_size=final_chunk_size,
-        chunk_overlap=final_chunk_overlap,
-        separators=request.separators,
-        embedding_model_id=request.embedding_model_id,
-        embedding_batch_size=request.embedding_batch_size or 10,
-        max_retries=request.max_retries or 3,
-        retry_delay=request.retry_delay or 1.0,
-    )
-
-    progress_manager = get_progress_manager()
-
-    # Concurrency limit for cloud ingestion to avoid overloading
-    semaphore = asyncio.Semaphore(5)
-
-    async def process_file(file_info: CloudFile) -> IngestionResult:
-        async with semaphore:
-            try:
-                if file_info.provider == "google-drive":
-                    # Get credentials (run in thread to avoid blocking)
-                    try:
-                        creds = await asyncio.to_thread(
-                            get_google_credentials, int(_user.id), db
-                        )
-                    except HTTPException as e:
-                        return IngestionResult(
-                            status="error",
-                            message=f"Authentication error: {e.detail}",
-                            doc_id=file_info.fileName,
-                        )
-
-                    # Build service (blocking)
-                    service = await asyncio.to_thread(
-                        build, "drive", "v3", credentials=creds, cache_discovery=False
-                    )
-
-                    # Save to local path
-                    safe_filename = Path(file_info.fileName).name
-                    file_path = get_upload_path(safe_filename, user_id=int(_user.id))
-
-                    # Download file directly to disk
-                    try:
-
-                        def _download_file() -> None:
-                            request_file = service.files().get_media(
-                                fileId=file_info.fileId
-                            )
-                            with open(file_path, "wb") as fh:
-                                downloader = MediaIoBaseDownload(fh, request_file)
-                                done = False
-                                while done is False:
-                                    status, done = downloader.next_chunk()
-
-                        await asyncio.to_thread(_download_file)
-
-                    except Exception as e:
-                        return IngestionResult(
-                            status="error",
-                            message=f"Download failed: {str(e)}",
-                            doc_id=file_info.fileName,
-                        )
-
-                    # Run ingestion (blocking)
-                    try:
-                        result = await asyncio.to_thread(
-                            run_document_ingestion,
-                            collection=request.collection,
-                            source_path=str(file_path),
-                            ingestion_config=config,
-                            progress_manager=progress_manager,
-                            user_id=int(_user.id),
-                            is_admin=bool(_user.is_admin),
-                        )
-                        return result
-                    except Exception as e:
-                        return IngestionResult(
-                            status="error",
-                            message=f"Ingestion failed: {str(e)}",
-                            doc_id=file_info.fileName,
-                        )
-
-                else:
-                    return IngestionResult(
-                        status="error",
-                        message=f"Unsupported provider: {file_info.provider}",
-                        doc_id=file_info.fileName,
-                    )
-
-            except Exception as e:
-                logger.exception(
-                    f"Unexpected error ingesting {file_info.fileName}: {e}"
-                )
-                return IngestionResult(
-                    status="error",
-                    message=f"Unexpected error: {str(e)}",
-                    doc_id=file_info.fileName,
-                )
-
-    # Run all file processings concurrently
-    results = await asyncio.gather(*[process_file(f) for f in request.files])
-
-    return results
+# 以下 Google Drive 导入知识库入口先保留为注释，当前部署不启用。
+# @kb_router.post("/ingest-cloud", response_model=List[IngestionResult])
+# async def ingest_cloud(
+#     request: CloudIngestRequest,
+#     db: Session = Depends(get_db),
+#     _user: User = Depends(get_current_user),
+# ) -> List[IngestionResult]:
+#     """Ingest files from cloud storage."""
+#     results = []
+#
+#     final_chunk_size = (
+#         request.chunk_size if request.chunk_size and request.chunk_size > 0 else 1000
+#     )
+#     final_chunk_overlap = (
+#         request.chunk_overlap
+#         if request.chunk_overlap and request.chunk_overlap >= 0
+#         else 200
+#     )
+#     if final_chunk_overlap >= final_chunk_size:
+#         final_chunk_overlap = min(int(final_chunk_size * 0.2), final_chunk_size - 1)
+#
+#     config = IngestionConfig(
+#         parse_method=request.parse_method or ParseMethod.DEFAULT,
+#         chunk_strategy=request.chunk_strategy or ChunkStrategy.RECURSIVE,
+#         chunk_size=final_chunk_size,
+#         chunk_overlap=final_chunk_overlap,
+#         separators=request.separators,
+#         embedding_model_id=request.embedding_model_id,
+#         embedding_batch_size=request.embedding_batch_size or 10,
+#         max_retries=request.max_retries or 3,
+#         retry_delay=request.retry_delay or 1.0,
+#     )
+#
+#     progress_manager = get_progress_manager()
+#     semaphore = asyncio.Semaphore(5)
+#
+#     async def process_file(file_info: CloudFile) -> IngestionResult:
+#         async with semaphore:
+#             try:
+#                 if file_info.provider == "google-drive":
+#                     try:
+#                         creds = await asyncio.to_thread(
+#                             get_google_credentials, int(_user.id), db
+#                         )
+#                     except HTTPException as e:
+#                         return IngestionResult(
+#                             status="error",
+#                             message=f"Authentication error: {e.detail}",
+#                             doc_id=file_info.fileName,
+#                         )
+#
+#                     service = await asyncio.to_thread(
+#                         build, "drive", "v3", credentials=creds, cache_discovery=False
+#                     )
+#
+#                     safe_filename = Path(file_info.fileName).name
+#                     file_path = get_upload_path(safe_filename, user_id=int(_user.id))
+#
+#                     try:
+#                         def _download_file() -> None:
+#                             request_file = service.files().get_media(
+#                                 fileId=file_info.fileId
+#                             )
+#                             with open(file_path, "wb") as fh:
+#                                 downloader = MediaIoBaseDownload(fh, request_file)
+#                                 done = False
+#                                 while done is False:
+#                                     status, done = downloader.next_chunk()
+#
+#                         await asyncio.to_thread(_download_file)
+#                     except Exception as e:
+#                         return IngestionResult(
+#                             status="error",
+#                             message=f"Download failed: {str(e)}",
+#                             doc_id=file_info.fileName,
+#                         )
+#
+#                     try:
+#                         result = await asyncio.to_thread(
+#                             run_document_ingestion,
+#                             collection=request.collection,
+#                             source_path=str(file_path),
+#                             ingestion_config=config,
+#                             progress_manager=progress_manager,
+#                             user_id=int(_user.id),
+#                             is_admin=bool(_user.is_admin),
+#                         )
+#                         return result
+#                     except Exception as e:
+#                         return IngestionResult(
+#                             status="error",
+#                             message=f"Ingestion failed: {str(e)}",
+#                             doc_id=file_info.fileName,
+#                         )
+#                 else:
+#                     return IngestionResult(
+#                         status="error",
+#                         message=f"Unsupported provider: {file_info.provider}",
+#                         doc_id=file_info.fileName,
+#                     )
+#             except Exception as e:
+#                 logger.exception(
+#                     f"Unexpected error ingesting {file_info.fileName}: {e}"
+#                 )
+#                 return IngestionResult(
+#                     status="error",
+#                     message=f"Unexpected error: {str(e)}",
+#                     doc_id=file_info.fileName,
+#                 )
+#
+#     results = await asyncio.gather(*[process_file(f) for f in request.files])
+#     return results
 
 
 @kb_router.get(

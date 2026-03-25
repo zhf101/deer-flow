@@ -5,6 +5,47 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class CreateConversationRequest(BaseModel):
+    """创建探索态会话的最小请求体。"""
+
+    title: Optional[str] = None
+    objective: Optional[str] = None
+
+
+class ConversationResponse(BaseModel):
+    """探索态会话摘要。"""
+
+    conversation_id: int
+    task_id: int
+    flowdraft_id: int
+    title: str
+    objective: Optional[str] = None
+    flowdraft_status: str
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class ConversationMessageRequest(BaseModel):
+    """探索态会话追加消息请求。"""
+
+    content: str = Field(min_length=1)
+
+
+class ConversationMessageResponse(BaseModel):
+    """探索态会话追加消息后的最小响应。"""
+
+    conversation_id: int
+    message_id: int
+    assistant_message_id: Optional[int] = None
+    flowdraft_id: int
+    flowdraft_status: str
+    title: Optional[str] = None
+    objective: Optional[str] = None
+    assistant_summary: Optional[str] = None
+    pending_issues: list[dict[str, Any]] = Field(default_factory=list)
+    latest_snapshot_id: Optional[int] = None
+
+
 class FlowDraftResponse(BaseModel):
     """FlowDraft 详情响应。
 

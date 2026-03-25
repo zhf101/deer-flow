@@ -55,6 +55,8 @@ export function CloudConnectDialog({
   initialSelectedFiles = [],
   onConfirm
 }: CloudConnectDialogProps) {
+  // 历史 Google Drive 云连接弹窗实现先保留在这里，便于后续恢复。
+  // 当前前端入口已经关闭，这个组件不会再从知识库页面暴露给用户。
   const { t } = useI18n()
   const { token } = useAuth()
 

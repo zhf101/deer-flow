@@ -61,6 +61,9 @@ interface KnowledgeBaseCreationDialogProps {
 
 export function KnowledgeBaseCreationDialog({ open, onOpenChange, onSuccess }: KnowledgeBaseCreationDialogProps) {
   const { t } = useI18n()
+  // 历史 Google Drive 云导入入口先保留代码，但当前前端不再暴露入口。
+  // 这里使用常量开关收口，避免误触发前端页面和接口调用。
+  const cloudImportEnabled = false
 
   // State from KnowledgeBasePage
   const [newCollectionName, setNewCollectionName] = useState("")
@@ -386,6 +389,11 @@ export function KnowledgeBaseCreationDialog({ open, onOpenChange, onSuccess }: K
   }
 
   const handleCloudIngest = async () => {
+    if (!cloudImportEnabled) {
+      toast.error(t("kb.errors.cloudIngestFailed"))
+      return
+    }
+
     if (totalCloudFiles === 0) return
 
     setIsCloudConnecting(true)
@@ -469,15 +477,23 @@ export function KnowledgeBaseCreationDialog({ open, onOpenChange, onSuccess }: K
     }
   }
 
-  const cloudProviders = [
-    {
-      id: "google-drive",
-      name: t("kb.dialog.cloudConnect.googleDrive"),
-      hasDrives: true,
-      authPath: "google",
-      logo: "/google-drive.svg"
-    },
-  ]
+  // 历史 Google Drive 提供方配置先注释保留，当前前端不再展示该入口。
+  // const cloudProviders = [
+  //   {
+  //     id: "google-drive",
+  //     name: t("kb.dialog.cloudConnect.googleDrive"),
+  //     hasDrives: true,
+  //     authPath: "google",
+  //     logo: "/google-drive.svg"
+  //   },
+  // ]
+  const cloudProviders: Array<{
+    id: string
+    name: string
+    hasDrives: boolean
+    authPath: string
+    logo: string
+  }> = []
 
   return (
     <>
@@ -517,7 +533,7 @@ export function KnowledgeBaseCreationDialog({ open, onOpenChange, onSuccess }: K
 
             {/* Tabs: File Upload / Web Import / Cloud Connect */}
             <Tabs value={activeImportTab} onValueChange={(v) => setActiveImportTab(v as "file" | "web" | "cloud")} className="w-full">
-              <TabsList className="grid w-full grid-cols-3">
+              <TabsList className={`grid w-full ${cloudImportEnabled ? "grid-cols-3" : "grid-cols-2"}`}>
                 <TabsTrigger value="file">
                   <FileText size={16} className="mr-2" />
                   {t("kb.dialog.tabs.file")}
@@ -526,10 +542,12 @@ export function KnowledgeBaseCreationDialog({ open, onOpenChange, onSuccess }: K
                   <Globe size={16} className="mr-2" />
                   {t("kb.dialog.tabs.web")}
                 </TabsTrigger>
-                <TabsTrigger value="cloud">
-                  <Cloud size={16} className="mr-2" />
-                  {t("kb.dialog.tabs.cloud")}
-                </TabsTrigger>
+                {cloudImportEnabled && (
+                  <TabsTrigger value="cloud">
+                    <Cloud size={16} className="mr-2" />
+                    {t("kb.dialog.tabs.cloud")}
+                  </TabsTrigger>
+                )}
               </TabsList>
 
               {/* File Upload Tab */}
@@ -847,90 +865,91 @@ export function KnowledgeBaseCreationDialog({ open, onOpenChange, onSuccess }: K
                 </div>
               </TabsContent>
 
-              {/* Cloud Connect Tab */}
-              <TabsContent value="cloud" className="space-y-6">
-                <div className="space-y-4 w-full">
-                  <div className="flex items-center gap-2">
-                    <Cloud className="h-5 w-5 text-blue-500" />
-                    <h3 className="text-lg font-medium">{t("kb.dialog.cloudConnect.title")}</h3>
-                  </div>
-                  <p className="text-sm text-muted-foreground">
-                    {t("kb.dialog.cloudConnect.description")}
-                  </p>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    {cloudProviders.map((provider) => (
-                      <Card
-                        key={provider.id}
-                        className={`p-4 cursor-pointer transition-all hover:border-blue-500 relative ${cloudSelections[provider.id]?.length > 0 ? "border-blue-500 border-2" : ""}`}
-                        onClick={() => {
-                          setSelectedCloudProvider(provider.id)
-                          setIsCloudDialogOpen(true)
-                        }}
-                      >
-                        <div className="flex items-center gap-2">
-                          <img src={provider.logo} alt={provider.name} className="h-8 w-8" />
-                          <span className="font-medium">{provider.name}</span>
-                        </div>
-                        {cloudSelections[provider.id]?.length > 0 && (
-                          <Badge variant="default" className="absolute top-2 right-2 w-4 h-4 flex items-center justify-center rounded-full text-[10px]">
-                            {cloudSelections[provider.id].length}
-                          </Badge>
-                        )}
-                      </Card>
-                    ))}
-                  </div>
-
-                  {/* Selected Cloud Files List */}
-                  {totalCloudFiles > 0 && (
-                    <div className="mt-6">
-                      <Label>{t("kb.dialog.fileUpload.selectedTitle")}</Label>
-                      <ScrollArea className="h-32 border rounded-md p-2 mt-2">
-                        <div className="space-y-2">
-                          {Object.entries(cloudSelections)
-                            .flatMap(([providerId, files]) => {
-                              const provider = cloudProviders.find(p => p.id === providerId)
-                              return files.map(file => ({ ...file, providerId, provider }))
-                            })
-                            .map((file) => (
-                              <div key={`${file.providerId}-${file.id}`} className="flex items-center justify-between p-2 bg-muted rounded">
-                                <div className="flex items-center gap-2">
-                                  {file.provider ? (
-                                    <img src={file.provider.logo} alt={file.provider.name} className="h-4 w-4" />
-                                  ) : (
-                                    <Cloud className="h-4 w-4 text-blue-500" />
-                                  )}
-                                  <span className="text-xs text-muted-foreground">
-                                    {file.provider ? file.provider.name : file.providerId}:
-                                  </span>
-                                  <span className="text-sm truncate max-w-[200px]" title={file.name}>{file.name}</span>
-                                  {file.size && (
-                                    <Badge variant="outline" className="text-xs">
-                                      {file.size}
-                                    </Badge>
-                                  )}
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0"
-                                  onClick={() => {
-                                    setCloudSelections(prev => ({
-                                      ...prev,
-                                      [file.providerId]: prev[file.providerId].filter(f => f.id !== file.id)
-                                    }))
-                                  }}
-                                >
-                                  <XCircle className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                                </Button>
-                              </div>
-                            ))}
-                        </div>
-                      </ScrollArea>
+              {cloudImportEnabled && (
+                <TabsContent value="cloud" className="space-y-6">
+                  <div className="space-y-4 w-full">
+                    <div className="flex items-center gap-2">
+                      <Cloud className="h-5 w-5 text-blue-500" />
+                      <h3 className="text-lg font-medium">{t("kb.dialog.cloudConnect.title")}</h3>
                     </div>
-                  )}
-                </div>
-              </TabsContent>
+                    <p className="text-sm text-muted-foreground">
+                      {t("kb.dialog.cloudConnect.description")}
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      {cloudProviders.map((provider) => (
+                        <Card
+                          key={provider.id}
+                          className={`p-4 cursor-pointer transition-all hover:border-blue-500 relative ${cloudSelections[provider.id]?.length > 0 ? "border-blue-500 border-2" : ""}`}
+                          onClick={() => {
+                            setSelectedCloudProvider(provider.id)
+                            setIsCloudDialogOpen(true)
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <img src={provider.logo} alt={provider.name} className="h-8 w-8" />
+                            <span className="font-medium">{provider.name}</span>
+                          </div>
+                          {cloudSelections[provider.id]?.length > 0 && (
+                            <Badge variant="default" className="absolute top-2 right-2 w-4 h-4 flex items-center justify-center rounded-full text-[10px]">
+                              {cloudSelections[provider.id].length}
+                            </Badge>
+                          )}
+                        </Card>
+                      ))}
+                    </div>
+
+                    {/* Selected Cloud Files List */}
+                    {totalCloudFiles > 0 && (
+                      <div className="mt-6">
+                        <Label>{t("kb.dialog.fileUpload.selectedTitle")}</Label>
+                        <ScrollArea className="h-32 border rounded-md p-2 mt-2">
+                          <div className="space-y-2">
+                            {Object.entries(cloudSelections)
+                              .flatMap(([providerId, files]) => {
+                                const provider = cloudProviders.find(p => p.id === providerId)
+                                return files.map(file => ({ ...file, providerId, provider }))
+                              })
+                              .map((file) => (
+                                <div key={`${file.providerId}-${file.id}`} className="flex items-center justify-between p-2 bg-muted rounded">
+                                  <div className="flex items-center gap-2">
+                                    {file.provider ? (
+                                      <img src={file.provider.logo} alt={file.provider.name} className="h-4 w-4" />
+                                    ) : (
+                                      <Cloud className="h-4 w-4 text-blue-500" />
+                                    )}
+                                    <span className="text-xs text-muted-foreground">
+                                      {file.provider ? file.provider.name : file.providerId}:
+                                    </span>
+                                    <span className="text-sm truncate max-w-[200px]" title={file.name}>{file.name}</span>
+                                    {file.size && (
+                                      <Badge variant="outline" className="text-xs">
+                                        {file.size}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-6 w-6 p-0"
+                                    onClick={() => {
+                                      setCloudSelections(prev => ({
+                                        ...prev,
+                                        [file.providerId]: prev[file.providerId].filter(f => f.id !== file.id)
+                                      }))
+                                    }}
+                                  >
+                                    <XCircle className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                                  </Button>
+                                </div>
+                              ))}
+                          </div>
+                        </ScrollArea>
+                      </div>
+                    )}
+                  </div>
+                </TabsContent>
+              )}
             </Tabs>
 
             {/* Index Configuration */}
@@ -1044,7 +1063,7 @@ export function KnowledgeBaseCreationDialog({ open, onOpenChange, onSuccess }: K
               disabled={
                 (activeImportTab === "file" && selectedFiles.length === 0) ||
                 (activeImportTab === "web" && !webIngestionConfig.start_url) ||
-                (activeImportTab === "cloud" && totalCloudFiles === 0) ||
+                (activeImportTab === "cloud" && (!cloudImportEnabled || totalCloudFiles === 0)) ||
                 isUploading ||
                 isWebIngesting ||
                 isCloudConnecting
@@ -1060,23 +1079,24 @@ export function KnowledgeBaseCreationDialog({ open, onOpenChange, onSuccess }: K
         </DialogContent>
       </Dialog>
 
-      {/* Cloud Connect Dialog */}
-      <CloudConnectDialog
-        open={isCloudDialogOpen}
-        onOpenChange={setIsCloudDialogOpen}
-        provider={cloudProviders.find(p => p.id === selectedCloudProvider) || null}
-        initialSelectedFiles={
-          selectedCloudProvider ? cloudSelections[selectedCloudProvider] || [] : []
-        }
-        onConfirm={(files) => {
-          if (selectedCloudProvider) {
-            setCloudSelections((prev) => ({
-              ...prev,
-              [selectedCloudProvider]: files,
-            }))
+      {cloudImportEnabled && (
+        <CloudConnectDialog
+          open={isCloudDialogOpen}
+          onOpenChange={setIsCloudDialogOpen}
+          provider={cloudProviders.find(p => p.id === selectedCloudProvider) || null}
+          initialSelectedFiles={
+            selectedCloudProvider ? cloudSelections[selectedCloudProvider] || [] : []
           }
-        }}
-      />
+          onConfirm={(files) => {
+            if (selectedCloudProvider) {
+              setCloudSelections((prev) => ({
+                ...prev,
+                [selectedCloudProvider]: files,
+              }))
+            }
+          }}
+        />
+      )}
     </>
    )
  }
