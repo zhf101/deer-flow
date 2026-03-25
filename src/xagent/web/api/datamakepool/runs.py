@@ -9,7 +9,9 @@ from ...schemas.datamakepool import (
     CreateRunFromTemplateRequest,
     DangerousSQLConfirmRequest,
     DangerousSQLConfirmResponse,
+    PendingDangerousSQLResponse,
     RunDetailResponse,
+    RunSQLAuditSummaryResponse,
     RunStepResponse,
     TrialResponse,
 )
@@ -83,6 +85,56 @@ async def get_run_steps(
         GovernanceService(db=db).assert_run_access(run, user)
         result = service.get_run_steps(run_id)
         return [RunStepResponse(**item) for item in result]
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.post("/{run_id}/start", response_model=RunDetailResponse)
+async def start_run(
+    run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RunDetailResponse:
+    """启动一条待执行的正式 Run。"""
+    try:
+        result = RunService(db=db, runtime_bridge=RunRuntimeBridge()).start_run(run_id, user)
+        return RunDetailResponse(**result)
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.get("/{run_id}/dangerous-sql-pending", response_model=PendingDangerousSQLResponse)
+async def get_pending_dangerous_sql(
+    run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> PendingDangerousSQLResponse:
+    """读取当前 Run 仍待人工确认的危险 SQL 摘要。"""
+    try:
+        result = GovernanceService(db=db).get_pending_dangerous_sql_for_run(run_id, user)
+        return PendingDangerousSQLResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
+@router.get("/{run_id}/sql-audits", response_model=RunSQLAuditSummaryResponse)
+async def get_run_sql_audits(
+    run_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> RunSQLAuditSummaryResponse:
+    """读取当前 Run 的 SQL 审计摘要。"""
+    try:
+        result = GovernanceService(db=db).list_run_sql_audits(run_id, user)
+        return RunSQLAuditSummaryResponse(**result)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:

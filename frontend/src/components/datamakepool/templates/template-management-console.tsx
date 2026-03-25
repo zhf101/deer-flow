@@ -1,6 +1,8 @@
 "use client"
 
 import { useCallback, useEffect, useRef, useState } from "react"
+import Link from "next/link"
+import { useRouter } from "next/navigation"
 import {
   ArrowUpRight,
   CheckCheck,
@@ -21,7 +23,10 @@ import {
 import {
   approveDatamakepoolTemplateRevision,
   getDatamakepoolTemplateRevisionDetail,
+  listDatamakepoolHttpAssetTemplateReferences,
+  listDatamakepoolSqlAssetTemplateReferences,
   submitDatamakepoolTemplateRevisionReview,
+  type DatamakepoolAssetTemplateReference,
   type DatamakepoolTemplateAssetReference,
   type DatamakepoolTemplateRevisionDetail,
   type DatamakepoolTemplateRevisionStepDetail,
@@ -80,6 +85,10 @@ function getAssetTypeLabel(assetType: string): string {
   return assetType.toUpperCase()
 }
 
+function buildAssetReferenceKey(reference: DatamakepoolTemplateAssetReference): string {
+  return `${reference.asset_type}:${reference.asset_id}:${reference.version_id ?? "logic"}`
+}
+
 function summarizeStepNames(reference: DatamakepoolTemplateAssetReference): string {
   if (!reference.step_names.length) {
     return "未记录步骤"
@@ -120,14 +129,29 @@ function stringifyPreview(payload: Record<string, unknown> | null | undefined): 
 
 function AssetReferencePill({
   reference,
+  isSelected = false,
+  onClick,
 }: {
   reference: DatamakepoolTemplateAssetReference
+  isSelected?: boolean
+  onClick?: () => void
 }) {
   const assetName = reference.name || `资产 #${reference.asset_id}`
   const assetHint = reference.version_id ? `v${reference.version_id}` : `#${reference.asset_id}`
 
   return (
-    <div className="rounded-lg border border-border/70 bg-muted/20 px-3 py-2">
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      className={cn(
+        "w-full rounded-lg border px-3 py-2 text-left",
+        isSelected
+          ? "border-primary/35 bg-primary/10"
+          : "border-border/70 bg-muted/20",
+        onClick ? "transition-all hover:border-primary/20 hover:bg-muted/30" : "cursor-default"
+      )}
+    >
       <div className="flex items-center gap-2 text-sm">
         <Badge variant="outline" className="border-border/70 bg-background text-foreground">
           {getAssetTypeLabel(reference.asset_type)}
@@ -138,7 +162,7 @@ function AssetReferencePill({
         {reference.system_short || "未标注系统"} · {assetHint}
       </div>
       <div className="mt-1 text-xs text-muted-foreground">{summarizeStepNames(reference)}</div>
-    </div>
+    </button>
   )
 }
 
@@ -258,22 +282,39 @@ function StepDetailCard({ step }: { step: DatamakepoolTemplateRevisionStepDetail
   )
 }
 
-export function TemplateManagementConsole() {
+function getRevisionStatusLabel(status: string): string {
+  return getRevisionStatusMeta(status).label
+}
+
+export function TemplateManagementConsole({
+  initialTemplateId = null,
+  initialRevisionId = null,
+}: {
+  initialTemplateId?: number | null
+  initialRevisionId?: number | null
+}) {
+  const router = useRouter()
   const [templates, setTemplates] = useState<DatamakepoolTemplateSummary[]>([])
-  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(null)
-  const [selectedRevisionId, setSelectedRevisionId] = useState<number | null>(null)
+  const [selectedTemplateId, setSelectedTemplateId] = useState<number | null>(initialTemplateId)
+  const [selectedRevisionId, setSelectedRevisionId] = useState<number | null>(initialRevisionId)
   const [revisions, setRevisions] = useState<DatamakepoolTemplateRevisionSummary[]>([])
   const [selectedRevisionDetail, setSelectedRevisionDetail] =
     useState<DatamakepoolTemplateRevisionDetail | null>(null)
+  const [selectedRelationAssetKey, setSelectedRelationAssetKey] = useState<string | null>(null)
+  const [relationReferences, setRelationReferences] = useState<DatamakepoolAssetTemplateReference[]>(
+    []
+  )
   const [revisionsReloadTick, setRevisionsReloadTick] = useState(0)
   const [templatesError, setTemplatesError] = useState<string | null>(null)
   const [revisionsError, setRevisionsError] = useState<string | null>(null)
   const [revisionDetailError, setRevisionDetailError] = useState<string | null>(null)
+  const [relationError, setRelationError] = useState<string | null>(null)
   const [actionFeedback, setActionFeedback] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(true)
   const [isLoadingRevisions, setIsLoadingRevisions] = useState(false)
   const [isLoadingRevisionDetail, setIsLoadingRevisionDetail] = useState(false)
+  const [isLoadingRelationReferences, setIsLoadingRelationReferences] = useState(false)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isSubmittingReview, setIsSubmittingReview] = useState(false)
   const [isApprovingRevision, setIsApprovingRevision] = useState(false)
@@ -288,6 +329,12 @@ export function TemplateManagementConsole() {
     revisions.find((revision) => revision.revision_id === selectedRevisionId) ?? null
   const revisionStatus = selectedRevisionDetail?.status ?? selectedRevision?.status ?? ""
   const revisionMeta = getRevisionStatusMeta(revisionStatus)
+  const currentAssetReferences =
+    selectedRevisionDetail?.asset_references ?? selectedRevision?.asset_references ?? []
+  const selectedRelationAsset =
+    currentAssetReferences.find(
+      (reference) => buildAssetReferenceKey(reference) === selectedRelationAssetKey
+    ) ?? null
 
   useEffect(() => {
     selectedTemplateIdRef.current = selectedTemplateId
@@ -403,6 +450,65 @@ export function TemplateManagementConsole() {
     void loadRevisionDetail(selectedRevisionId)
   }, [selectedRevisionId, loadRevisionDetail])
 
+  useEffect(() => {
+    if (!currentAssetReferences.length) {
+      setSelectedRelationAssetKey(null)
+      setRelationReferences([])
+      setRelationError(null)
+      setIsLoadingRelationReferences(false)
+      return
+    }
+
+    const hasSelectedAsset = currentAssetReferences.some(
+      (reference) => buildAssetReferenceKey(reference) === selectedRelationAssetKey
+    )
+    if (!hasSelectedAsset) {
+      setSelectedRelationAssetKey(buildAssetReferenceKey(currentAssetReferences[0]))
+    }
+  }, [currentAssetReferences, selectedRelationAssetKey])
+
+  useEffect(() => {
+    if (!selectedRelationAsset) {
+      setRelationReferences([])
+      setRelationError(null)
+      setIsLoadingRelationReferences(false)
+      return
+    }
+
+    let isCancelled = false
+
+    const loadRelationReferences = async () => {
+      setIsLoadingRelationReferences(true)
+      setRelationError(null)
+
+      try {
+        const references =
+          selectedRelationAsset.asset_type === "http"
+            ? await listDatamakepoolHttpAssetTemplateReferences(selectedRelationAsset.asset_id)
+            : await listDatamakepoolSqlAssetTemplateReferences(selectedRelationAsset.asset_id)
+
+        if (!isCancelled) {
+          setRelationReferences(references)
+        }
+      } catch (error) {
+        if (!isCancelled) {
+          setRelationReferences([])
+          setRelationError(error instanceof Error ? error.message : "资产反向引用加载失败")
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingRelationReferences(false)
+        }
+      }
+    }
+
+    void loadRelationReferences()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [selectedRelationAsset])
+
   const filteredTemplates = templates.filter((template) => {
     if (!templateKeyword.trim()) {
       return true
@@ -502,6 +608,19 @@ export function TemplateManagementConsole() {
     }
   }, [loadRevisionDetail, loadTemplates, selectedRevisionId])
 
+  const handleCreateRun = useCallback(async () => {
+    if (selectedRevisionId === null || selectedTemplateId === null) {
+      return
+    }
+
+    setActionFeedback(null)
+    setActionError(null)
+    const query = new URLSearchParams({
+      templateId: String(selectedTemplateId),
+    })
+    router.push(`/datamakepool/templates/revisions/${selectedRevisionId}/execute?${query.toString()}`)
+  }, [router, selectedRevisionId, selectedTemplateId])
+
   const businessGraphNodeCount = getGraphNodeCount(
     selectedRevisionDetail?.business_graph_snapshot ?? null
   )
@@ -513,22 +632,36 @@ export function TemplateManagementConsole() {
     <DatamakepoolShell
       eyebrow="datamakepool / F24 模板管理台"
       title="模板工作台"
-      description="这一批把模板版本详情和审核动作正式接进工作台。交互上仍然坚持扫描效率优先，让审核人能在同一屏里完成查看、判断和状态推进。"
+      description="这一批继续沿模板主线往前推：版本详情、审核动作、执行入口和模板/资产关系视图都收进同一块工作台，减少来回切页和状态丢失。"
       metrics={statusMetrics}
       actions={
-        <Button
-          variant="outline"
-          onClick={() => void loadTemplates(true)}
-          disabled={isLoadingTemplates || isRefreshing}
-          className="border-border/80 bg-background/70 backdrop-blur-sm"
-        >
-          {isRefreshing ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <RefreshCw className="h-4 w-4" />
-          )}
-          刷新数据
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild variant="outline" className="border-border/80 bg-background/70 backdrop-blur-sm">
+            <Link href="/datamakepool/http-assets">
+              <Database className="h-4 w-4" />
+              HTTP 资产
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="border-border/80 bg-background/70 backdrop-blur-sm">
+            <Link href="/datamakepool/sql-assets">
+              <Database className="h-4 w-4" />
+              SQL 资产
+            </Link>
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => void loadTemplates(true)}
+            disabled={isLoadingTemplates || isRefreshing}
+            className="border-border/80 bg-background/70 backdrop-blur-sm"
+          >
+            {isRefreshing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            刷新数据
+          </Button>
+        </div>
       }
     >
       <div className="grid h-full min-h-0 gap-6 p-6 2xl:grid-cols-[300px_minmax(0,1fr)_360px]">
@@ -652,7 +785,7 @@ export function TemplateManagementConsole() {
                 <CardTitle className="text-base">F24 下一批闭环</CardTitle>
               </CardHeader>
               <CardContent className="pt-0 text-sm text-muted-foreground">
-                已接入版本详情与审核动作，执行入口仍留在后续批次。
+                已接入版本详情、审核动作、模板执行入口，并开始补模板与资产关系视图。
               </CardContent>
             </Card>
           </div>
@@ -835,9 +968,19 @@ export function TemplateManagementConsole() {
                         ) : null}
 
                         {revisionStatus === "published" ? (
-                          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-                            当前版本已发布，无需重复审批。
-                          </div>
+                          <>
+                            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+                              当前版本已发布，先进入执行表单页填写 input_schema，再创建正式 Run。
+                            </div>
+                            <Button
+                              size="sm"
+                              onClick={() => void handleCreateRun()}
+                              disabled={isSubmittingReview || isApprovingRevision}
+                            >
+                              <ArrowUpRight className="h-4 w-4" />
+                              进入执行页
+                            </Button>
+                          </>
                         ) : null}
                       </div>
 
@@ -883,41 +1026,127 @@ export function TemplateManagementConsole() {
                       <Database className="h-4 w-4 text-muted-foreground" />
                       资产关系
                     </div>
-                    {(selectedRevisionDetail?.asset_references || selectedRevision.asset_references).length ? (
+                    {currentAssetReferences.length ? (
                       <div className="mt-3 space-y-3">
-                        {(selectedRevisionDetail?.asset_references || selectedRevision.asset_references).map(
-                          (reference) => (
-                            <div
-                              key={`${reference.asset_type}-${reference.asset_id}-${reference.version_id ?? "logic"}-inspector`}
-                              className="rounded-xl border border-border/70 bg-muted/20 p-3"
-                            >
-                              <div className="flex items-center gap-2">
-                                <Badge
-                                  variant="outline"
-                                  className="border-border/70 bg-background text-foreground"
-                                >
-                                  {getAssetTypeLabel(reference.asset_type)}
-                                </Badge>
-                                <div className="font-medium text-foreground">
-                                  {reference.name || `资产 #${reference.asset_id}`}
-                                </div>
-                              </div>
-                              <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                                {reference.system_short || "未标注系统"} · 资产 #{reference.asset_id}
-                                {reference.version_id ? ` · 版本 ${reference.version_id}` : ""}
-                              </div>
-                              <div className="mt-2 text-xs leading-5 text-muted-foreground">
-                                {reference.step_names.length
-                                  ? `命中步骤：${reference.step_names.join("、")}`
-                                  : "未记录命中步骤"}
-                              </div>
-                            </div>
-                          )
-                        )}
+                        {currentAssetReferences.map((reference) => (
+                          <AssetReferencePill
+                            key={`${buildAssetReferenceKey(reference)}-inspector`}
+                            reference={reference}
+                            isSelected={
+                              selectedRelationAssetKey === buildAssetReferenceKey(reference)
+                            }
+                            onClick={() =>
+                              setSelectedRelationAssetKey(buildAssetReferenceKey(reference))
+                            }
+                          />
+                        ))}
                       </div>
                     ) : (
                       <div className="mt-3 rounded-xl border border-dashed border-border/80 px-3 py-4 text-sm text-muted-foreground">
                         当前版本还没有结构化资产引用。
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="rounded-2xl border border-border/70 bg-background/70 p-4">
+                    <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+                      <GitBranch className="h-4 w-4 text-primary" />
+                      关系视图
+                    </div>
+                    <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                      这里聚焦当前模板版本选中的单个资产，查看它被哪些模板版本反向引用。
+                    </div>
+
+                    {!selectedRelationAsset ? (
+                      <div className="mt-3 rounded-xl border border-dashed border-border/80 px-3 py-4 text-sm text-muted-foreground">
+                        先选择一个资产，再查看反向引用。
+                      </div>
+                    ) : (
+                      <div className="mt-3 space-y-3">
+                        <div className="rounded-xl border border-primary/20 bg-primary/10 p-3">
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="border-primary/30 bg-background text-primary">
+                              {getAssetTypeLabel(selectedRelationAsset.asset_type)}
+                            </Badge>
+                            <div className="font-medium text-foreground">
+                              {selectedRelationAsset.name || `资产 #${selectedRelationAsset.asset_id}`}
+                            </div>
+                          </div>
+                          <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                            {selectedRelationAsset.system_short || "未标注系统"} · 资产 #
+                            {selectedRelationAsset.asset_id}
+                            {selectedRelationAsset.version_id
+                              ? ` · 锁定版本 ${selectedRelationAsset.version_id}`
+                              : " · 逻辑资产视角"}
+                          </div>
+                          <div className="mt-3">
+                            <Button asChild size="sm" variant="outline">
+                              <Link
+                                href={
+                                  selectedRelationAsset.asset_type === "http"
+                                    ? `/datamakepool/http-assets/${selectedRelationAsset.asset_id}?templateId=${selectedTemplateId ?? ""}&revisionId=${selectedRevisionId ?? ""}`
+                                    : `/datamakepool/sql-assets/${selectedRelationAsset.asset_id}?templateId=${selectedTemplateId ?? ""}&revisionId=${selectedRevisionId ?? ""}`
+                                }
+                              >
+                                <ArrowUpRight className="h-4 w-4" />
+                                查看资产详情
+                              </Link>
+                            </Button>
+                          </div>
+                        </div>
+
+                        {isLoadingRelationReferences ? (
+                          <div className="flex items-center rounded-xl border border-border/70 bg-muted/20 px-3 py-4 text-sm text-muted-foreground">
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            正在加载反向模板引用
+                          </div>
+                        ) : relationError ? (
+                          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-4 text-sm text-destructive">
+                            {relationError}
+                          </div>
+                        ) : !relationReferences.length ? (
+                          <div className="rounded-xl border border-dashed border-border/80 px-3 py-4 text-sm text-muted-foreground">
+                            当前权限范围内没有更多模板版本引用这个资产。
+                          </div>
+                        ) : (
+                          <div className="space-y-3">
+                            {relationReferences.map((reference) => (
+                              <div
+                                key={`${reference.template_id}-${reference.revision_id}`}
+                                className="rounded-xl border border-border/70 bg-muted/20 p-3"
+                              >
+                                <div className="flex items-center justify-between gap-3">
+                                  <div>
+                                    <div className="font-medium text-foreground">
+                                      {reference.template_name}
+                                    </div>
+                                    <div className="mt-1 text-xs text-muted-foreground">
+                                      模板 #{reference.template_id} · 修订 #{reference.revision_id} · V
+                                      {reference.revision_version_no}
+                                    </div>
+                                  </div>
+                                  <Badge
+                                    variant="outline"
+                                    className={cn(
+                                      "font-medium",
+                                      getRevisionStatusMeta(reference.revision_status).className
+                                    )}
+                                  >
+                                    {getRevisionStatusLabel(reference.revision_status)}
+                                  </Badge>
+                                </div>
+                                <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                                  系统域：{reference.template_system_short}
+                                </div>
+                                <div className="mt-2 text-xs leading-5 text-muted-foreground">
+                                  {reference.step_names.length
+                                    ? `命中步骤：${reference.step_names.join("、")}`
+                                    : "未记录命中步骤"}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -986,7 +1215,7 @@ export function TemplateManagementConsole() {
                   </div>
 
                   <div className="rounded-2xl border border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
-                    当前批次聚焦“模板版本详情 + 审核动作”闭环，不在这里扩展版本编辑和执行入口。
+                    当前批次继续保持最小闭环：不扩模板编辑器，只把审核、执行和关系查看接到稳定真相源上。
                   </div>
                 </div>
               </ScrollArea>

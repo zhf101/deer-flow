@@ -222,6 +222,7 @@ class SQLAssetSummaryResponse(BaseModel):
     latest_version_id: Optional[int] = None
     latest_version_no: Optional[int] = None
     latest_version_status: Optional[str] = None
+    created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
 
@@ -479,6 +480,28 @@ class DangerousSQLConfirmRequest(BaseModel):
     resume_execution: bool = True
 
 
+class PendingDangerousSQLItemResponse(BaseModel):
+    """Run 工作台里单条待确认危险 SQL 摘要。"""
+
+    audit_id: int
+    run_step_id: Optional[int] = None
+    step_id: Optional[str] = None
+    step_name: Optional[str] = None
+    risk_level: Optional[str] = None
+    confirmation_reason: Optional[str] = None
+    sql_preview: Optional[str] = None
+    target_objects: list[dict[str, Any]] = Field(default_factory=list)
+    created_at: Optional[str] = None
+
+
+class PendingDangerousSQLResponse(BaseModel):
+    """某条 Run 当前待人工确认的危险 SQL 列表。"""
+
+    run_id: int
+    pending_count: int
+    items: list[PendingDangerousSQLItemResponse] = Field(default_factory=list)
+
+
 class DangerousSQLConfirmResponse(BaseModel):
     """危险 SQL 确认结果。"""
 
@@ -503,7 +526,20 @@ class SQLAuditSummaryResponse(BaseModel):
     status: str
     step_id: Optional[str] = None
     step_name: Optional[str] = None
+    confirmed_by: Optional[int] = None
+    confirmed_at: Optional[str] = None
+    confirmation_reason: Optional[str] = None
+    sql_preview: Optional[str] = None
+    target_objects: list[dict[str, Any]] = Field(default_factory=list)
     created_at: Optional[str] = None
+
+
+class RunSQLAuditSummaryResponse(BaseModel):
+    """某条 Run 下的 SQL 审计摘要集合。"""
+
+    run_id: int
+    total_count: int
+    items: list[SQLAuditSummaryResponse] = Field(default_factory=list)
 
 
 class SQLAuditDetailResponse(BaseModel):

@@ -145,6 +145,38 @@ class RunService:
             technical_graph=revision.technical_graph or {},
         )
 
+    def start_run(self, run_id: int, user: User) -> dict[str, Any]:
+        """启动一条已经落库但尚未执行的正式 Run。
+
+        这条入口只服务于模板执行态的最小闭环：
+        - 只允许启动 `pending` 状态的 Run
+        - 只允许启动模板入口创建出的 Run
+        - 技术图真相源不再回读模板，而是直接从 RunStep 快照重建
+
+        这样即使模板后来被编辑或替换版本，也不会污染已经创建出来的执行实例。
+        """
+
+        run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run {run_id} not found")
+
+        GovernanceService(db=self.db).assert_run_access(run, user)
+        if run.status != "pending":
+            raise ValueError(f"Run {run_id} status is {run.status!r}; only pending can start")
+        if run.entry_type != "template" or not run.template_revision_id:
+            raise ValueError(
+                f"Run {run_id} entry_type is {run.entry_type!r}; only template runs can start here"
+            )
+
+        technical_graph = self._rebuild_technical_graph_from_run(run)
+        self.execute_trial(
+            run_id=run.id,
+            technical_graph=technical_graph,
+            input_payload=run.input_payload if isinstance(run.input_payload, dict) else None,
+            resolved_input=run.resolved_input if isinstance(run.resolved_input, dict) else None,
+        )
+        return self.get_run(run.id)
+
     def execute_trial(
         self,
         run_id: int,

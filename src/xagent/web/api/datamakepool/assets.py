@@ -206,6 +206,22 @@ async def list_sql_assets(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
+@router.get("/sql-assets/{asset_id}", response_model=SQLAssetSummaryResponse)
+async def get_sql_asset(
+    asset_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> SQLAssetSummaryResponse:
+    """读取单个 SQL 逻辑资产详情。"""
+    try:
+        result = AssetService(db=db).get_sql_asset(asset_id, user)
+        return SQLAssetSummaryResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+
+
 @router.get(
     "/sql-assets/{asset_id}/versions",
     response_model=list[SQLAssetVersionSummaryResponse],

@@ -464,6 +464,17 @@ class AssetService:
         self.db.refresh(asset)
         return self._serialize_sql_asset(asset)
 
+    def get_sql_asset(self, asset_id: int, user: User) -> dict[str, Any]:
+        """读取单个 SQL 逻辑资产详情。
+
+        F27 资产详情页聚焦的是“这个逻辑资产当前是谁、有哪些版本、被哪些模板引用”，
+        因此这里先返回逻辑对象层的稳定摘要，不把版本层配置混进来。
+        """
+
+        asset = self._get_sql_asset(asset_id)
+        GovernanceService(db=self.db).assert_sql_asset_access(asset, user)
+        return self._serialize_sql_asset(asset)
+
     def delete_sql_asset(
         self,
         asset_id: int,
@@ -1018,6 +1029,7 @@ class AssetService:
                 int(latest_version.version_no) if latest_version is not None else None
             ),
             "latest_version_status": latest_version.status if latest_version is not None else None,
+            "created_at": asset.created_at.isoformat() if asset.created_at else None,
             "updated_at": asset.updated_at.isoformat() if asset.updated_at else None,
         }
 

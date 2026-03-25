@@ -430,6 +430,71 @@ class GovernanceService:
         self.db.flush()
         return record
 
+    def get_pending_dangerous_sql_for_run(self, run_id: int, user: User) -> dict[str, Any]:
+        """读取某条 Run 当前仍待人工确认的危险 SQL 摘要。
+
+        这条读取能力专门服务 Run 详情页里的确认卡片：
+
+        - 权限跟随 Run 本身，而不是管理员审计中心口径
+        - 只看 `pending_confirmation` 的 SQL 执行审计
+        - 只返回页面确认动作真正需要的最小字段
+        """
+
+        run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run {run_id} not found")
+
+        self.assert_run_access(run, user)
+
+        audits = (
+            self.db.query(DMAuditRecord)
+            .filter(
+                DMAuditRecord.run_id == run_id,
+                DMAuditRecord.audit_type == "sql_execution",
+                DMAuditRecord.status == "pending_confirmation",
+            )
+            .order_by(DMAuditRecord.id.asc())
+            .all()
+        )
+
+        items = [self._serialize_pending_dangerous_sql_item(audit) for audit in audits]
+        return {
+            "run_id": run.id,
+            "pending_count": len(items),
+            "items": items,
+        }
+
+    def list_run_sql_audits(self, run_id: int, user: User) -> dict[str, Any]:
+        """读取某条 Run 下的 SQL 审计摘要。
+
+        这条能力服务 F26 Run 工作台里的“SQL 审计摘要”区域：
+        - 权限口径跟随 Run，而不是管理员审计中心
+        - 读取当前 Run 的全部 SQL 执行审计，方便用户回看已确认/已完成的治理轨迹
+        - 只返回页面摘要真正需要的字段，不把完整审计 payload 整包塞给前端
+        """
+
+        run = self.db.query(DMRun).filter(DMRun.id == run_id).first()
+        if run is None:
+            raise ValueError(f"Run {run_id} not found")
+
+        self.assert_run_access(run, user)
+
+        audits = (
+            self.db.query(DMAuditRecord)
+            .filter(
+                DMAuditRecord.run_id == run_id,
+                DMAuditRecord.audit_type == "sql_execution",
+            )
+            .order_by(DMAuditRecord.created_at.desc(), DMAuditRecord.id.desc())
+            .all()
+        )
+
+        return {
+            "run_id": run.id,
+            "total_count": len(audits),
+            "items": [self._serialize_audit_summary(audit) for audit in audits],
+        }
+
     def confirm_dangerous_sql(
         self,
         run_id: int,
@@ -567,6 +632,13 @@ class GovernanceService:
 
     def _serialize_audit_summary(self, audit: DMAuditRecord) -> dict[str, Any]:
         payload = audit.payload or {}
+        governance_check_result = payload.get("governance_check_result") or {}
+        sql_snapshot = payload.get("sql_snapshot") or {}
+        confirmation_reason = (
+            payload.get("confirmation_reason")
+            or governance_check_result.get("reason")
+            or governance_check_result.get("message")
+        )
         return {
             "audit_id": audit.id,
             "run_id": audit.run_id,
@@ -578,6 +650,35 @@ class GovernanceService:
             "status": audit.status,
             "step_id": payload.get("step_id"),
             "step_name": payload.get("step_name"),
+            "confirmed_by": audit.confirmed_by,
+            "confirmed_at": audit.confirmed_at.isoformat() if audit.confirmed_at else None,
+            "confirmation_reason": confirmation_reason,
+            "sql_preview": sql_snapshot.get("sql"),
+            "target_objects": audit.target_objects or payload.get("target_objects") or [],
+            "created_at": audit.created_at.isoformat() if audit.created_at else None,
+        }
+
+    def _serialize_pending_dangerous_sql_item(self, audit: DMAuditRecord) -> dict[str, Any]:
+        """把待确认危险 SQL 审计压平成 Run 工作台可直接消费的结构。"""
+
+        payload = audit.payload or {}
+        governance_check_result = payload.get("governance_check_result") or {}
+        sql_snapshot = payload.get("sql_snapshot") or {}
+        confirmation_reason = (
+            payload.get("confirmation_reason")
+            or governance_check_result.get("reason")
+            or governance_check_result.get("message")
+        )
+
+        return {
+            "audit_id": audit.id,
+            "run_step_id": audit.run_step_id,
+            "step_id": payload.get("step_id"),
+            "step_name": payload.get("step_name"),
+            "risk_level": audit.risk_level or payload.get("risk_level"),
+            "confirmation_reason": confirmation_reason,
+            "sql_preview": sql_snapshot.get("sql"),
+            "target_objects": audit.target_objects or payload.get("target_objects") or [],
             "created_at": audit.created_at.isoformat() if audit.created_at else None,
         }
 
