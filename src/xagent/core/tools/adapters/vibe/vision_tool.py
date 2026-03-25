@@ -362,6 +362,61 @@ def get_default_vision_model() -> Optional[BaseLLM]:
         except Exception as e:
             logger.warning(f"Failed to create OpenAI vision model from env: {e}")
 
+    # 以下历史视觉模型 fallback 逻辑先保留为注释，当前部署不启用。
+    # zhipu_key = os.getenv("ZHIPU_API_KEY")
+    # if zhipu_key:
+    #     try:
+    #         from xagent.core.model.chat.basic.zhipu import ZhipuLLM
+    #
+    #         model_name = os.getenv("ZHIPU_VISION_MODEL_NAME")
+    #         base_url = os.getenv("ZHIPU_BASE_URL")
+    #
+    #         if model_name:
+    #             return ZhipuLLM(
+    #                 model_name=model_name,
+    #                 api_key=zhipu_key,
+    #                 base_url=base_url,
+    #                 abilities=["chat", "tool_calling", "vision"],
+    #             )
+    #     except Exception as e:
+    #         logger.warning(f"Failed to create Zhipu vision model from env: {e}")
+    #
+    # gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    # if gemini_key:
+    #     try:
+    #         from xagent.core.model.chat.basic.gemini import GeminiLLM
+    #
+    #         model_name = os.getenv("GEMINI_VISION_MODEL_NAME", "gemini-2.0-flash-exp")
+    #         base_url = os.getenv("GEMINI_BASE_URL")
+    #
+    #         return GeminiLLM(
+    #             model_name=model_name,
+    #             api_key=gemini_key,
+    #             base_url=base_url,
+    #             abilities=["chat", "tool_calling", "vision"],
+    #         )
+    #     except Exception as e:
+    #         logger.warning(f"Failed to create Gemini vision model from env: {e}")
+    #
+    # claude_key = os.getenv("ANTHROPIC_API_KEY") or os.getenv("CLAUDE_API_KEY")
+    # if claude_key:
+    #     try:
+    #         from xagent.core.model.chat.basic.claude import ClaudeLLM
+    #
+    #         model_name = os.getenv(
+    #             "CLAUDE_VISION_MODEL_NAME", "claude-3-5-sonnet-20241022"
+    #         )
+    #         base_url = os.getenv("CLAUDE_BASE_URL")
+    #
+    #         return ClaudeLLM(
+    #             model_name=model_name,
+    #             api_key=claude_key,
+    #             base_url=base_url,
+    #             abilities=["chat", "tool_calling", "vision"],
+    #         )
+    #     except Exception as e:
+    #         logger.warning(f"Failed to create Claude vision model from env: {e}")
+
     logger.warning("No vision model available from environment variables")
     return None
 

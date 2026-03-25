@@ -7,6 +7,8 @@ from ..model import EmbeddingModelConfig
 from .base import BaseEmbedding
 from .dashscope import DashScopeEmbedding
 from .openai import OpenAIEmbedding
+# 历史多 provider 导入先保留为注释，避免直接删除原始实现。
+# from .xinference import XinferenceEmbedding
 
 
 def retry_on(e: Exception) -> bool:
@@ -60,6 +62,13 @@ class EmbeddingModelAdapter(BaseEmbedding):
                 dimension=self.model_config.dimension,
                 instruct=self.model_config.instruct,
             )
+        # elif provider == "xinference":
+        #     return XinferenceEmbedding(
+        #         model=self.model_config.model_name,
+        #         base_url=self.model_config.base_url,
+        #         api_key=self.model_config.api_key,
+        #         dimension=self.model_config.dimension,
+        #     )
         else:
             raise ValueError(
                 f"Unsupported model provider: {self.model_config.model_provider}"

@@ -41,6 +41,7 @@ class FlowDraftDiffChunkResponse(BaseModel):
     changed: bool
     changed_count: int
     changed_paths: list[str] = Field(default_factory=list)
+    changed_step_ids: list[str] = Field(default_factory=list)
 
 
 class FlowDraftDiffResponse(BaseModel):
@@ -68,6 +69,7 @@ class FlowDraftStepPatchResponse(BaseModel):
     status: str
     direct_updates: list[str] = Field(default_factory=list)
     needs_resolution_fields: list[str] = Field(default_factory=list)
+    pending_issues: list[dict[str, Any]] = Field(default_factory=list)
     latest_snapshot_id: Optional[int] = None
 
 
@@ -79,6 +81,18 @@ class FlowDraftStepResolveResponse(BaseModel):
     status: str
     resolution_status: str
     blocking_issues: list[dict[str, Any]] = Field(default_factory=list)
+    pending_issues: list[dict[str, Any]] = Field(default_factory=list)
+    latest_snapshot_id: Optional[int] = None
+
+
+class FlowDraftResolveResponse(BaseModel):
+    """整份 FlowDraft 重收敛结果。"""
+
+    flowdraft_id: int
+    status: str
+    resolved_steps: list[str] = Field(default_factory=list)
+    blocked_steps: list[dict[str, Any]] = Field(default_factory=list)
+    pending_issues: list[dict[str, Any]] = Field(default_factory=list)
     latest_snapshot_id: Optional[int] = None
 
 

@@ -711,6 +711,13 @@ async def get_available_model_providers() -> dict:
                 "description": "OpenAI API compatible models",
                 "examples": ["gpt-4", "gpt-4o", "gpt-3.5-turbo"],
             },
+            # 以下历史 provider 展示项先保留为注释，当前部署不启用。
+            # {
+            #     "type": "zhipu",
+            #     "name": "Zhipu AI",
+            #     "description": "Zhipu AI models",
+            #     "examples": ["glm-4", "glm-4-air", "glm-3-turbo"],
+            # },
         ]
     }
 
@@ -1571,5 +1578,52 @@ async def fetch_multiple_providers_models(
     return {
         "results": results,
     }
+
+
+# 以下历史 Xinference 语音模型探测接口先保留为注释，当前部署不启用。
+# @model_router.get("/xinference/tts-models")
+# async def list_xinference_tts_models(
+#     base_url: str = Query(..., description="Xinference server base URL"),
+#     api_key: Optional[str] = Query(None, description="Optional API key"),
+# ) -> dict:
+#     """Get available TTS models from Xinference server."""
+#     try:
+#         from xagent.core.model.tts.xinference import XinferenceTTS
+#
+#         models = XinferenceTTS.list_available_models(base_url=base_url, api_key=api_key)
+#
+#         result_models = []
+#         for model in models:
+#             model_ability = model.get("model_ability", [])
+#             abilities = []
+#             if any(ability.startswith("text2audio") for ability in model_ability):
+#                 abilities.append("tts")
+#             if any(ability.startswith("audio2text") for ability in model_ability):
+#                 abilities.append("asr")
+#
+#             result_models.append(
+#                 {
+#                     "id": model["id"],
+#                     "model_uid": model["model_uid"],
+#                     "model_type": model["model_type"],
+#                     "model_ability": model_ability,
+#                     "description": model["description"],
+#                     "abilities": abilities,
+#                     "category": "speech",
+#                     "model_provider": "xinference",
+#                 }
+#             )
+#
+#         return {
+#             "models": result_models,
+#             "count": len(result_models),
+#         }
+#
+#     except Exception as e:
+#         logger.error(f"Error fetching Xinference TTS models: {e}")
+#         raise HTTPException(
+#             status_code=500,
+#             detail=f"Failed to fetch TTS models from Xinference: {str(e)}",
+#         )
 
 

@@ -8,6 +8,16 @@ from sqlalchemy.orm import Session
 from xagent.web.models.dm_flow_draft import DMFlowDraft, DMFlowDraftSnapshot
 
 
+ALLOWED_SNAPSHOT_TYPES = {
+    "initial_draft",
+    "manual_edit",
+    "re_resolved",
+    "pre_trial",
+    "trial_success",
+    "trial_failed",
+}
+
+
 @dataclass
 class SnapshotService:
     """FlowDraft 快照与 diff 服务。
@@ -28,6 +38,9 @@ class SnapshotService:
         created_by: int,
     ) -> dict[str, Any]:
         """为当前 FlowDraft 状态创建一条关键快照。"""
+
+        if snapshot_type not in ALLOWED_SNAPSHOT_TYPES:
+            raise ValueError(f"Unsupported flowdraft snapshot type {snapshot_type!r}")
 
         snapshot = DMFlowDraftSnapshot(
             flow_draft_id=flowdraft.id,
@@ -85,10 +98,12 @@ class SnapshotService:
 
         changed_paths: list[str] = []
         self._collect_diff(before, after, path="$", changed_paths=changed_paths)
+        changed_step_ids = self._collect_changed_step_ids(before, after)
         return {
             "changed": bool(changed_paths),
             "changed_count": len(changed_paths),
             "changed_paths": changed_paths,
+            "changed_step_ids": changed_step_ids,
         }
 
     def _collect_diff(
@@ -144,3 +159,35 @@ class SnapshotService:
             "created_by": snapshot.created_by,
             "created_at": snapshot.created_at.isoformat() if snapshot.created_at else None,
         }
+
+    def _collect_changed_step_ids(
+        self,
+        before: dict[str, Any],
+        after: dict[str, Any],
+    ) -> list[str]:
+        """针对技术图输出受影响步骤列表。"""
+
+        if not isinstance(before, dict) or not isinstance(after, dict):
+            return []
+        if "nodes" not in before and "nodes" not in after:
+            return []
+
+        before_nodes = before.get("nodes", []) if isinstance(before.get("nodes", []), list) else []
+        after_nodes = after.get("nodes", []) if isinstance(after.get("nodes", []), list) else []
+
+        before_map = {
+            str(node.get("step_id") or node.get("id") or ""): node
+            for node in before_nodes
+            if isinstance(node, dict)
+        }
+        after_map = {
+            str(node.get("step_id") or node.get("id") or ""): node
+            for node in after_nodes
+            if isinstance(node, dict)
+        }
+
+        changed: list[str] = []
+        for step_id in sorted(set(before_map.keys()) | set(after_map.keys())):
+            if before_map.get(step_id) != after_map.get(step_id):
+                changed.append(step_id)
+        return changed

@@ -16,6 +16,9 @@ from xagent.web.api.model import DBModel
 from ...core.model.chat.basic.base import BaseLLM
 from ...core.model.image.dashscope import DashScopeImageModel
 from ...core.model.image.openai import OpenAIImageModel
+# 历史多 provider 导入先保留为注释，避免直接删除原始实现。
+# from ...core.model.image.gemini import GeminiImageModel
+# from ...core.model.image.xinference import XinferenceImageModel
 
 logger = logging.getLogger(__name__)
 
@@ -508,6 +511,23 @@ def get_image_models(db: Session, user_id: Optional[int] = None) -> Dict[str, An
                         abilities=list(db_model.abilities or ["generate", "edit"]),  # pyright: ignore[reportArgumentType]
                     )
                     _add_image_model_with_id(image_models, image_model, db_model)
+                # 以下历史图像 provider 分支先保留为注释，当前部署不启用。
+                # elif model_provider == "gemini":
+                #     image_model = GeminiImageModel(
+                #         model_name=str(db_model.model_name),
+                #         api_key=api_key,
+                #         base_url=base_url,
+                #         abilities=list(db_model.abilities or ["generate"]),
+                #     )
+                #     _add_image_model_with_id(image_models, image_model, db_model)
+                # elif model_provider == "xinference":
+                #     image_model = XinferenceImageModel(
+                #         model_name=str(db_model.model_name),
+                #         api_key=api_key,
+                #         base_url=base_url,
+                #         abilities=list(db_model.abilities or ["generate", "edit"]),
+                #     )
+                #     _add_image_model_with_id(image_models, image_model, db_model)
                 else:
                     logger.warning(
                         "Unsupported image model provider in current deployment: %s",
@@ -872,6 +892,21 @@ def _get_models_by_category(
             model_provider = str(db_model.model_provider).strip().lower()
             try:
                 model: Any = None
+                # 以下历史语音 provider 分支先保留为注释，当前部署不启用。
+                # if model_provider == "xinference":
+                #     if ability == "asr":
+                #         from ...core.model.asr.adapter import get_asr_model_instance
+                #
+                #         model = get_asr_model_instance(db_model)
+                #     elif ability == "tts":
+                #         from ...core.model.tts.adapter import get_tts_model_instance
+                #
+                #         model = get_tts_model_instance(db_model)
+                #     else:
+                #         raise ValueError(f"Unsupported model ability: {ability}")
+                #
+                #     models[str(db_model.model_name)] = model
+                #     logger.info(f"Added {model_type} model: {db_model.model_name}")
                 logger.warning(
                     "Unsupported %s model provider in current deployment: %s",
                     model_type,

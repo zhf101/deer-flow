@@ -7,6 +7,9 @@ from ...retry import create_retry_wrapper
 from .base import BaseImageModel
 from .dashscope import DashScopeImageModel
 from .openai import OpenAIImageModel
+# 历史多 provider 导入先保留为注释，避免直接删除原始实现。
+# from .gemini import GeminiImageModel
+# from .xinference import XinferenceImageModel
 
 
 def get_image_model_instance(db_model: Any) -> BaseImageModel:
@@ -65,6 +68,23 @@ def create_image_model(model_config: ImageModelConfig) -> BaseImageModel:
 
     llm: BaseImageModel
 
+    # 以下历史图像 provider 分支先保留为注释，当前部署不启用。
+    # if provider == "gemini":
+    #     llm = GeminiImageModel(
+    #         model_name=model_config.model_name,
+    #         api_key=model_config.api_key,
+    #         base_url=model_config.base_url,
+    #         timeout=model_config.timeout,
+    #         abilities=model_config.abilities,
+    #     )
+    # elif provider == "xinference":
+    #     llm = XinferenceImageModel(
+    #         model_name=model_config.model_name,
+    #         base_url=model_config.base_url,
+    #         api_key=model_config.api_key,
+    #         timeout=model_config.timeout,
+    #         abilities=model_config.abilities,
+    #     )
     if provider == "dashscope":
         llm = DashScopeImageModel(
             model_name=model_config.model_name,

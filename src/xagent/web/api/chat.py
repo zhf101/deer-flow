@@ -14,6 +14,8 @@ from ...core.agent.service import AgentService
 from ...core.agent.trace import Tracer
 from ...core.model.chat.basic.base import BaseLLM
 from ...core.model.chat.basic.openai import OpenAILLM
+# 历史多 provider 导入先保留为注释，避免直接删除原始实现。
+# from ...core.model.chat.basic.zhipu import ZhipuLLM
 from ..auth_dependencies import get_current_user
 from ..config import ALLOWED_EXTERNAL_UPLOAD_DIRS, UPLOADS_DIR
 from ..dynamic_memory_store import get_memory_store
@@ -46,6 +48,9 @@ def create_default_llm() -> Optional[BaseLLM]:
         openai_api_key = os.getenv("OPENAI_API_KEY")
         openai_base_url = os.getenv("OPENAI_BASE_URL")
         openai_model = os.getenv("OPENAI_MODEL")
+        # zhipu_api_key = os.getenv("ZHIPU_API_KEY")
+        # zhipu_base_url = os.getenv("ZHIPU_BASE_URL")
+        # zhipu_model = os.getenv("ZHIPU_MODEL_NAME")
 
         # 当前部署只保留 OpenAI 兼容链路，允许空字符串 key 以兼容部分内网网关。
         if openai_api_key is not None:
@@ -55,6 +60,48 @@ def create_default_llm() -> Optional[BaseLLM]:
                 base_url=openai_base_url,
                 api_key=openai_api_key,
             )
+
+        # 以下历史 Zhipu fallback 逻辑先保留为注释，当前部署不启用。
+        # zhipu_models = {
+        #     "glm-4.7",
+        #     "glm-4.7-flashx",
+        #     "glm-4.6",
+        #     "glm-4.5-air",
+        #     "glm-4.5-airx",
+        #     "glm-4-long",
+        #     "glm-4-flashx-250414",
+        #     "glm-4.7-flash",
+        #     "glm-4-Flash-250414",
+        # }
+        # is_zhipu = (
+        #     zhipu_base_url
+        #     and any(
+        #         domain in zhipu_base_url.lower()
+        #         for domain in {"zhipu", "bigmodel.cn", "api.z.ai"}
+        #     )
+        # ) or (
+        #     zhipu_model
+        #     and any(zhipu_model.lower().strip() in x.lower() for x in zhipu_models)
+        # )
+        #
+        # if is_zhipu:
+        #     if zhipu_api_key:
+        #         logger.info(f"Using Zhipu LLM with model: {zhipu_model}")
+        #         thinking_mode_env = os.getenv("ZHIPU_THINKING_MODE", "auto").lower()
+        #         thinking_mode = (
+        #             None if thinking_mode_env == "auto" else thinking_mode_env == "true"
+        #         )
+        #         return ZhipuLLM(
+        #             model_name=zhipu_model or "glm-4.7-flash",
+        #             api_key=zhipu_api_key,
+        #             base_url=zhipu_base_url,
+        #             thinking_mode=thinking_mode,
+        #         )
+        #     else:
+        #         logger.error(
+        #             "Zhipu API key not found in environment variables. Set ZHIPU_API_KEY to enable Zhipu LLM functionality."
+        #         )
+        #         return None
 
         logger.error(
             "No API key found in environment variables. Set OPENAI_API_KEY to enable LLM functionality."

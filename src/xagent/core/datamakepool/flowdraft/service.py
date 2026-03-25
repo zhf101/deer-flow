@@ -73,6 +73,65 @@ class FlowDraftService:
             return flowdraft.preflight_summary_payload
         return self.evaluate_preflight(flowdraft.technical_graph_payload or {})
 
+    def resolve_flowdraft(
+        self,
+        flowdraft_id: int,
+        user: User,
+    ) -> dict[str, Any]:
+        """对整份 FlowDraft 触发统一重收敛。"""
+
+        flowdraft = self.get_flowdraft_model(flowdraft_id, user)
+        technical_graph = flowdraft.technical_graph_payload or {}
+        nodes = technical_graph.get("nodes", []) if isinstance(technical_graph, dict) else []
+
+        resolved_steps: list[str] = []
+        blocked_steps: list[dict[str, Any]] = []
+
+        for node in nodes:
+            if not isinstance(node, dict):
+                continue
+            step_id = str(node.get("step_id") or node.get("id") or "")
+            resolver_output = self._resolve_node(flowdraft, node)
+            if resolver_output is not None:
+                node["resolved_execution_plan"] = resolver_output.resolved_execution_plan
+                node["resolution_rationale"] = resolver_output.resolution_rationale
+                node["editable_fields"] = [
+                    field.model_dump() for field in resolver_output.editable_fields
+                ]
+                node["pending_flags"] = []
+                if resolver_output.resolution_status != "resolved":
+                    blocked_steps.append(
+                        {
+                            "step_id": step_id,
+                            "blocking_issues": resolver_output.blocking_issues,
+                        }
+                    )
+            else:
+                node["pending_flags"] = []
+            resolved_steps.append(step_id)
+
+        flag_modified(flowdraft, "technical_graph_payload")
+        preflight_result = self.evaluate_preflight(flowdraft.technical_graph_payload or {})
+        flowdraft.preflight_summary_payload = preflight_result
+        flowdraft.pending_issues_payload = preflight_result.get("issues", [])
+        flowdraft.status = self._derive_flowdraft_status(preflight_result)
+
+        snapshot = self._snapshot_service().create_snapshot(
+            flowdraft=flowdraft,
+            snapshot_type="re_resolved",
+            created_by=int(user.id),
+        )
+        self.db.commit()
+
+        return {
+            "flowdraft_id": flowdraft.id,
+            "status": flowdraft.status,
+            "resolved_steps": resolved_steps,
+            "blocked_steps": blocked_steps,
+            "pending_issues": flowdraft.pending_issues_payload or [],
+            "latest_snapshot_id": snapshot["snapshot_id"],
+        }
+
     def get_flowdraft_model(self, flowdraft_id: int, user: User | None = None) -> DMFlowDraft:
         """返回 FlowDraft ORM 对象。"""
 
@@ -188,6 +247,12 @@ class FlowDraftService:
                 raise ValueError(
                     f"Field {field_name!r} is not editable for step {step_id!r}"
                 )
+            self._validate_patch_value(
+                step_type=str(node.get("step_type") or ""),
+                field_name=field_name,
+                mode=mode,
+                field_value=field_value,
+            )
 
             if mode == "direct_edit":
                 self._apply_direct_edit(node, field_name, field_value)
@@ -202,10 +267,14 @@ class FlowDraftService:
         flowdraft.preflight_summary_payload = None
 
         if needs_resolution_fields:
+            pending_issues = self._build_resolution_pending_issues(step_id, node, needs_resolution_fields)
+            flowdraft.pending_issues_payload = pending_issues
             flowdraft.status = FlowDraftStatus.NEEDS_RESOLUTION.value
         else:
             preflight_result = self.evaluate_preflight(flowdraft.technical_graph_payload or {})
             flowdraft.preflight_summary_payload = preflight_result
+            pending_issues = preflight_result.get("issues", [])
+            flowdraft.pending_issues_payload = pending_issues
             flowdraft.status = self._derive_flowdraft_status(preflight_result)
 
         snapshot = self._snapshot_service().create_snapshot(
@@ -221,6 +290,7 @@ class FlowDraftService:
             "status": flowdraft.status,
             "direct_updates": direct_updates,
             "needs_resolution_fields": needs_resolution_fields,
+            "pending_issues": pending_issues,
             "latest_snapshot_id": snapshot["snapshot_id"],
         }
 
@@ -248,6 +318,7 @@ class FlowDraftService:
         flowdraft.preflight_summary_payload = self.evaluate_preflight(
             flowdraft.technical_graph_payload or {}
         )
+        flowdraft.pending_issues_payload = flowdraft.preflight_summary_payload.get("issues", [])
         flowdraft.status = self._derive_flowdraft_status(flowdraft.preflight_summary_payload)
 
         snapshot = self._snapshot_service().create_snapshot(
@@ -267,6 +338,75 @@ class FlowDraftService:
             "blocking_issues": (
                 resolver_output.blocking_issues if resolver_output is not None else []
             ),
+            "pending_issues": flowdraft.pending_issues_payload or [],
+            "latest_snapshot_id": snapshot["snapshot_id"],
+        }
+
+    def prepare_trial(
+        self,
+        flowdraft_id: int,
+        user: User,
+    ) -> dict[str, Any]:
+        """进入试跑前，固化 pre_trial 快照并推进状态。"""
+
+        flowdraft = self.get_flowdraft_model(flowdraft_id, user)
+        preflight_result = self.evaluate_preflight(flowdraft.technical_graph_payload or {})
+        flowdraft.preflight_summary_payload = preflight_result
+        flowdraft.pending_issues_payload = preflight_result.get("issues", [])
+        if not preflight_result.get("is_runnable", False):
+            flowdraft.status = FlowDraftStatus.NEEDS_RESOLUTION.value
+            self.db.commit()
+            return {
+                "flowdraft_id": flowdraft.id,
+                "status": flowdraft.status,
+                "pending_issues": flowdraft.pending_issues_payload or [],
+                "latest_snapshot_id": flowdraft.latest_snapshot_id,
+            }
+
+        flowdraft.status = FlowDraftStatus.TRIAL_RUNNING.value
+        snapshot = self._snapshot_service().create_snapshot(
+            flowdraft=flowdraft,
+            snapshot_type="pre_trial",
+            created_by=int(user.id),
+        )
+        self.db.commit()
+        return {
+            "flowdraft_id": flowdraft.id,
+            "status": flowdraft.status,
+            "pending_issues": flowdraft.pending_issues_payload or [],
+            "latest_snapshot_id": snapshot["snapshot_id"],
+        }
+
+    def finalize_trial(
+        self,
+        flowdraft_id: int,
+        user: User,
+        run_status: str,
+    ) -> dict[str, Any]:
+        """根据试跑结果回写 FlowDraft 状态并落快照。"""
+
+        flowdraft = self.get_flowdraft_model(flowdraft_id, user)
+        preflight_result = self.evaluate_preflight(flowdraft.technical_graph_payload or {})
+        flowdraft.preflight_summary_payload = preflight_result
+        flowdraft.pending_issues_payload = preflight_result.get("issues", [])
+
+        if run_status == "succeeded":
+            flowdraft.status = FlowDraftStatus.TRIAL_SUCCEEDED.value
+            snapshot_type = "trial_success"
+        else:
+            flowdraft.status = FlowDraftStatus.TRIAL_FAILED.value
+            snapshot_type = "trial_failed"
+
+        snapshot = self._snapshot_service().create_snapshot(
+            flowdraft=flowdraft,
+            snapshot_type=snapshot_type,
+            created_by=int(user.id),
+        )
+        self.db.commit()
+        return {
+            "flowdraft_id": flowdraft.id,
+            "status": flowdraft.status,
+            "pending_issues": flowdraft.pending_issues_payload or [],
             "latest_snapshot_id": snapshot["snapshot_id"],
         }
 
@@ -378,6 +518,66 @@ class FlowDraftService:
         node["editable_fields"] = []
         node["pending_flags"] = ["needs_resolution"]
         node.pop("resolved_execution_plan", None)
+
+    def _validate_patch_value(
+        self,
+        step_type: str,
+        field_name: str,
+        mode: str,
+        field_value: Any,
+    ) -> None:
+        """对 patch 值做最小粒度校验。"""
+
+        if mode == "direct_edit":
+            if field_name in {
+                "query_template",
+                "headers_template",
+                "param_template",
+                "output_mapping",
+                "mapping",
+            } and not isinstance(field_value, dict):
+                raise ValueError(
+                    f"Field {field_name!r} for step type {step_type!r} requires object value"
+                )
+            if field_name in {"confirmation_required", "auto_confirm"} and not isinstance(
+                field_value, bool
+            ):
+                raise ValueError(f"Field {field_name!r} requires boolean value")
+            return
+
+        if field_name == "asset_ref":
+            if not isinstance(field_value, str) or not field_value.strip():
+                raise ValueError("Field 'asset_ref' requires non-empty string value")
+            return
+
+        if field_name == "sql":
+            if not isinstance(field_value, str) or not field_value.strip():
+                raise ValueError("Field 'sql' requires non-empty string value")
+            return
+
+    def _build_resolution_pending_issues(
+        self,
+        step_id: str,
+        node: dict[str, Any],
+        fields: list[str],
+    ) -> list[dict[str, Any]]:
+        """构建 needs_resolution 场景下的最小 pending_issues。"""
+
+        return [
+            {
+                "issue_type": "needs_resolution",
+                "step_id": step_id,
+                "message": (
+                    f"Step {step_id} changed fields require re-resolution: "
+                    f"{', '.join(fields)}"
+                ),
+                "suggested_action": "resolve_step",
+                "payload": {
+                    "step_type": node.get("step_type"),
+                    "fields": fields,
+                },
+            }
+        ]
 
     def _resolve_node(
         self,

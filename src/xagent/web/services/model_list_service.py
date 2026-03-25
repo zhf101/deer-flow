@@ -34,6 +34,41 @@ async def fetch_openai_models(
     return await OpenAILLM.list_available_models(api_key, base_url)
 
 
+# 以下历史 provider 拉模型逻辑先保留为注释，避免直接删除你的原始实现。
+# async def fetch_zhipu_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Fetch available models from Zhipu AI using ZhipuLLM.list_available_models()."""
+#     from ...core.model.chat.basic.zhipu import ZhipuLLM
+#     return await ZhipuLLM.list_available_models(api_key, base_url)
+#
+#
+# async def fetch_claude_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Fetch available models from Anthropic Claude using ClaudeLLM.list_available_models()."""
+#     from ...core.model.chat.basic.claude import ClaudeLLM
+#     return await ClaudeLLM.list_available_models(api_key, base_url)
+#
+#
+# async def fetch_gemini_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Fetch available models from Google Gemini using GeminiLLM.list_available_models()."""
+#     from ...core.model.chat.basic.gemini import GeminiLLM
+#     return await GeminiLLM.list_available_models(api_key, base_url)
+#
+#
+# async def fetch_xinference_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Fetch available models from Xinference using XinferenceLLM.list_available_models()."""
+#     if not base_url:
+#         raise ValueError("base_url is required for Xinference")
+#     from ...core.model.chat.basic.xinference import XinferenceLLM
+#     return await XinferenceLLM.list_available_models(base_url=base_url, api_key=api_key)
+
+
 async def fetch_alibaba_coding_plan_models(
     api_key: str, base_url: Optional[str] = None
 ) -> List[Dict[str, Any]]:
@@ -56,13 +91,55 @@ async def fetch_alibaba_coding_plan_cn_models(
     )
 
 
+# 以下 coding plan 拉模型逻辑先保留为注释，避免直接删除你的原始实现。
+# 这些 provider 当前关闭，如需恢复需同步恢复对应 provider 注册项。
+# async def fetch_minimax_coding_plan_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Return curated MiniMax coding plan models (minimax.io)."""
+#     _ = api_key, base_url
+#     return _static_model_list(
+#         curated_models_for_provider("minimax-coding-plan"),
+#         owned_by="minimax-coding-plan",
+#     )
+#
+#
+# async def fetch_minimax_cn_coding_plan_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Return curated MiniMax coding plan models (minimaxi.com)."""
+#     _ = api_key, base_url
+#     return _static_model_list(
+#         curated_models_for_provider("minimax-cn-coding-plan"),
+#         owned_by="minimax-cn-coding-plan",
+#     )
+#
+#
+# async def fetch_kimi_for_coding_models(
+#     api_key: str, base_url: Optional[str] = None
+# ) -> List[Dict[str, Any]]:
+#     """Fetch available Kimi For Coding models via the Claude-compatible API."""
+#     return await fetch_claude_models(api_key, base_url)
+
+
 # Provider registry mapping provider names to their fetch functions
 PROVIDER_FETCHERS: Dict[str, Any] = {
     "openai": fetch_openai_models,
+    # 以下历史 provider 注册项先保留为注释，当前部署不启用。
+    # "zhipu": fetch_zhipu_models,
+    # "claude": fetch_claude_models,
+    # "anthropic": fetch_claude_models,
+    # "gemini": fetch_gemini_models,
+    # "google": fetch_gemini_models,
+    # "xinference": fetch_xinference_models,
     "zai-coding-plan": fetch_openai_models,
     "zhipuai-coding-plan": fetch_openai_models,
     "alibaba-coding-plan": fetch_alibaba_coding_plan_models,
     "alibaba-coding-plan-cn": fetch_alibaba_coding_plan_cn_models,
+    # 以下 coding plan 注册项先保留为注释，当前部署不启用。
+    # "minimax-coding-plan": fetch_minimax_coding_plan_models,
+    # "minimax-cn-coding-plan": fetch_minimax_cn_coding_plan_models,
+    # "kimi-for-coding": fetch_kimi_for_coding_models,
 }
 
 

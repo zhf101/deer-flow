@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from ...models.database import get_db
 from ...schemas.datamakepool import (
+    FlowDraftResolveResponse,
     FlowDraftDiffResponse,
     FlowDraftResponse,
     FlowDraftSnapshotResponse,
@@ -41,10 +42,20 @@ async def get_flowdraft(
         raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
-@router.post("/{flowdraft_id}/resolve")
-async def resolve_flowdraft(flowdraft_id: int) -> dict:
+@router.post("/{flowdraft_id}/resolve", response_model=FlowDraftResolveResponse)
+async def resolve_flowdraft(
+    flowdraft_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> FlowDraftResolveResponse:
     """触发整份 FlowDraft 的收敛流程。"""
-    return {"flowdraft_id": flowdraft_id, "status": "not_implemented"}
+    try:
+        result = FlowDraftService(db=db).resolve_flowdraft(flowdraft_id, user)
+        return FlowDraftResolveResponse(**result)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 @router.post("/{flowdraft_id}/preflight")
@@ -87,6 +98,7 @@ async def trial_flowdraft(
                     "preflight": preflight_result,
                 },
             )
+        flowdraft_service.prepare_trial(flowdraft_id, user)
         run_service = RunService(db=db, runtime_bridge=RunRuntimeBridge())
         created = run_service.create_run(
             entry_type=request.entry_type,
@@ -103,6 +115,11 @@ async def trial_flowdraft(
             technical_graph=flowdraft.get("technical_graph") or {},
             input_payload=flowdraft.get("input_schema_draft"),
             resolved_input=flowdraft.get("output_mapping_draft"),
+        )
+        flowdraft_service.finalize_trial(
+            flowdraft_id=flowdraft_id,
+            user=user,
+            run_status=str(executed.get("status") or "failed"),
         )
         result = {
             **created,
