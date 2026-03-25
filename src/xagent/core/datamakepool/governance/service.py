@@ -7,6 +7,7 @@ from typing import Any, Iterable
 from sqlalchemy.orm import Session
 
 from xagent.web.models.admin_system_scope import AdminSystemScope
+from xagent.web.models.dm_asset import DMHTTPAsset, DMSQLAsset, DMSQLAssetVersion
 from xagent.web.models.dm_audit import DMAuditRecord
 from xagent.web.models.dm_flow_draft import DMFlowDraft
 from xagent.web.models.dm_run import DMRun, DMRunStep
@@ -150,6 +151,97 @@ class GovernanceService:
             )
 
         raise PermissionError(f"User {user.id} cannot access template {template.id}")
+
+    def assert_http_asset_access(self, asset: DMHTTPAsset, user: User) -> None:
+        """校验当前用户是否可访问 HTTP 资产。"""
+
+        scope_context = self.get_scope_context(user)
+        if scope_context["role"] == "system_admin":
+            return
+
+        if asset.owner_user_id == user.id:
+            return
+
+        if scope_context["role"] == "domain_admin":
+            if asset.system_short and asset.system_short in scope_context["scopes"]:
+                return
+            raise PermissionError(
+                f"User {user.id} has no http asset scope for system_short={asset.system_short!r}"
+            )
+
+        raise PermissionError(f"User {user.id} cannot access http asset {asset.id}")
+
+    def assert_sql_asset_access(self, asset: DMSQLAsset, user: User) -> None:
+        """校验当前用户是否可访问 SQL 资产。"""
+
+        scope_context = self.get_scope_context(user)
+        if scope_context["role"] == "system_admin":
+            return
+
+        if asset.owner_user_id == user.id:
+            return
+
+        if scope_context["role"] == "domain_admin":
+            if asset.system_short and asset.system_short in scope_context["scopes"]:
+                return
+            raise PermissionError(
+                f"User {user.id} has no sql asset scope for system_short={asset.system_short!r}"
+            )
+
+        raise PermissionError(f"User {user.id} cannot access sql asset {asset.id}")
+
+    def assert_sql_asset_version_access(self, version: DMSQLAssetVersion, user: User) -> None:
+        """校验当前用户是否可访问 SQL 资产版本。"""
+
+        asset = version.asset
+        if asset is None:
+            raise ValueError(f"SQL asset {version.sql_asset_id} not found")
+        self.assert_sql_asset_access(asset, user)
+
+    def assert_can_submit_sql_asset_review(
+        self,
+        version: DMSQLAssetVersion,
+        user: User,
+    ) -> None:
+        """校验当前用户是否可提交 SQL 资产版本送审。"""
+
+        self.assert_sql_asset_version_access(version, user)
+        if version.status != "draft":
+            raise ValueError(
+                f"SQL asset version {version.id} status is {version.status!r}; only draft can submit review"
+            )
+
+    def assert_can_approve_sql_asset_version(
+        self,
+        version: DMSQLAssetVersion,
+        user: User,
+    ) -> None:
+        """校验当前用户是否可审批 SQL 资产版本。"""
+
+        asset = version.asset
+        if asset is None:
+            raise ValueError(f"SQL asset {version.sql_asset_id} not found")
+
+        scope_context = self.get_scope_context(user)
+        if scope_context["role"] == "user":
+            raise PermissionError(
+                f"User {user.id} is not allowed to approve sql asset version {version.id}"
+            )
+        if scope_context["role"] == "domain_admin":
+            if not asset.system_short or asset.system_short not in scope_context["scopes"]:
+                raise PermissionError(
+                    f"User {user.id} has no approval scope for system_short={asset.system_short!r}"
+                )
+
+        if version.status != "pending_review":
+            raise ValueError(
+                f"SQL asset version {version.id} status is {version.status!r}; only pending_review can approve"
+            )
+
+        if version.created_by == user.id:
+            raise PermissionError(
+                f"User {user.id} cannot approve sql asset version {version.id} created by self"
+            )
 
     def assert_template_revision_access(self, revision: DMTemplateRevision, user: User) -> None:
         """校验当前用户是否可访问模板版本。"""

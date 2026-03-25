@@ -59,6 +59,9 @@ def init_db(db_url: str | None = None) -> None:
         User,
         UserDefaultModel,
         UserModel,
+        DMHTTPAsset,
+        DMSQLAsset,
+        DMSQLAssetVersion,
     )
     from .agent import Agent  # noqa: F401
     from .sandbox import SandboxInfo  # noqa: F401

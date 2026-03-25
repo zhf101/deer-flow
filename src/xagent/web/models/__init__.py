@@ -2,6 +2,7 @@ from .agent import Agent
 from .admin_system_scope import AdminSystemScope
 from .chat_message import TaskChatMessage
 from .database import Base, get_db, get_engine, get_session_local
+from .dm_asset import DMHTTPAsset, DMSQLAsset, DMSQLAssetVersion
 from .dm_audit import DMAuditRecord
 from .dm_flow_draft import DMFlowDraft, DMFlowDraftSnapshot
 from .dm_run import DMRun, DMRunStep
@@ -25,6 +26,9 @@ __all__ = [
     "get_db",
     "get_session_local",
     "AdminSystemScope",
+    "DMHTTPAsset",
+    "DMSQLAsset",
+    "DMSQLAssetVersion",
     "DMAuditRecord",
     "User",
     "UserModel",

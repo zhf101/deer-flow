@@ -46,6 +46,90 @@ class ConversationMessageResponse(BaseModel):
     latest_snapshot_id: Optional[int] = None
 
 
+class HTTPAssetCreateRequest(BaseModel):
+    """创建 HTTP 资产请求。"""
+
+    name: str = Field(min_length=1)
+    description: Optional[str] = None
+    system_short: str = Field(min_length=1)
+    base_url: str = Field(min_length=1)
+    method: str = Field(min_length=1)
+    path_template: str = Field(min_length=1)
+    query_template: dict[str, Any] = Field(default_factory=dict)
+    headers_template: dict[str, Any] = Field(default_factory=dict)
+    body_template: dict[str, Any] = Field(default_factory=dict)
+    request_schema: dict[str, Any] = Field(default_factory=dict)
+    auth_type: Optional[str] = None
+    auth_config_ciphertext: Optional[str] = None
+    response_extraction_rules: dict[str, Any] = Field(default_factory=dict)
+    timeout_seconds: int = Field(default=30, gt=0)
+    max_response_bytes: int = Field(default=1048576, gt=0)
+    enabled: bool = True
+
+
+class HTTPAssetSummaryResponse(BaseModel):
+    """HTTP 资产列表项 / 创建结果。"""
+
+    asset_id: int
+    name: str
+    description: Optional[str] = None
+    system_short: str
+    method: str
+    base_url: str
+    path_template: str
+    enabled: bool
+    owner_user_id: int
+    updated_at: Optional[str] = None
+
+
+class SQLAssetCreateRequest(BaseModel):
+    """创建 SQL 资产及初始版本请求。"""
+
+    name: str = Field(min_length=1)
+    description: Optional[str] = None
+    system_short: str = Field(min_length=1)
+    connection_config: dict[str, Any] = Field(default_factory=dict)
+    whitelist: list[str] = Field(default_factory=list)
+    blacklist: list[str] = Field(default_factory=list)
+    mutation_enabled: bool = False
+
+
+class SQLAssetCreateResponse(BaseModel):
+    """创建 SQL 资产后的最小响应。"""
+
+    asset_id: int
+    version_id: int
+    version_no: int
+    status: str
+
+
+class SQLAssetSummaryResponse(BaseModel):
+    """SQL 资产逻辑对象列表项。"""
+
+    asset_id: int
+    name: str
+    description: Optional[str] = None
+    system_short: str
+    owner_user_id: int
+    current_active_version_id: Optional[int] = None
+    versions_count: int
+    latest_version_id: Optional[int] = None
+    latest_version_no: Optional[int] = None
+    latest_version_status: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+class SQLAssetVersionReviewResponse(BaseModel):
+    """SQL 资产版本审核动作响应。"""
+
+    asset_id: int
+    version_id: int
+    version_no: int
+    status: str
+    reviewed_by: Optional[int] = None
+    reviewed_at: Optional[str] = None
+
+
 class FlowDraftResponse(BaseModel):
     """FlowDraft 详情响应。
 
