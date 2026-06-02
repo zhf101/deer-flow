@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """DeerFlow Health Check (make doctor).
 
-Checks system requirements, configuration, LLM provider, and optional
-components, then prints an actionable report.
+Checks system requirements, configuration, LLM provider, and sandbox
+execution, then prints an actionable report.
 
 Exit codes:
   0 — all required checks passed (warnings allowed)
@@ -439,99 +439,6 @@ def check_llm_auth(config_path: Path) -> list[CheckResult]:
     return results
 
 
-def check_web_search(config_path: Path) -> CheckResult:
-    return check_web_tool(config_path, tool_name="web_search", label="web search configured")
-
-
-def check_web_tool(config_path: Path, *, tool_name: str, label: str) -> CheckResult:
-    """Warn (not fail) if a web capability is not configured."""
-    if not config_path.exists():
-        return CheckResult(label, "skip")
-
-    try:
-        from dotenv import load_dotenv
-
-        env_path = config_path.parent / ".env"
-        if env_path.exists():
-            load_dotenv(env_path, override=False)
-
-        data = _load_yaml_file(config_path)
-
-        tool_uses = [t.get("use", "") for t in data.get("tools", []) if t.get("name") == tool_name]
-        if not tool_uses:
-            return CheckResult(
-                label,
-                "warn",
-                f"no {tool_name} tool in config",
-                fix=f"Run 'make setup' to configure {tool_name}",
-            )
-
-        free_providers = {
-            "web_search": {"ddg_search": "DuckDuckGo (no key needed)"},
-            "web_fetch": {"jina_ai": "Jina AI Reader (no key needed)"},
-        }
-        key_providers = {
-            "web_search": {
-                "tavily": "TAVILY_API_KEY",
-                "infoquest": "INFOQUEST_API_KEY",
-                "exa": "EXA_API_KEY",
-                "firecrawl": "FIRECRAWL_API_KEY",
-            },
-            "web_fetch": {
-                "infoquest": "INFOQUEST_API_KEY",
-                "exa": "EXA_API_KEY",
-                "firecrawl": "FIRECRAWL_API_KEY",
-            },
-        }
-
-        for use in tool_uses:
-            for provider, detail in free_providers.get(tool_name, {}).items():
-                if provider in use:
-                    return CheckResult(label, "ok", detail)
-
-        for use in tool_uses:
-            for provider, var in key_providers.get(tool_name, {}).items():
-                if provider in use:
-                    val = os.environ.get(var)
-                    if val:
-                        return CheckResult(label, "ok", f"{provider} ({var} set)")
-                    return CheckResult(
-                        label,
-                        "warn",
-                        f"{provider} configured but {var} not set",
-                        fix=f"Add {var}=<your-key> to .env, or run 'make setup'",
-                    )
-
-        for use in tool_uses:
-            split = _split_use_path(use)
-            if split is None:
-                return CheckResult(
-                    label,
-                    "fail",
-                    f"invalid use path: {use}",
-                    fix="Use a valid module:path provider from config.example.yaml",
-                )
-            module_name, attr_name = split
-            try:
-                module = import_module(module_name)
-                getattr(module, attr_name)
-            except Exception as exc:
-                return CheckResult(
-                    label,
-                    "fail",
-                    f"provider import failed: {use} ({exc})",
-                    fix="Install the provider dependency or pick a valid provider in `make setup`",
-                )
-
-        return CheckResult(label, "ok")
-    except Exception as exc:
-        return CheckResult(label, "warn", str(exc))
-
-
-def check_web_fetch(config_path: Path) -> CheckResult:
-    return check_web_tool(config_path, tool_name="web_fetch", label="web fetch configured")
-
-
 def check_frontend_env(project_root: Path) -> CheckResult:
     env_path = project_root / "frontend" / ".env"
     if env_path.exists():
@@ -677,10 +584,6 @@ def main() -> int:
         *check_llm_package(config_path),
     ]
     sections.append(("LLM Provider", llm_checks))
-
-    # ── Web Capabilities ─────────────────────────────────────────────────────
-    search_checks = [check_web_search(config_path), check_web_fetch(config_path)]
-    sections.append(("Web Capabilities", search_checks))
 
     # ── Sandbox ──────────────────────────────────────────────────────────────
     sandbox_checks = check_sandbox(config_path)

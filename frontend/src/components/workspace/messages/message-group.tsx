@@ -4,12 +4,10 @@ import {
   ChevronUp,
   CoinsIcon,
   FolderOpenIcon,
-  GlobeIcon,
   LightbulbIcon,
   ListTodoIcon,
   MessageCircleQuestionMarkIcon,
   NotebookPenIcon,
-  SearchIcon,
   SquareTerminalIcon,
   WrenchIcon,
 } from "lucide-react";
@@ -32,13 +30,11 @@ import {
   findToolCallResult,
 } from "@/core/messages/utils";
 import { useRehypeSplitWordsIntoSpans } from "@/core/rehype";
-import { extractTitleFromMarkdown } from "@/core/utils/markdown";
 import { env } from "@/env";
 import { cn } from "@/lib/utils";
 
 import { useArtifacts } from "../artifacts";
 import { FlipDisplay } from "../flip-display";
-import { Tooltip } from "../tooltip";
 
 import { MarkdownContent } from "./markdown-content";
 
@@ -442,108 +438,7 @@ function ToolCall({
       fallback
     );
 
-  if (name === "web_search") {
-    let label: React.ReactNode = t.toolCalls.searchForRelatedInfo;
-    if (typeof args.query === "string") {
-      label = t.toolCalls.searchOnWebFor(args.query);
-    }
-    return (
-      <ChainOfThoughtStep
-        key={id}
-        label={resolveLabel(label)}
-        icon={SearchIcon}
-      >
-        {Array.isArray(result) && (
-          <ChainOfThoughtSearchResults>
-            {result.map((item) => (
-              <ChainOfThoughtSearchResult key={item.url}>
-                <a href={item.url} target="_blank" rel="noopener noreferrer">
-                  {item.title}
-                </a>
-              </ChainOfThoughtSearchResult>
-            ))}
-          </ChainOfThoughtSearchResults>
-        )}
-      </ChainOfThoughtStep>
-    );
-  } else if (name === "image_search") {
-    let label: React.ReactNode = t.toolCalls.searchForRelatedImages;
-    if (typeof args.query === "string") {
-      label = t.toolCalls.searchForRelatedImagesFor(args.query);
-    }
-    const results = (
-      result as {
-        results: {
-          source_url: string;
-          thumbnail_url: string;
-          image_url: string;
-          title: string;
-        }[];
-      }
-    )?.results;
-    return (
-      <ChainOfThoughtStep
-        key={id}
-        label={resolveLabel(label)}
-        icon={SearchIcon}
-      >
-        {Array.isArray(results) && (
-          <ChainOfThoughtSearchResults>
-            {Array.isArray(results) &&
-              results.map((item) => (
-                <Tooltip key={item.image_url} content={item.title}>
-                  <a
-                    className="size-24 overflow-hidden rounded-lg object-cover"
-                    href={item.source_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <div className="bg-accent size-24">
-                      <img
-                        className="size-full object-cover"
-                        src={item.thumbnail_url}
-                        alt={item.title}
-                        width={100}
-                        height={100}
-                      />
-                    </div>
-                  </a>
-                </Tooltip>
-              ))}
-          </ChainOfThoughtSearchResults>
-        )}
-      </ChainOfThoughtStep>
-    );
-  } else if (name === "web_fetch") {
-    const url = (args as { url: string })?.url;
-    let title = url;
-    if (typeof result === "string") {
-      const potentialTitle = extractTitleFromMarkdown(result);
-      if (potentialTitle && potentialTitle.toLowerCase() !== "untitled") {
-        title = potentialTitle;
-      }
-    }
-    return (
-      <ChainOfThoughtStep
-        key={id}
-        label={resolveLabel(t.toolCalls.viewWebPage)}
-        icon={GlobeIcon}
-      >
-        <ChainOfThoughtSearchResult>
-          {url && (
-            <a
-              href={url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="cursor-pointer"
-            >
-              {title}
-            </a>
-          )}
-        </ChainOfThoughtSearchResult>
-      </ChainOfThoughtStep>
-    );
-  } else if (name === "ls") {
+  if (name === "ls") {
     let description: string | undefined = (args as { description: string })
       ?.description;
     if (!description) {

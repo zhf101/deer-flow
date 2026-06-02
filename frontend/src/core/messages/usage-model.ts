@@ -278,17 +278,6 @@ function describeToolCall(
     return t.tokenUsage.subagent(description);
   }
 
-  if (
-    (toolCall.name === "web_search" || toolCall.name === "image_search") &&
-    typeof toolCall.args.query === "string"
-  ) {
-    return t.toolCalls.searchFor(toolCall.args.query);
-  }
-
-  if (toolCall.name === "web_fetch") {
-    return t.toolCalls.viewWebPage;
-  }
-
   if (toolCall.name === "present_files") {
     return t.toolCalls.presentFiles;
   }

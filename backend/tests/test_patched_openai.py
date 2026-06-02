@@ -19,7 +19,7 @@ from deerflow.models.patched_openai import _restore_tool_call_signatures
 RAW_TC_SIGNED = {
     "id": "call_1",
     "type": "function",
-    "function": {"name": "web_fetch", "arguments": '{"url":"http://example.com"}'},
+    "function": {"name": "fetch_page", "arguments": '{"url":"http://example.com"}'},
     "thought_signature": "SIG_A==",
 }
 
@@ -32,7 +32,7 @@ RAW_TC_UNSIGNED = {
 PAYLOAD_TC_1 = {
     "type": "function",
     "id": "call_1",
-    "function": {"name": "web_fetch", "arguments": '{"url":"http://example.com"}'},
+    "function": {"name": "fetch_page", "arguments": '{"url":"http://example.com"}'},
 }
 
 PAYLOAD_TC_2 = {
@@ -81,7 +81,7 @@ def test_tool_call_signature_camel_case():
     raw_camel = {
         "id": "call_1",
         "type": "function",
-        "function": {"name": "web_fetch", "arguments": "{}"},
+        "function": {"name": "fetch_page", "arguments": "{}"},
         "thoughtSignature": "SIG_CAMEL==",
     }
     payload_msg = {"role": "assistant", "content": None, "tool_calls": [PAYLOAD_TC_1.copy()]}
@@ -96,13 +96,13 @@ def test_tool_call_signature_positional_fallback():
     """When ids don't match, falls back to positional matching."""
     raw_no_id = {
         "type": "function",
-        "function": {"name": "web_fetch", "arguments": "{}"},
+        "function": {"name": "fetch_page", "arguments": "{}"},
         "thought_signature": "SIG_POS==",
     }
     payload_tc = {
         "type": "function",
         "id": "call_99",
-        "function": {"name": "web_fetch", "arguments": "{}"},
+        "function": {"name": "fetch_page", "arguments": "{}"},
     }
     payload_msg = {"role": "assistant", "content": None, "tool_calls": [payload_tc]}
     orig = _ai_msg_with_raw_tool_calls([raw_no_id])

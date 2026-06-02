@@ -83,7 +83,6 @@ def _snap_to_line_boundary(text: str, pos: int) -> int:
 _EXT_MAP: dict[str, str] = {
     "bash": "log",
     "bash_tool": "log",
-    "web_fetch": "log",
 }
 
 

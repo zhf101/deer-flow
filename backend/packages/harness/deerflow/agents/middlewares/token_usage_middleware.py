@@ -166,17 +166,6 @@ def _describe_tool_call(tool_call: dict[str, Any], todos: list[Todo]) -> list[di
             }
         ]
 
-    if name in {"web_search", "image_search"}:
-        query = _string_arg(args.get("query"))
-        return [
-            {
-                "kind": "search",
-                "tool_name": name,
-                "query": query,
-                "tool_call_id": tool_call_id,
-            }
-        ]
-
     if name == "present_files":
         return [
             {

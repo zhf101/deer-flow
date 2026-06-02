@@ -48,18 +48,18 @@ logging.getLogger("deerflow.agents.middlewares.tool_error_handling_middleware").
 def _make_ssl_error():
     return SSLError(ssl.SSLEOFError(8, HANDSHAKE_ERROR))
 
-print("[STEP 1] Prepare simulated Tavily SSL handshake failure.")
+print("[STEP 1] Prepare simulated external tool SSL handshake failure.")
 print(f"[INFO] Handshake error payload: {HANDSHAKE_ERROR}")
 
 TOOL_CALLS = [
-    {"name": "web_search", "id": "tc-fail", "args": {"query": "latest agent news"}},
-    {"name": "web_fetch", "id": "tc-ok", "args": {"url": "https://example.com"}},
+    {"name": "lookup_docs", "id": "tc-fail", "args": {"query": "latest agent news"}},
+    {"name": "fetch_page", "id": "tc-ok", "args": {"url": "https://example.com"}},
 ]
 
 
 def _sync_handler(req):
     tool_name = req.tool_call.get("name", "unknown_tool")
-    if tool_name == "web_search":
+    if tool_name == "lookup_docs":
         raise _make_ssl_error()
     return ToolMessage(
         content=f"{tool_name} success",
@@ -71,7 +71,7 @@ def _sync_handler(req):
 
 async def _async_handler(req):
     tool_name = req.tool_call.get("name", "unknown_tool")
-    if tool_name == "web_search":
+    if tool_name == "lookup_docs":
         raise _make_ssl_error()
     return ToolMessage(
         content=f"{tool_name} success",
@@ -139,10 +139,10 @@ def _validate_outputs(label, outputs):
     if second.status != "success":
         print(f"[FAIL] {label}: second tool should be status=success, got {second.status}")
         raise SystemExit(5)
-    if "Error: Tool 'web_search' failed" not in first.text:
+    if "Error: Tool 'lookup_docs' failed" not in first.text:
         print(f"[FAIL] {label}: first tool error text missing")
         raise SystemExit(6)
-    if "web_fetch success" not in second.text:
+    if "fetch_page success" not in second.text:
         print(f"[FAIL] {label}: second tool success text missing")
         raise SystemExit(7)
     print(f"[INFO] {label}: no crash, outputs preserved (error + success).")

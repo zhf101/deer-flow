@@ -197,7 +197,7 @@ class TestToolCallbacks:
         from langchain_core.messages import ToolMessage
 
         j, store = journal_setup
-        tool_msg = ToolMessage(content="results", tool_call_id="call_1", name="web_search")
+        tool_msg = ToolMessage(content="results", tool_call_id="call_1", name="lookup_docs")
         j.on_tool_end(tool_msg, run_id=uuid4())
         await j.flush()
         messages = await store.list_messages("t1")
@@ -225,7 +225,7 @@ class TestToolCallbacks:
     async def test_on_tool_error_no_crash(self, journal_setup):
         """on_tool_error should not crash (no event emitted by default)."""
         j, store = journal_setup
-        j.on_tool_error(TimeoutError("timeout"), run_id=uuid4(), name="web_fetch")
+        j.on_tool_error(TimeoutError("timeout"), run_id=uuid4(), name="fetch_page")
         await j.flush()
         # Base implementation does not emit tool_error — just verify no crash
         events = await store.list_events("t1", "r1")

@@ -1671,10 +1671,10 @@ class TestScenarioMultiTurnConversation:
             content="",
             id="ai-1",
             tool_calls=[
-                {"name": "web_search", "args": {"query": "LangGraph"}, "id": "tc-1"},
+                {"name": "lookup_docs", "args": {"query": "LangGraph"}, "id": "tc-1"},
             ],
         )
-        tool_r = ToolMessage(content="LangGraph is a framework...", id="tm-1", tool_call_id="tc-1", name="web_search")
+        tool_r = ToolMessage(content="LangGraph is a framework...", id="tm-1", tool_call_id="tc-1", name="lookup_docs")
         ai_final = AIMessage(content="LangGraph is a framework for building agents.", id="ai-2")
 
         chunks = [
@@ -1698,7 +1698,7 @@ class TestScenarioMultiTurnConversation:
         # Verify tool_call data
         tc_events = _tool_call_events(events)
         assert len(tc_events) == 1
-        assert tc_events[0].data["tool_calls"][0]["name"] == "web_search"
+        assert tc_events[0].data["tool_calls"][0]["name"] == "lookup_docs"
         assert tc_events[0].data["tool_calls"][0]["args"] == {"query": "LangGraph"}
 
         # Verify tool_result data
@@ -2249,8 +2249,8 @@ class TestScenarioEdgeCases:
             content="",
             id="ai-1",
             tool_calls=[
-                {"name": "web_search", "args": {"q": "a"}, "id": "tc-1"},
-                {"name": "web_search", "args": {"q": "b"}, "id": "tc-2"},
+                {"name": "lookup_docs", "args": {"q": "a"}, "id": "tc-1"},
+                {"name": "lookup_docs", "args": {"q": "b"}, "id": "tc-2"},
                 {"name": "bash", "args": {"cmd": "echo hi"}, "id": "tc-3"},
             ],
         )

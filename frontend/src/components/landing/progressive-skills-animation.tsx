@@ -280,7 +280,7 @@ export default function ProgressiveSkillsAnimation() {
       { name: "computer-science.md", type: "file", indent: 1 },
       { name: "physics.md", type: "file", indent: 1 },
       {
-        name: "frontend-design",
+        name: "code-documentation",
         type: "folder",
         indent: 0,
         highlight: phase === "scanning",
@@ -626,7 +626,7 @@ export default function ProgressiveSkillsAnimation() {
                       <div className="mb-3 text-zinc-300">🔨 Building...</div>
                       <div className="mb-3 flex items-center gap-2 pl-4 text-zinc-400">
                         <FileText size={16} />
-                        <span>Loading frontend-design/SKILL.md...</span>
+                        <span>Loading code-documentation/SKILL.md...</span>
                       </div>
                       <div className="space-y-2 pl-4">
                         {workspaceFiles.slice(0, buildIndex).map((file) => (

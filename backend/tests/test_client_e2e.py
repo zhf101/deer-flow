@@ -674,10 +674,10 @@ class TestConfigManagement:
     def test_get_skill_found(self, e2e_env):
         """get_skill() returns skill info for a known public skill."""
         c = DeerFlowClient(checkpointer=None, thinking_enabled=False)
-        # 'deep-research' is a built-in public skill
-        skill = c.get_skill("deep-research")
+        # 'bootstrap' is a built-in public skill
+        skill = c.get_skill("bootstrap")
         if skill is not None:
-            assert skill["name"] == "deep-research"
+            assert skill["name"] == "bootstrap"
             assert "description" in skill
             assert "enabled" in skill
 

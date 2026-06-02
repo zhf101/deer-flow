@@ -16,7 +16,7 @@ from deerflow.config.model_config import ModelConfig
 from deerflow.config.sandbox_config import SandboxConfig
 
 
-def _request(name: str = "web_search", tool_call_id: str | None = "tc-1"):
+def _request(name: str = "lookup_docs", tool_call_id: str | None = "tc-1"):
     tool_call = {"name": name}
     if tool_call_id is not None:
         tool_call["id"] = tool_call_id
@@ -149,7 +149,7 @@ def test_build_subagent_runtime_middlewares_threads_app_config_to_llm_middleware
 def test_wrap_tool_call_passthrough_on_success():
     middleware = ToolErrorHandlingMiddleware()
     req = _request()
-    expected = ToolMessage(content="ok", tool_call_id="tc-1", name="web_search")
+    expected = ToolMessage(content="ok", tool_call_id="tc-1", name="lookup_docs")
 
     result = middleware.wrap_tool_call(req, lambda _req: expected)
 
@@ -158,7 +158,7 @@ def test_wrap_tool_call_passthrough_on_success():
 
 def test_wrap_tool_call_returns_error_tool_message_on_exception():
     middleware = ToolErrorHandlingMiddleware()
-    req = _request(name="web_search", tool_call_id="tc-42")
+    req = _request(name="lookup_docs", tool_call_id="tc-42")
 
     def _boom(_req):
         raise RuntimeError("network down")
@@ -167,9 +167,9 @@ def test_wrap_tool_call_returns_error_tool_message_on_exception():
 
     assert isinstance(result, ToolMessage)
     assert result.tool_call_id == "tc-42"
-    assert result.name == "web_search"
+    assert result.name == "lookup_docs"
     assert result.status == "error"
-    assert "Tool 'web_search' failed" in result.text
+    assert "Tool 'lookup_docs' failed" in result.text
     assert "network down" in result.text
 
 

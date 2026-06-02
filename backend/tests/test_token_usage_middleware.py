@@ -143,7 +143,7 @@ class TestTokenUsageMiddleware:
             },
         ]
 
-    def test_annotates_subagent_and_search_steps(self):
+    def test_annotates_subagent_and_generic_tool_steps(self):
         middleware = TokenUsageMiddleware()
         message = AIMessage(
             content="",
@@ -157,9 +157,9 @@ class TestTokenUsageMiddleware:
                     },
                 },
                 {
-                    "id": "web_search:1",
-                    "name": "web_search",
-                    "args": {"query": "LangGraph useStream messages tuple"},
+                    "id": "lookup_docs:1",
+                    "name": "lookup_docs",
+                    "args": {"description": "Find LangGraph useStream message tuple docs"},
                 },
             ],
         )
@@ -178,10 +178,10 @@ class TestTokenUsageMiddleware:
                 "tool_call_id": "task:1",
             },
             {
-                "kind": "search",
-                "tool_name": "web_search",
-                "query": "LangGraph useStream messages tuple",
-                "tool_call_id": "web_search:1",
+                "kind": "tool",
+                "tool_name": "lookup_docs",
+                "description": "Find LangGraph useStream message tuple docs",
+                "tool_call_id": "lookup_docs:1",
             },
         ]
 

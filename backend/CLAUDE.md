@@ -47,7 +47,7 @@ deer-flow/
 │   │           ├── models/            # Model factory with thinking/vision support
 │   │           ├── skills/            # Skills discovery, loading, parsing
 │   │           ├── config/            # Configuration system (app, model, sandbox, tool, etc.)
-│   │           ├── community/         # Community tools (tavily, jina_ai, firecrawl, image_search, aio_sandbox)
+│   │           ├── community/         # Community providers, such as aio_sandbox
 │   │           ├── reflection/        # Dynamic module loading (resolve_variable, resolve_class)
 │   │           ├── utils/             # Utilities (network, readability)
 │   │           └── client.py          # Embedded Python client (DeerFlowClient)
@@ -55,7 +55,6 @@ deer-flow/
 │   │   ├── gateway/           # FastAPI Gateway API
 │   │   │   ├── app.py         # FastAPI application
 │   │   │   └── routers/       # FastAPI route modules (models, mcp, memory, skills, uploads, threads, artifacts, agents, suggestions, channels)
-│   │   └── channels/          # IM platform integrations
 │   ├── tests/                 # Test suite
 │   └── docs/                  # Documentation
 ├── frontend/                   # Next.js frontend application
@@ -326,18 +325,11 @@ Proxied through nginx: `/api/langgraph/*` → Gateway LangGraph-compatible runti
 4. **Subagent tool** (if enabled):
    - `task` - Delegate to subagent (description, prompt, subagent_type)
 
-**Community tools** (`packages/harness/deerflow/community/`):
-- `tavily/` - Web search (5 results default) and web fetch (4KB limit)
-- `jina_ai/` - Web fetch via Jina reader API with readability extraction
-- `firecrawl/` - Web scraping via Firecrawl API
-
 **ACP agent tools**:
 - `invoke_acp_agent` - Invokes external ACP-compatible agents from `config.yaml`
 - ACP launchers must be real ACP adapters. The standard `codex` CLI is not ACP-compatible by itself; configure a wrapper such as `npx -y @zed-industries/codex-acp` or an installed `codex-acp` binary
 - Missing ACP executables now return an actionable error message instead of a raw `[Errno 2]`
 - Each ACP agent uses a per-thread workspace at `{base_dir}/users/{user_id}/threads/{thread_id}/acp-workspace/`. The workspace is accessible to the lead agent via the virtual path `/mnt/acp-workspace/` (read-only). In docker sandbox mode, the directory is volume-mounted into the container at `/mnt/acp-workspace` (read-only); in local sandbox mode, path translation is handled by `tools.py`
-- `image_search/` - Image search via DuckDuckGo
-
 ### MCP System (`packages/harness/deerflow/mcp/`)
 
 - Uses `langchain-mcp-adapters` `MultiServerMCPClient` for multi-server management

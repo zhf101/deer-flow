@@ -342,7 +342,7 @@ client = DeerFlowClient(config={
     "models": [{"name": "gpt-4o", "use": "langchain_openai:ChatOpenAI", "model": "gpt-4o", "api_key": "sk-..."}],
     "tools": [
         {"name": "bash", "group": "bash", "use": "deerflow.sandbox.tools:bash_tool"},
-        {"name": "web_search", "group": "web", "use": "deerflow.community.tavily.tools:web_search_tool"},
+        {"name": "grep", "group": "file:read", "use": "deerflow.sandbox.tools:grep_tool"},
     ],
     "memory": {"enabled": True, "max_facts": 50},
     "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider"},

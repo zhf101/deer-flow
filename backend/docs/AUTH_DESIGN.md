@@ -243,15 +243,15 @@ agent 在 sandbox 内看到统一虚拟路径：
 
 旧布局 `{base_dir}/agents/{agent_name}/` 只作为只读兼容回退。更新或删除旧共享 agent 会要求先运行迁移脚本。
 
-## 内部调用与 IM 渠道
+## 内部服务调用
 
-IM channel worker 不是浏览器用户，不持有浏览器 cookie。它们通过 Gateway 内部认证：
+非浏览器内部服务不持有浏览器 cookie。它们通过 Gateway 内部认证：
 
 - 请求带 `X-DeerFlow-Internal-Token`。
 - 同时带匹配的 CSRF cookie/header。
 - 服务端识别为内部用户，`id="default"`、`system_role="internal"`。
 
-这意味着 channel 产生的数据默认进入 `default` 用户桶。这个选择适合“平台级 bot 身份”，但不是“每个 IM 用户单独隔离”。如果后续要做到外部 IM 用户隔离，需要把外部 platform user 映射到 DeerFlow user，并让 channel manager 设置对应的 scoped identity。
+这意味着内部服务产生的数据默认进入 `default` 用户桶。这个选择适合平台级后台任务；如果后续要做外部用户级隔离，应由调用方显式映射 DeerFlow user，并设置对应的 scoped identity。
 
 ## LangGraph-compatible 认证
 
@@ -304,7 +304,6 @@ PYTHONPATH=. python scripts/migrate_user_isolation.py --user-id <target-user-id>
 | 无 admin 时注册普通用户 | 允许注册普通 `user` | 如产品要求先初始化 admin，给 `/register` 加 gate |
 | 登录限速 | 进程内 dict，单 worker 精确，多 worker 近似 | Redis / DB-backed rate limiter |
 | OAuth | 端点占位，未实现 | 接入 provider 并统一 `token_version` / role 语义 |
-| IM 用户隔离 | channel 使用 `default` 内部用户 | 建立外部用户到 DeerFlow user 的映射 |
 | 绝对 memory path | 显式共享 memory | UI / docs 明确提示 opt-out 风险 |
 
 ## 相关文件
@@ -324,7 +323,6 @@ PYTHONPATH=. python scripts/migrate_user_isolation.py --user-id <target-user-id>
 | `deerflow/agents/middlewares/thread_data_middleware.py` | run 时解析用户线程目录 |
 | `deerflow/agents/memory/storage.py` | per-user memory storage |
 | `deerflow/config/agents_config.py` | per-user custom agents |
-| `app/channels/manager.py` | IM channel 内部认证调用 |
 | `scripts/migrate_user_isolation.py` | legacy 数据迁移到 per-user layout |
 | `.deer-flow/data/deerflow.db` | 统一 SQLite 数据库，包含 users / threads_meta / runs / feedback 等表 |
 | `.deer-flow/users/{user_id}/agents/{agent_name}/` | 用户自定义 agent 配置、SOUL 和 agent memory |

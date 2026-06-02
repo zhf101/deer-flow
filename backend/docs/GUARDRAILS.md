@@ -103,7 +103,7 @@ guardrails:
   provider:
     use: deerflow.guardrails.builtin:AllowlistProvider
     config:
-      allowed_tools: ["web_search", "read_file", "ls"]
+      allowed_tools: ["read_file", "ls", "grep"]
 ```
 
 **Try it:**
@@ -293,9 +293,6 @@ These are the tool names your provider will see in `request.tool_name`:
 | `str_replace` | Edit a file (find and replace) |
 | `read_file` | Read file content |
 | `ls` | List directory |
-| `web_search` | Web search query |
-| `web_fetch` | Fetch URL content |
-| `image_search` | Image search |
 | `present_files` | Present file to user |
 | `view_image` | Display image |
 | `ask_clarification` | Ask user a question |

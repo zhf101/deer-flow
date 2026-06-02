@@ -704,7 +704,7 @@ class TestSkillAllowedTools:
 
         final_state = {"messages": [msg.human("Task"), msg.ai("Done", "msg-1")]}
         mock_agent.astream = lambda *args, **kwargs: async_iterator([final_state])
-        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("web_search")]
+        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("grep")]
         executor = SubagentExecutor(config=base_config, tools=tools, thread_id="test-thread")
 
         async def load_skills():
@@ -715,7 +715,7 @@ class TestSkillAllowedTools:
 
         create_agent_mock.assert_called_once()
         assert [tool.name for tool in create_agent_mock.call_args.args[0]] == ["bash", "read_file"]
-        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "web_search"]
+        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "grep"]
 
     @pytest.mark.anyio
     async def test_all_missing_allowed_tools_preserves_legacy_allow_all(self, classes, base_config, mock_agent, msg):
@@ -723,7 +723,7 @@ class TestSkillAllowedTools:
 
         final_state = {"messages": [msg.human("Task"), msg.ai("Done", "msg-1")]}
         mock_agent.astream = lambda *args, **kwargs: async_iterator([final_state])
-        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("web_search")]
+        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("grep")]
         executor = SubagentExecutor(config=base_config, tools=tools, thread_id="test-thread")
 
         async def load_skills():
@@ -732,8 +732,8 @@ class TestSkillAllowedTools:
         with patch.object(executor, "_load_skills", load_skills), patch.object(executor, "_create_agent", return_value=mock_agent) as create_agent_mock:
             await executor._aexecute("Task")
 
-        assert [tool.name for tool in create_agent_mock.call_args.args[0]] == ["bash", "read_file", "web_search"]
-        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "web_search"]
+        assert [tool.name for tool in create_agent_mock.call_args.args[0]] == ["bash", "read_file", "grep"]
+        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "grep"]
 
     @pytest.mark.anyio
     async def test_mixed_missing_allowed_tools_does_not_disable_explicit_restrictions(self, classes, base_config, mock_agent, msg):
@@ -741,7 +741,7 @@ class TestSkillAllowedTools:
 
         final_state = {"messages": [msg.human("Task"), msg.ai("Done", "msg-1")]}
         mock_agent.astream = lambda *args, **kwargs: async_iterator([final_state])
-        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("web_search")]
+        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("grep")]
         executor = SubagentExecutor(config=base_config, tools=tools, thread_id="test-thread")
 
         async def load_skills():
@@ -751,7 +751,7 @@ class TestSkillAllowedTools:
             await executor._aexecute("Task")
 
         assert [tool.name for tool in create_agent_mock.call_args.args[0]] == ["bash"]
-        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "web_search"]
+        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "grep"]
 
     @pytest.mark.anyio
     async def test_mixed_missing_allowed_tools_order_does_not_disable_explicit_restrictions(self, classes, base_config, mock_agent, msg):
@@ -759,7 +759,7 @@ class TestSkillAllowedTools:
 
         final_state = {"messages": [msg.human("Task"), msg.ai("Done", "msg-1")]}
         mock_agent.astream = lambda *args, **kwargs: async_iterator([final_state])
-        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("web_search")]
+        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("grep")]
         executor = SubagentExecutor(config=base_config, tools=tools, thread_id="test-thread")
 
         async def load_skills():
@@ -769,7 +769,7 @@ class TestSkillAllowedTools:
             await executor._aexecute("Task")
 
         assert [tool.name for tool in create_agent_mock.call_args.args[0]] == ["bash"]
-        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "web_search"]
+        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "grep"]
 
     @pytest.mark.anyio
     async def test_empty_allowed_tools_contributes_no_tools(self, classes, base_config, mock_agent, msg, caplog):
@@ -777,7 +777,7 @@ class TestSkillAllowedTools:
 
         final_state = {"messages": [msg.human("Task"), msg.ai("Done", "msg-1")]}
         mock_agent.astream = lambda *args, **kwargs: async_iterator([final_state])
-        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("web_search")]
+        tools = [NamedTool("bash"), NamedTool("read_file"), NamedTool("grep")]
         executor = SubagentExecutor(config=base_config, tools=tools, thread_id="test-thread")
 
         async def load_skills():
@@ -787,7 +787,7 @@ class TestSkillAllowedTools:
             await executor._aexecute("Task")
 
         assert [tool.name for tool in create_agent_mock.call_args.args[0]] == ["read_file"]
-        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "web_search"]
+        assert [tool.name for tool in executor.tools] == ["bash", "read_file", "grep"]
         assert "declared empty allowed-tools" in caplog.text
 
     @pytest.mark.anyio

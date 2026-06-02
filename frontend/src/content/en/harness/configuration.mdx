@@ -65,8 +65,8 @@ sandbox:
   use: deerflow.sandbox.local:LocalSandboxProvider
 
 tools:
-  - use: deerflow.community.tavily.tools:web_search_tool
-    api_key: $TAVILY_API_KEY
+  - use: deerflow.sandbox.tools:read_file_tool
+  - use: deerflow.sandbox.tools:grep_tool
 ```
 
 This pattern is how DeerFlow achieves pluggability without hardcoding class references.
@@ -145,10 +145,9 @@ sandbox:
   use: deerflow.sandbox.local:LocalSandboxProvider
 
 tools:
-  - use: deerflow.community.ddg_search.tools:web_search_tool
-  - use: deerflow.community.jina_ai.tools:web_fetch_tool
   - use: deerflow.sandbox.tools:ls_tool
   - use: deerflow.sandbox.tools:read_file_tool
+  - use: deerflow.sandbox.tools:grep_tool
   - use: deerflow.sandbox.tools:write_file_tool
   - use: deerflow.sandbox.tools:bash_tool
 ```

@@ -22,10 +22,10 @@ Each skill lives in its own subdirectory under `skills/public/` (or `skills/cust
 <FileTree>
   <FileTree.Folder name="skills/" defaultOpen>
     <FileTree.Folder name="public/" defaultOpen>
-      <FileTree.Folder name="deep-research/" defaultOpen>
+      <FileTree.Folder name="bootstrap/" defaultOpen>
         <FileTree.File name="SKILL.md" />
       </FileTree.Folder>
-      <FileTree.Folder name="data-analysis/">
+      <FileTree.Folder name="code-documentation/">
         <FileTree.File name="SKILL.md" />
       </FileTree.Folder>
       <FileTree.Folder name="chart-visualization/">
@@ -44,23 +44,13 @@ The `SKILL.md` file is the authoritative definition of the skill. It is parsed b
 
 DeerFlow ships with the following public skills:
 
-| Skill                          | Description                                                                      |
-| ------------------------------ | -------------------------------------------------------------------------------- |
-| `deep-research`                | Multi-step research with source gathering, cross-checking, and structured output |
-| `data-analysis`                | Data exploration, statistical analysis, and insight generation                   |
-| `chart-visualization`          | Chart and graph creation from data                                               |
-| `ppt-generation`               | Presentation slide generation                                                    |
-| `image-generation`             | AI image generation workflows                                                    |
-| `code-documentation`           | Automated code documentation generation                                          |
-| `newsletter-generation`        | Newsletter content creation                                                      |
-| `podcast-generation`           | Podcast script and outline generation                                            |
-| `academic-paper-review`        | Structured academic paper analysis                                               |
-| `consulting-analysis`          | Business consulting frameworks and analysis                                      |
-| `systematic-literature-review` | Literature review methodology and synthesis                                      |
-| `github-deep-research`         | Repository and code deep-dive research                                           |
-| `frontend-design`              | Frontend design and UI workflow                                                  |
-| `web-design-guidelines`        | Web design standards and review                                                  |
-| `video-generation`             | Video content planning and generation                                            |
+| Skill                    | Description                                        |
+| ------------------------ | -------------------------------------------------- |
+| `bootstrap`              | Agent bootstrap and initialization workflow         |
+| `find-skills`            | Discover and install skills from the community      |
+| `skill-creator`          | Guide for creating effective custom skills          |
+| `code-documentation`     | Automated code documentation generation             |
+| `chart-visualization`    | Chart and graph creation from data                  |
 
 ## Skill lifecycle
 
@@ -124,8 +114,8 @@ A custom agent can be restricted to a specific subset of skills. In the agent's 
 # agents/my-researcher/config.yaml
 name: my-researcher
 skills:
-  - deep-research
-  - academic-paper-review
+  - code-documentation
+  - chart-visualization
   # Omit all other skills
 ```
 

@@ -226,7 +226,7 @@ def _build_subagent_section(max_concurrent: int, *, app_config: AppConfig | None
     # Dynamically build subagent type descriptions from registry (aligned with Codex's
     # agent_type_description pattern where all registered roles are listed in the tool spec).
     available_subagents = _build_available_subagents_description(available_names, bash_available, app_config=app_config)
-    direct_tool_examples = "bash, ls, read_file, web_search, etc." if bash_available else "ls, read_file, web_search, etc."
+    direct_tool_examples = "bash, ls, read_file, grep, etc." if bash_available else "ls, read_file, grep, etc."
     direct_execution_example = (
         '# User asks: "Run the tests"\n# Thinking: Cannot decompose into parallel sub-tasks\n# → Execute directly\n\nbash("npm test")  # Direct execution, not task()'
         if bash_available
@@ -475,9 +475,9 @@ You: "Deploying to staging..." [proceed]
 </response_style>
 
 <citations>
-**CRITICAL: Always include citations when using web search results**
+**CRITICAL: Always include citations when using external sources**
 
-- **When to Use**: MANDATORY after web_search, web_fetch, or any external information source
+- **When to Use**: MANDATORY after using any external information source
 - **Format**: Use Markdown link format `[citation:TITLE](URL)` immediately after the claim
 - **Placement**: Inline citations should appear right after the sentence or claim they support
 - **Sources Section**: Also collect all citations in a "Sources" section at the end of reports
@@ -525,7 +525,7 @@ combined with a FastAPI gateway for REST API access [citation:FastAPI](https://f
 - ✅ RIGHT in Sources: `[GitHub Repository](https://github.com/bytedance/deer-flow) - 官方源代码和文档`
 
 **WORKFLOW for Research Tasks:**
-1. Use web_search to find sources → Extract {{title, url, snippet}} from results
+1. Gather sources with the available tools → Extract {{title, url, snippet}} from results
 2. Write content with inline citations: `claim [citation:Title](url)`
 3. Collect all citations in a "Sources" section at the end
 4. NEVER write claims without citations when sources are available

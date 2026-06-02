@@ -16,7 +16,7 @@
 #   DEER_FLOW_DOCKER_SOCKET          — Docker socket path, default /var/run/docker.sock
 #   DEER_FLOW_REPO_ROOT              — repo root (used for skills host path in DooD)
 #   BETTER_AUTH_SECRET               — required for frontend auth/session security
-#   DEER_FLOW_INTERNAL_AUTH_TOKEN    — shared internal Gateway auth token for multi-worker IM channels
+#   DEER_FLOW_INTERNAL_AUTH_TOKEN    — shared internal Gateway auth token for internal services
 #
 # LangSmith tracing is disabled by default (LANGSMITH_TRACING=false).
 # Set LANGSMITH_TRACING=true and LANGSMITH_API_KEY in .env to enable it.

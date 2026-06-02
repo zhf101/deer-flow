@@ -412,4 +412,4 @@ After generation:
 - For large codebases, prioritize documenting the public API surface and key abstractions first
 - Documentation should be written in the same language as the project's existing docs; default to English if none exist
 - When generating changelogs, use the [Keep a Changelog](https://keepachangelog.com/) format
-- This skill works well in combination with the `deep-research` skill for documenting third-party integrations or dependencies
+- For documenting third-party integrations or dependencies, use web search and web fetch tools to gather up-to-date information

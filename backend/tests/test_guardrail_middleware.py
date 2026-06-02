@@ -75,24 +75,24 @@ class TestAllowlistProvider:
 
     def test_denied_tools_allows_unlisted(self):
         provider = AllowlistProvider(denied_tools=["bash"])
-        req = GuardrailRequest(tool_name="web_search", tool_input={})
+        req = GuardrailRequest(tool_name="lookup_docs", tool_input={})
         decision = provider.evaluate(req)
         assert decision.allow is True
 
     def test_allowed_tools_blocks_unlisted(self):
-        provider = AllowlistProvider(allowed_tools=["web_search", "read_file"])
+        provider = AllowlistProvider(allowed_tools=["lookup_docs", "read_file"])
         req = GuardrailRequest(tool_name="bash", tool_input={})
         decision = provider.evaluate(req)
         assert decision.allow is False
 
     def test_allowed_tools_allows_listed(self):
-        provider = AllowlistProvider(allowed_tools=["web_search"])
-        req = GuardrailRequest(tool_name="web_search", tool_input={})
+        provider = AllowlistProvider(allowed_tools=["lookup_docs"])
+        req = GuardrailRequest(tool_name="lookup_docs", tool_input={})
         decision = provider.evaluate(req)
         assert decision.allow is True
 
     def test_both_allowed_and_denied(self):
-        provider = AllowlistProvider(allowed_tools=["bash", "web_search"], denied_tools=["bash"])
+        provider = AllowlistProvider(allowed_tools=["bash", "lookup_docs"], denied_tools=["bash"])
         # bash is in both: allowlist passes, denylist blocks
         req = GuardrailRequest(tool_name="bash", tool_input={})
         decision = provider.evaluate(req)
@@ -111,7 +111,7 @@ class TestAllowlistProvider:
 class TestGuardrailMiddleware:
     def test_allowed_tool_passes_through(self):
         mw = GuardrailMiddleware(_AllowAllProvider())
-        req = _make_tool_call_request("web_search")
+        req = _make_tool_call_request("lookup_docs")
         expected = MagicMock()
         handler = MagicMock(return_value=expected)
         result = mw.wrap_tool_call(req, handler)
@@ -206,7 +206,7 @@ class TestGuardrailMiddleware:
 
     def test_async_allowed(self):
         mw = GuardrailMiddleware(_AllowAllProvider())
-        req = _make_tool_call_request("web_search")
+        req = _make_tool_call_request("lookup_docs")
         expected = MagicMock()
 
         async def handler(r):

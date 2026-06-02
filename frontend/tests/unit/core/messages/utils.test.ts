@@ -32,13 +32,13 @@ test("aggregates token usage messages once per assistant turn", () => {
       id: "ai-1",
       type: "ai",
       content: "",
-      tool_calls: [{ id: "tool-1", name: "web_search", args: {} }],
+      tool_calls: [{ id: "tool-1", name: "lookup_docs", args: {} }],
       usage_metadata: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
     },
     {
       id: "tool-1-result",
       type: "tool",
-      name: "web_search",
+      name: "lookup_docs",
       tool_call_id: "tool-1",
       content: "[]",
     },
@@ -415,7 +415,7 @@ test("does not mark a completed assistant group streaming from a later processin
       id: "ai-2",
       type: "ai",
       content: "",
-      tool_calls: [{ id: "tool-1", name: "web_search", args: {} }],
+      tool_calls: [{ id: "tool-1", name: "lookup_docs", args: {} }],
     },
   ] as Message[];
   const groups = getMessageGroups(messages);

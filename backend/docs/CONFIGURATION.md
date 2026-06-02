@@ -204,7 +204,6 @@ Organize tools into logical groups:
 
 ```yaml
 tool_groups:
-  - name: web          # Web browsing and search
   - name: file:read    # Read-only file operations
   - name: file:write   # Write file operations
   - name: bash         # Shell command execution
@@ -216,18 +215,16 @@ Configure specific tools available to the agent:
 
 ```yaml
 tools:
-  - name: web_search
-    group: web
-    use: deerflow.community.tavily.tools:web_search_tool
-    max_results: 5
-    # api_key: $TAVILY_API_KEY  # Optional
+  - name: read_file
+    group: file:read
+    use: deerflow.sandbox.tools:read_file_tool
 ```
 
 **Built-in Tools**:
-- `web_search` - Search the web (DuckDuckGo, Tavily, Exa, InfoQuest, Firecrawl)
-- `web_fetch` - Fetch web pages (Jina AI, Exa, InfoQuest, Firecrawl)
 - `ls` - List directory contents
 - `read_file` - Read file contents
+- `glob` - Find files by glob pattern
+- `grep` - Search file contents
 - `write_file` - Write file contents
 - `str_replace` - String replacement in files
 - `bash` - Execute bash commands
@@ -330,14 +327,6 @@ title:
   model_name: null  # Use first model in list
 ```
 
-### GitHub API Token (Optional for GitHub Deep Research Skill)
-
-The default GitHub API rate limits are quite restrictive. For frequent project research, we recommend configuring a personal access token (PAT) with read-only permissions.
-
-**Configuration Steps**:
-1. Uncomment the `GITHUB_TOKEN` line in the `.env` file and add your personal access token
-2. Restart the DeerFlow service to apply changes
-
 ## Environment Variables
 
 DeerFlow supports environment variable substitution using the `$` prefix:
@@ -353,7 +342,6 @@ models:
 - `DEEPSEEK_API_KEY` - DeepSeek API key
 - `MIMO_API_KEY` - Xiaomi MiMo API key
 - `NOVITA_API_KEY` - Novita API key (OpenAI-compatible endpoint)
-- `TAVILY_API_KEY` - Tavily search API key
 - `DEER_FLOW_PROJECT_ROOT` - Project root for relative runtime paths
 - `DEER_FLOW_CONFIG_PATH` - Custom config file path
 - `DEER_FLOW_EXTENSIONS_CONFIG_PATH` - Custom extensions config file path

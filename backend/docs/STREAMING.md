@@ -6,7 +6,7 @@
 
 ## TL;DR
 
-- DeerFlow 有**两条并行**的流式路径：**Gateway 路径**（async / HTTP SSE / JSON 序列化）服务浏览器和 IM 渠道；**DeerFlowClient 路径**（sync / in-process / 原生 LangChain 对象）服务 Jupyter、脚本、测试。它们**无法合并**——消费者模型不同。
+- DeerFlow 有**两条并行**的流式路径：**Gateway 路径**（async / HTTP SSE / JSON 序列化）服务浏览器和 HTTP SDK 客户端；**DeerFlowClient 路径**（sync / in-process / 原生 LangChain 对象）服务 Jupyter、脚本、测试。它们**无法合并**——消费者模型不同。
 - 两条路径都从 `create_agent()` 工厂出发，核心都是订阅 LangGraph 的 `stream_mode=["values", "messages", "custom"]`。`values` 是节点级 state 快照，`messages` 是 LLM token 级 delta，`custom` 是显式 `StreamWriter` 事件。**这三种模式不是详细程度的梯度，是三个独立的事件源**，要 token 流就必须显式订阅 `messages`。
 - 嵌入式 client 为每个 `stream()` 调用维护三个 `set[str]`：`seen_ids` / `streamed_ids` / `counted_usage_ids`。三者看起来相似但管理**三个独立的不变式**，不能合并。
 
@@ -95,7 +95,7 @@ Application                    HTTP / SSE                    LangGraph Graph
 - **Platform SDK 层**（`langgraph-sdk` HTTP client）：跨进程 HTTP 契约，mode 叫 **`"messages-tuple"`**。
 - **Gateway worker** 显式做翻译：`if m == "messages-tuple": lg_modes.append("messages")`（`runtime/runs/worker.py:117-121`）。
 
-**后果**：`DeerFlowClient.stream()` 直接调 `agent.stream()`（Graph 层），所以必须传 `"messages"`。`app/channels/manager.py` 通过 `langgraph-sdk` 走 HTTP SDK，所以传 `"messages-tuple"`。**这两个字符串不能互相替代**，也不能抽成"一个共享常量"——它们是不同协议层的 type alias，共享只会让某一层说不是它母语的话。
+**后果**：`DeerFlowClient.stream()` 直接调 `agent.stream()`（Graph 层），所以必须传 `"messages"`。前端和其他 `langgraph-sdk` HTTP 客户端走 Platform SDK 层，所以传 `"messages-tuple"`。**这两个字符串不能互相替代**，也不能抽成"一个共享常量"——它们是不同协议层的 type alias，共享只会让某一层说不是它母语的话。
 
 ---
 
@@ -345,7 +345,5 @@ assert "messages" in agent.stream.call_args.kwargs["stream_mode"]
 | HTTP SSE 帧输出 | `app/gateway/services.py::sse_consumer` / `format_sse` |
 | 序列化到 wire 格式 | `packages/harness/deerflow/runtime/serialization.py` |
 | LangGraph mode 命名翻译 | `packages/harness/deerflow/runtime/runs/worker.py:117-121` |
-| 飞书渠道的增量卡片更新 | `app/channels/manager.py::_handle_streaming_chat` |
-| Channels 自带的 delta/cumulative 防御性累加 | `app/channels/manager.py::_merge_stream_text` |
 | Frontend useStream 支持的 mode 集合 | `frontend/src/core/api/stream-mode.ts` |
 | 核心回归测试 | `backend/tests/test_client.py::TestStream::test_messages_mode_emits_token_deltas` |

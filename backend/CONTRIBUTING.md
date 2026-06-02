@@ -110,10 +110,7 @@ backend/src/
 │   ├── extensions_config.py # Extensions config
 │   └── summarization_config.py
 │
-├── community/               # Community tools
-│   ├── tavily/             # Tavily web search
-│   ├── jina/               # Jina web fetch
-│   ├── firecrawl/          # Firecrawl scraping
+├── community/               # Community providers
 │   └── aio_sandbox/        # Docker sandbox
 │
 ├── reflection/              # Dynamic loading
@@ -266,7 +263,7 @@ Include in your PR description:
 
 ### Adding New Tools
 
-1. Create tool in `packages/harness/deerflow/tools/builtins/` or `packages/harness/deerflow/community/`:
+1. Create tool in `packages/harness/deerflow/tools/builtins/` or a custom integration module:
 
 ```python
 # packages/harness/deerflow/tools/builtins/my_tool.py

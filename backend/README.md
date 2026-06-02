@@ -44,7 +44,7 @@ The single LangGraph agent (`lead_agent`) is the runtime entry point, created vi
 
 - **Dynamic model selection** with thinking and vision support
 - **Middleware chain** for cross-cutting concerns (9 middlewares)
-- **Tool system** with sandbox, MCP, community, and built-in tools
+- **Tool system** with sandbox, MCP, and built-in tools
 - **Subagent delegation** for parallel task execution
 - **System prompt** with skills injection, memory context, and working directory guidance
 
@@ -101,7 +101,6 @@ LLM-powered persistent context retention across conversations:
 |----------|-------|
 | **Sandbox** | `bash`, `ls`, `read_file`, `write_file`, `str_replace` |
 | **Built-in** | `present_files`, `ask_clarification`, `view_image`, `task` (subagent) |
-| **Community** | Tavily (web search), Jina AI (web fetch), Firecrawl (scraping), DuckDuckGo (image search) |
 | **MCP** | Any Model Context Protocol server (stdio, SSE, HTTP transports) |
 | **Skills** | Domain-specific workflows injected via system prompt |
 
@@ -225,7 +224,7 @@ backend/
 │   ├── models/                 # Model factory
 │   ├── skills/                 # Skill discovery & loading
 │   ├── config/                 # Configuration system
-│   ├── community/              # Community tools & providers
+│   ├── community/              # Community providers, such as AIO sandbox
 │   ├── reflection/             # Dynamic module loading
 │   └── utils/                  # Utilities
 ├── docs/                       # Documentation
@@ -301,7 +300,7 @@ MCP servers and skill states in a single file:
 - `DEER_FLOW_CONFIG_PATH` - Override config.yaml location
 - `DEER_FLOW_EXTENSIONS_CONFIG_PATH` - Override extensions_config.json location
 - Model API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `DEEPSEEK_API_KEY`, etc.
-- Tool API keys: `TAVILY_API_KEY`, `GITHUB_TOKEN`, etc.
+- Tool API keys for user-configured MCP servers or custom integrations, such as `GITHUB_TOKEN`
 
 ### LangSmith Tracing
 
@@ -395,7 +394,6 @@ reachability.
 - **langchain-mcp-adapters** - Model Context Protocol support
 - **agent-sandbox** - Sandboxed code execution
 - **markitdown** - Multi-format document conversion
-- **tavily-python** / **firecrawl-py** - Web search and scraping
 
 ---
 

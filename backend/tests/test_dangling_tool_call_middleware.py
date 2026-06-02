@@ -224,24 +224,24 @@ class TestBuildPatchedMessagesPatching:
             HumanMessage(content="summary", name="summary", additional_kwargs={"hide_from_ui": True}),
             _ai_with_tool_calls(
                 [
-                    _tc("web_search", "web_search:11"),
-                    _tc("web_search", "web_search:12"),
-                    _tc("web_search", "web_search:13"),
+                    _tc("lookup_docs", "lookup_docs:11"),
+                    _tc("lookup_docs", "lookup_docs:12"),
+                    _tc("lookup_docs", "lookup_docs:13"),
                 ]
             ),
-            _tool_msg("web_search:11", "web_search"),
-            _tool_msg("web_search:12", "web_search"),
-            _tool_msg("web_search:13", "web_search"),
+            _tool_msg("lookup_docs:11", "lookup_docs"),
+            _tool_msg("lookup_docs:12", "lookup_docs"),
+            _tool_msg("lookup_docs:13", "lookup_docs"),
             _ai_with_tool_calls(
                 [
-                    _tc("web_search", "web_search:9"),
-                    _tc("web_search", "web_search:10"),
-                    _tc("web_search", "web_search:11"),
+                    _tc("lookup_docs", "lookup_docs:9"),
+                    _tc("lookup_docs", "lookup_docs:10"),
+                    _tc("lookup_docs", "lookup_docs:11"),
                 ]
             ),
-            _tool_msg("web_search:9", "web_search"),
-            _tool_msg("web_search:10", "web_search"),
-            _tool_msg("web_search:11", "web_search"),
+            _tool_msg("lookup_docs:9", "lookup_docs"),
+            _tool_msg("lookup_docs:10", "lookup_docs"),
+            _tool_msg("lookup_docs:11", "lookup_docs"),
         ]
 
         assert mw._build_patched_messages(msgs) is None
@@ -249,27 +249,27 @@ class TestBuildPatchedMessagesPatching:
     def test_reused_tool_call_id_patches_second_dangling_occurrence(self):
         mw = DanglingToolCallMiddleware()
         msgs = [
-            _ai_with_tool_calls([_tc("web_search", "web_search:11")]),
-            _tool_msg("web_search:11", "web_search"),
-            _ai_with_tool_calls([_tc("web_search", "web_search:11")]),
+            _ai_with_tool_calls([_tc("lookup_docs", "lookup_docs:11")]),
+            _tool_msg("lookup_docs:11", "lookup_docs"),
+            _ai_with_tool_calls([_tc("lookup_docs", "lookup_docs:11")]),
         ]
 
         patched = mw._build_patched_messages(msgs)
 
         assert patched is not None
         assert isinstance(patched[1], ToolMessage)
-        assert patched[1].tool_call_id == "web_search:11"
+        assert patched[1].tool_call_id == "lookup_docs:11"
         assert patched[1].status == "success"
         assert isinstance(patched[3], ToolMessage)
-        assert patched[3].tool_call_id == "web_search:11"
+        assert patched[3].tool_call_id == "lookup_docs:11"
         assert patched[3].status == "error"
 
     def test_reused_tool_call_id_consumes_later_result_for_first_dangling_occurrence(self):
         mw = DanglingToolCallMiddleware()
-        result = _tool_msg("web_search:11", "web_search")
+        result = _tool_msg("lookup_docs:11", "lookup_docs")
         msgs = [
-            _ai_with_tool_calls([_tc("web_search", "web_search:11")]),
-            _ai_with_tool_calls([_tc("web_search", "web_search:11")]),
+            _ai_with_tool_calls([_tc("lookup_docs", "lookup_docs:11")]),
+            _ai_with_tool_calls([_tc("lookup_docs", "lookup_docs:11")]),
             result,
         ]
 
@@ -279,7 +279,7 @@ class TestBuildPatchedMessagesPatching:
         assert patched[1] is result
         assert patched[1].status == "success"
         assert isinstance(patched[3], ToolMessage)
-        assert patched[3].tool_call_id == "web_search:11"
+        assert patched[3].tool_call_id == "lookup_docs:11"
         assert patched[3].status == "error"
 
     def test_tool_results_are_grouped_with_their_own_ai_turn_across_multiple_ai_messages(self):

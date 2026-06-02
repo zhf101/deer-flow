@@ -304,12 +304,12 @@ GET /api/skills
       "path": "public/pdf-processing"
     },
     {
-      "name": "frontend-design",
-      "display_name": "Frontend Design",
-      "description": "Design and build frontend interfaces",
+      "name": "code-documentation",
+      "display_name": "Code Documentation",
+      "description": "Automated code documentation generation",
       "enabled": false,
       "license": "MIT",
-      "path": "public/frontend-design"
+      "path": "public/code-documentation"
     }
   ]
 }

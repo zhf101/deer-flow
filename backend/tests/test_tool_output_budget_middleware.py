@@ -239,7 +239,7 @@ class TestBuildPreview:
         content = "a" * 10000
         preview = _build_preview(
             content,
-            tool_name="web_search",
+            tool_name="lookup_docs",
             virtual_path="/mnt/test/file.txt",
             head_chars=200,
             tail_chars=100,
@@ -330,7 +330,7 @@ class TestWrapToolCallExternalize:
             config = ToolOutputConfig(externalize_min_chars=50, preview_head_chars=20, preview_tail_chars=10)
             mw = ToolOutputBudgetMiddleware(config=config)
             content = "HEADPART_" + "m" * 200 + "_TAILPART"
-            msg = _tm(content, name="web_search")
+            msg = _tm(content, name="lookup_docs")
             req = _make_request(outputs_path=tmpdir)
 
             result = mw.wrap_tool_call(req, lambda _: msg)

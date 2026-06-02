@@ -135,8 +135,8 @@ test("marks multi-action AI steps as shared attribution", () => {
       content: "",
       tool_calls: [
         {
-          id: "web_search:1",
-          name: "web_search",
+          id: "lookup_docs:1",
+          name: "lookup_docs",
           args: { query: "LangGraph stream mode" },
         },
         {
@@ -166,7 +166,7 @@ test("marks multi-action AI steps as shared attribution", () => {
       label: "Step total",
       sharedAttribution: true,
       secondaryLabels: [
-        'Search for "LangGraph stream mode"',
+        'Use "lookup_docs" tool',
         "Update to-do list",
       ],
     }),
@@ -222,8 +222,8 @@ test("falls back safely when attribution payload is malformed", () => {
       content: "",
       tool_calls: [
         {
-          id: "web_search:1",
-          name: "web_search",
+          id: "lookup_docs:1",
+          name: "lookup_docs",
           args: { query: "LangGraph stream mode" },
         },
       ],
@@ -241,7 +241,7 @@ test("falls back safely when attribution payload is malformed", () => {
   expect(buildTokenDebugSteps(messages, enUS)).toEqual([
     expect.objectContaining({
       messageId: "ai-1",
-      label: 'Search for "LangGraph stream mode"',
+      label: 'Use "lookup_docs" tool',
       sharedAttribution: false,
     }),
   ]);

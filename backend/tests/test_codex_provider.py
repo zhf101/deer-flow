@@ -139,7 +139,7 @@ def test_parse_response_tool_call():
         "output": [
             {
                 "type": "function_call",
-                "name": "web_search",
+                "name": "lookup_docs",
                 "arguments": '{"query": "test"}',
                 "call_id": "call_abc",
             }
@@ -149,7 +149,7 @@ def test_parse_response_tool_call():
     result = model._parse_response(response)
     tool_calls = result.generations[0].message.tool_calls
     assert len(tool_calls) == 1
-    assert tool_calls[0]["name"] == "web_search"
+    assert tool_calls[0]["name"] == "lookup_docs"
     assert tool_calls[0]["args"] == {"query": "test"}
     assert tool_calls[0]["id"] == "call_abc"
 

@@ -157,22 +157,10 @@ sandbox:
 
 ### Tools
 
-Configure which tools the agent has access to. The defaults use DuckDuckGo (no API key) and Jina AI for web operations:
+Configure which tools the agent has access to. The default app setup focuses on workspace operations plus any MCP tools you enable separately:
 
 ```yaml
 tools:
-  # Web search (choose one)
-  - use: deerflow.community.ddg_search.tools:web_search_tool # default, no key required
-  # - use: deerflow.community.tavily.tools:web_search_tool
-  #   api_key: $TAVILY_API_KEY
-
-  # Web fetch (choose one)
-  - use: deerflow.community.jina_ai.tools:web_fetch_tool
-
-  # Image search
-  - use: deerflow.community.image_search.tools:image_search_tool
-
-  # File operations
   - use: deerflow.sandbox.tools:ls_tool
   - use: deerflow.sandbox.tools:read_file_tool
   - use: deerflow.sandbox.tools:glob_tool
@@ -181,6 +169,8 @@ tools:
   - use: deerflow.sandbox.tools:str_replace_tool
   - use: deerflow.sandbox.tools:bash_tool
 ```
+
+If you need external capabilities, add them through MCP servers in `extensions_config.json` rather than built-in web search or scraping providers.
 
 ### Thread state persistence (checkpointer)
 
@@ -254,8 +244,8 @@ Manual example:
     }
   },
   "skills": {
-    "deep-research": { "enabled": true },
-    "data-analysis": { "enabled": true }
+    "code-documentation": { "enabled": true },
+    "chart-visualization": { "enabled": true }
   }
 }
 ```

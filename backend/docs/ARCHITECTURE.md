@@ -199,10 +199,10 @@ class ThreadState(AgentState):
 │   Built-in Tools    │  │  Configured Tools   │  │     MCP Tools       │
 │  (packages/harness/deerflow/tools/)       │  │  (config.yaml)      │  │  (extensions.json)  │
 ├─────────────────────┤  ├─────────────────────┤  ├─────────────────────┤
-│ - present_files     │  │ - web_search        │  │ - github            │
-│ - ask_clarification │  │ - web_fetch         │  │ - filesystem        │
+│ - present_files     │  │ - bash              │  │ - github            │
+│ - ask_clarification │  │ - read_file         │  │ - filesystem        │
 │ - view_image        │  │ - bash              │  │ - postgres          │
-│                     │  │ - read_file         │  │ - brave-search      │
+│                     │  │ - grep              │  │ - custom servers    │
 │                     │  │ - write_file        │  │ - puppeteer         │
 │                     │  │ - str_replace       │  │ - ...               │
 │                     │  │ - ls                │  │                     │
@@ -316,7 +316,7 @@ Directory Structure:
 │ ├── public/                        # Public skills (committed)           │
 │ │   ├── pdf-processing/                                                 │
 │ │   │   └── SKILL.md                                                    │
-│ │   ├── frontend-design/                                                │
+│ │   ├── code-documentation/                                             │
 │ │   │   └── SKILL.md                                                    │
 │ │   └── ...                                                             │
 │ └── custom/                        # Custom skills (gitignored)          │
@@ -370,7 +370,7 @@ SKILL.md Format:
 
    c. Execute agent:
       - Model processes messages
-      - May call tools (bash, web_search, etc.)
+      - May call tools (bash, read_file, grep, etc.)
       - Tools execute via sandbox
       - Results added to messages
 
