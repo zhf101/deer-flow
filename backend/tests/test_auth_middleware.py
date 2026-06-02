@@ -37,7 +37,6 @@ def test_public_paths(path: str):
         "/api/threads/123",
         "/api/threads/123/uploads",
         "/api/agents",
-        "/api/channels",
         "/api/runs/stream",
         "/api/threads/123/runs",
         "/api/v1/auth/me",

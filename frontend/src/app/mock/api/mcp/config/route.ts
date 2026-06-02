@@ -17,9 +17,9 @@ export function GET() {
         description:
           "Get the latest documentation and code into Cursor, Claude, or other LLMs",
       },
-      "feishu-importer": {
+      "docs-importer": {
         enabled: true,
-        description: "Import Feishu documents",
+        description: "Import workspace documents",
       },
     },
   });

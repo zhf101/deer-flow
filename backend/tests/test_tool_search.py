@@ -37,8 +37,8 @@ def registry():
     reg = DeferredToolRegistry()
     reg.register(_make_mock_tool("github_create_issue", "Create a new issue in a GitHub repository"))
     reg.register(_make_mock_tool("github_list_repos", "List repositories for a GitHub user"))
-    reg.register(_make_mock_tool("slack_send_message", "Send a message to a Slack channel"))
-    reg.register(_make_mock_tool("slack_list_channels", "List available Slack channels"))
+    reg.register(_make_mock_tool("chat_send_message", "Send a message to a team chat"))
+    reg.register(_make_mock_tool("chat_list_rooms", "List available chat rooms"))
     reg.register(_make_mock_tool("sentry_list_issues", "List issues from Sentry error tracking"))
     reg.register(_make_mock_tool("database_query", "Execute a SQL query against the database"))
     return reg
@@ -83,12 +83,12 @@ class TestDeferredToolRegistry:
     def test_entries(self, registry):
         names = [e.name for e in registry.entries]
         assert "github_create_issue" in names
-        assert "slack_send_message" in names
+        assert "chat_send_message" in names
 
     def test_deferred_names(self, registry):
         names = registry.deferred_names
         assert "github_create_issue" in names
-        assert "slack_send_message" in names
+        assert "chat_send_message" in names
         assert len(names) == 6
 
     def test_contains(self, registry):
@@ -101,9 +101,9 @@ class TestDeferredToolRegistry:
         assert results[0].name == "github_create_issue"
 
     def test_search_select_multiple(self, registry):
-        results = registry.search("select:github_create_issue,slack_send_message")
+        results = registry.search("select:github_create_issue,chat_send_message")
         names = {t.name for t in results}
-        assert names == {"github_create_issue", "slack_send_message"}
+        assert names == {"github_create_issue", "chat_send_message"}
 
     def test_search_select_nonexistent(self, registry):
         results = registry.search("select:nonexistent_tool")
@@ -121,10 +121,10 @@ class TestDeferredToolRegistry:
         assert results[0].name == "github_create_issue"
 
     def test_search_regex_keyword(self, registry):
-        results = registry.search("slack")
+        results = registry.search("chat")
         names = {t.name for t in results}
-        assert "slack_send_message" in names
-        assert "slack_list_channels" in names
+        assert "chat_send_message" in names
+        assert "chat_list_rooms" in names
 
     def test_search_regex_description(self, registry):
         results = registry.search("SQL")
@@ -243,7 +243,7 @@ class TestToolSearchTool:
         from deerflow.tools.builtins.tool_search import tool_search
 
         set_deferred_registry(registry)
-        result = tool_search.invoke({"query": "select:slack_send_message"})
+        result = tool_search.invoke({"query": "select:chat_send_message"})
         parsed = json.loads(result)
         func_def = parsed[0]
         # OpenAI function format should have these keys
@@ -311,7 +311,7 @@ class TestDeferredToolsPromptSection:
         assert "<available-deferred-tools>" in section
         assert "</available-deferred-tools>" in section
         assert "github_create_issue" in section
-        assert "slack_send_message" in section
+        assert "chat_send_message" in section
         assert "sentry_list_issues" in section
         # Should only have names, no descriptions
         assert "Create a new issue" not in section
@@ -412,11 +412,11 @@ class TestDeferredToolFilterMiddleware:
 class TestDeferredToolRegistryPromote:
     def test_promote_removes_tools(self, registry):
         assert len(registry) == 6
-        registry.promote({"github_create_issue", "slack_send_message"})
+        registry.promote({"github_create_issue", "chat_send_message"})
         assert len(registry) == 4
         remaining = {e.name for e in registry.entries}
         assert "github_create_issue" not in remaining
-        assert "slack_send_message" not in remaining
+        assert "chat_send_message" not in remaining
         assert "github_list_repos" in remaining
 
     def test_promote_nonexistent_is_noop(self, registry):
@@ -512,14 +512,14 @@ class TestToolSearchPromotion:
         from deerflow.tools.builtins.tool_search import tool_search
 
         set_deferred_registry(registry)
-        result = tool_search.invoke({"query": "slack"})
+        result = tool_search.invoke({"query": "chat"})
         parsed = json.loads(result)
         assert len(parsed) == 2
 
-        # Both slack tools promoted
+        # Both chat tools promoted
         remaining = {e.name for e in registry.entries}
-        assert "slack_send_message" not in remaining
-        assert "slack_list_channels" not in remaining
+        assert "chat_send_message" not in remaining
+        assert "chat_list_rooms" not in remaining
         assert len(registry) == 4
 
 

@@ -140,7 +140,7 @@ def test_execute_command_lists_aggregate_user_data_root(provider):
 
 
 def test_update_file_with_virtual_path_for_remote_sync_scenario(provider):
-    """This is the exact code path used by ``uploads.py:282`` and ``feishu.py:389``.
+    """This is the exact code path used by ``uploads.py:282``.
 
     They build a ``virtual_path`` like ``/mnt/user-data/uploads/foo.pdf`` and hand
     raw bytes to the sandbox. Before this fix LocalSandbox would try to write to

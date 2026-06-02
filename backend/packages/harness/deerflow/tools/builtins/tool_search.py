@@ -174,7 +174,7 @@ def tool_search(query: str) -> str:
     Query forms:
       - "select:Read,Edit,Grep" — fetch these exact tools by name
       - "notebook jupyter" — keyword search, up to max_results best matches
-      - "+slack send" — require "slack" in the name, rank by remaining terms
+      - "+github issue" — require "github" in the name, rank by remaining terms
 
     Args:
         query: Query to find deferred tools. Use "select:<tool_name>" for

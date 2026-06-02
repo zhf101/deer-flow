@@ -203,7 +203,7 @@ def build_run_config(
     silently runs as the default lead agent.
 
     This mirrors the channel manager's ``_resolve_run_params`` logic so that
-    the LangGraph Platform-compatible HTTP API and the IM channel path behave
+    the LangGraph Platform-compatible HTTP API and the embedded client path behave
     identically.
     """
     config: dict[str, Any] = {"recursion_limit": 100}
