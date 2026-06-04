@@ -3,12 +3,14 @@
 import {
   BugIcon,
   ChevronsUpDown,
+  DatabaseZapIcon,
   GlobeIcon,
   InfoIcon,
   MailIcon,
   Settings2Icon,
   SettingsIcon,
 } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import {
@@ -97,6 +99,12 @@ export function WorkspaceNavMenu() {
                     <Settings2Icon />
                     {t.common.settings}
                   </DropdownMenuItem>
+                  <Link href="/workspace/data-factory">
+                    <DropdownMenuItem>
+                      <DatabaseZapIcon />
+                      造数编排
+                    </DropdownMenuItem>
+                  </Link>
                   <DropdownMenuSeparator />
                   <a
                     href="https://deerflow.tech/"

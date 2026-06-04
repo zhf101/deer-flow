@@ -9,6 +9,7 @@ from app.gateway.auth_middleware import AuthMiddleware
 from app.gateway.config import get_gateway_config
 from app.gateway.csrf_middleware import CSRFMiddleware, get_configured_cors_origins
 from app.gateway.deps import langgraph_runtime
+from app.gdp.router import router as gdp_router
 from app.gateway.routers import (
     agents,
     artifacts,
@@ -270,6 +271,10 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
                 "name": "health",
                 "description": "Health check and system status endpoints",
             },
+            {
+                "name": "data-factory",
+                "description": "GDP data-factory configuration management",
+            },
         ],
     )
 
@@ -334,6 +339,9 @@ This gateway provides runtime endpoints for agent runs plus custom endpoints for
 
     # Stateless Runs API (stream/wait without a pre-existing thread)
     app.include_router(runs.router)
+
+    # GDP Data Factory configuration APIs
+    app.include_router(gdp_router)
 
     @app.get("/health", tags=["health"])
     async def health_check() -> dict[str, str]:

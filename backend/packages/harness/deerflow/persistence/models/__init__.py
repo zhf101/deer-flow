@@ -20,4 +20,36 @@ from deerflow.persistence.run.model import RunRow
 from deerflow.persistence.thread_meta.model import ThreadMetaRow
 from deerflow.persistence.user.model import UserRow
 
-__all__ = ["FeedbackRow", "RunEventRow", "RunRow", "ThreadMetaRow", "UserRow"]
+try:
+    from app.gdp.persistence.model import (
+        DataFactoryConfigAuditRow,
+        DataFactoryDatasourceRow,
+        DataFactoryEnvironmentRow,
+        DataFactorySceneRow,
+        DataFactorySceneVersionRow,
+        DataFactoryServiceEndpointRow,
+        DataFactorySqlTemplateRow,
+    )
+except ImportError:
+    DataFactoryConfigAuditRow = None
+    DataFactoryDatasourceRow = None
+    DataFactoryEnvironmentRow = None
+    DataFactorySceneRow = None
+    DataFactorySceneVersionRow = None
+    DataFactoryServiceEndpointRow = None
+    DataFactorySqlTemplateRow = None
+
+__all__ = [
+    "FeedbackRow",
+    "RunEventRow",
+    "RunRow",
+    "ThreadMetaRow",
+    "UserRow",
+    "DataFactoryConfigAuditRow",
+    "DataFactoryDatasourceRow",
+    "DataFactoryEnvironmentRow",
+    "DataFactorySceneRow",
+    "DataFactorySceneVersionRow",
+    "DataFactoryServiceEndpointRow",
+    "DataFactorySqlTemplateRow",
+]
