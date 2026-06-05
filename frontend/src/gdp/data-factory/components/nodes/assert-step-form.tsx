@@ -5,7 +5,7 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-import type { StepDefinition } from "../lib/types";
+import type { StepDefinition } from "../../lib/types";
 
 interface AssertStepFormProps {
   step: StepDefinition;

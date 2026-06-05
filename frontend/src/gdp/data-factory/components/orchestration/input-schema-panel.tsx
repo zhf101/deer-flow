@@ -34,12 +34,12 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
-import { createEnvField, INPUT_FIELD_TYPES } from "../lib/defaults";
+import { createEnvField, INPUT_FIELD_TYPES } from "../../lib/defaults";
 import type {
   InputFieldDefinition,
   InputFieldType,
   SceneDefinition,
-} from "../lib/types";
+} from "../../lib/types";
 
 const darkTheme = monokaiInit({
   settings: {

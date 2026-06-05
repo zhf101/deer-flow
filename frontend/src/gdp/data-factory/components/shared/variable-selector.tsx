@@ -19,8 +19,8 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-import type { SceneDefinition } from "../lib/types";
-import { buildVariableList } from "../lib/variable-utils";
+import type { SceneDefinition } from "../../lib/types";
+import { buildVariableList } from "../../lib/variable-utils";
 
 interface VariableCommandListProps {
   scene: SceneDefinition;

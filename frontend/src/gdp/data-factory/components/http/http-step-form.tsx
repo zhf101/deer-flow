@@ -40,20 +40,20 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 
-import { listServiceEndpoints } from "../lib/api";
-import { HTTP_METHODS } from "../lib/defaults";
+import { listServiceEndpoints } from "../../lib/api";
+import { HTTP_METHODS } from "../../lib/defaults";
 import type {
   HttpMethod,
   SceneDefinition,
   ServiceEndpointResponse,
   StepDefinition,
-} from "../lib/types";
-import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
+} from "../../lib/types";
+import { isVariableRef, resolveVariableLabel } from "../../lib/variable-utils";
 
 import { FieldMapper } from "./field-mapper";
 import { HeaderFieldMapper } from "./header-field-mapper";
 import { HttpResponseMappingEditor } from "./http-response-mapping-editor";
-import { VariableSelector } from "./variable-selector";
+import { VariableSelector } from "../shared/variable-selector";
 import { BodyTreeEditor } from "./body-tree-editor";
 
 /* ── types ──────────────────────────────────────────────────────── */
@@ -294,7 +294,7 @@ export function HttpStepForm({ scene, step, onChange }: HttpStepFormProps) {
             {/* ── Params ── */}
             <TabsContent value="params" className="mt-2">
               <FieldMapper
-                label="查询参数"
+                label="Query Params"
                 description="URL 问号后面的参数, 如 ?id=1&name=test"
                 value={requestMapping.query || {}}
                 onChange={(v) => updateSection("query", v)}

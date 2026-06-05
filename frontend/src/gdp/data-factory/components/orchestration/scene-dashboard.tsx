@@ -41,8 +41,8 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
-import { createScene, copyScene, deleteScene, listScenes } from "../lib/api";
-import type { SceneStatus, SceneSummary } from "../lib/types";
+import { createScene, copyScene, deleteScene, listScenes } from "../../lib/api";
+import type { SceneStatus, SceneSummary } from "../../lib/types";
 
 interface SceneDashboardProps {
   onEdit: (sceneCode: string) => void;

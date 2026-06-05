@@ -17,10 +17,10 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import type { SceneDefinition } from "../lib/types";
-import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
+import type { SceneDefinition } from "../../lib/types";
+import { isVariableRef, resolveVariableLabel } from "../../lib/variable-utils";
 
-import { VariableSelector } from "./variable-selector";
+import { VariableSelector } from "../shared/variable-selector";
 
 interface FieldMapperProps {
   label: string;

@@ -18,15 +18,15 @@ import { useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { createDefaultStep, STEP_TYPES, stepLabel } from "../lib/defaults";
+import { createDefaultStep, STEP_TYPES, stepLabel } from "../../../lib/defaults";
 import {
   applyEdgesToSteps,
   applyNodePositions,
   stepsToEdges,
   stepsToNodes,
   type StepNodeData,
-} from "../lib/flow";
-import type { SceneDefinition, StepType } from "../lib/types";
+} from "../../../lib/flow";
+import type { SceneDefinition, StepType } from "../../../lib/types";
 import { HttpStepNode, SqlStepNode } from "./flow-nodes";
 
 type StepNode = Node<StepNodeData>;

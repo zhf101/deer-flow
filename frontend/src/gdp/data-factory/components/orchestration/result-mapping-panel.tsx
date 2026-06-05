@@ -43,15 +43,15 @@ import {
   jsonToFields,
   parseJsonWithComments,
   updateFieldPropAtPath,
-} from "../lib/schema-utils";
+} from "../../lib/schema-utils";
 import type {
   InputFieldDefinition,
   InputFieldType,
   SceneDefinition,
-} from "../lib/types";
-import { resolveVariableLabel } from "../lib/variable-utils";
+} from "../../lib/types";
+import { resolveVariableLabel } from "../../lib/variable-utils";
 
-import { VariableCommandList } from "./variable-selector";
+import { VariableCommandList } from "../shared/variable-selector";
 
 interface ResultMappingPanelProps {
   scene: SceneDefinition;

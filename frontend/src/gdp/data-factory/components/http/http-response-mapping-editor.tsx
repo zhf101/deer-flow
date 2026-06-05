@@ -52,13 +52,13 @@ import {
   jsonToFields,
   parseJsonWithComments,
   updateFieldPropAtPath,
-} from "../lib/schema-utils";
+} from "../../lib/schema-utils";
 import type {
   ConditionOperator,
   ConditionRule,
   InputFieldDefinition,
   StepDefinition,
-} from "../lib/types";
+} from "../../lib/types";
 
 /* ── themes ─────────────────────────────────────────────────────── */
 

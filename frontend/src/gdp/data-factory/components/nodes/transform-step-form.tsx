@@ -1,9 +1,9 @@
 "use client";
 
-import type { StepDefinition } from "../lib/types";
-import { stringifyConfigValue } from "../lib/validation";
+import type { StepDefinition } from "../../lib/types";
+import { stringifyConfigValue } from "../../lib/validation";
 
-import { JsonEditor } from "./json-editor";
+import { JsonEditor } from "../shared/json-editor";
 
 interface TransformStepFormProps {
   step: StepDefinition;

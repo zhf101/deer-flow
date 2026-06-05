@@ -11,7 +11,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
-import type { SceneDefinition } from "../lib/types";
+import type { SceneDefinition } from "../../lib/types";
 
 interface BasicInfoPanelProps {
   scene: SceneDefinition;

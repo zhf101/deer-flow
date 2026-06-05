@@ -33,14 +33,14 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
-import { listEnvironments, runScene } from "../lib/api";
+import { listEnvironments, runScene } from "../../lib/api";
 import type {
   EnvironmentResponse,
   ExecutionResult,
   InputFieldDefinition,
   SceneDefinition,
   StepResult,
-} from "../lib/types";
+} from "../../lib/types";
 
 interface SceneRunDialogProps {
   scene: SceneDefinition;

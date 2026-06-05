@@ -20,15 +20,15 @@ import {
   listSqlTemplates,
   publishScene,
   updateScene,
-} from "../lib/api";
-import { createDefaultScene, createDefaultStep } from "../lib/defaults";
+} from "../../lib/api";
+import { createDefaultScene, createDefaultStep } from "../../lib/defaults";
 import type {
   SceneDefinition,
   SqlTemplateResponse,
   StepDefinition,
   ValidationIssue,
-} from "../lib/types";
-import { validateSceneDraft } from "../lib/validation";
+} from "../../lib/types";
+import { validateSceneDraft } from "../../lib/validation";
 
 import { BasicInfoPanel } from "./basic-info-panel";
 import { BatchConfigPanel } from "./batch-config-panel";
@@ -190,7 +190,6 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
       <SceneEditorSidebar
         isSidebarExpanded={isSidebarExpanded}
         setIsSidebarExpanded={setIsSidebarExpanded}
-        onBack={onBack}
         sceneName={scene.sceneName || null}
         sceneCode={scene.sceneCode || null}
         status={scene.status}

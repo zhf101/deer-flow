@@ -10,7 +10,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import { formatJson, parseJsonObject } from "../lib/validation";
+import { formatJson, parseJsonObject } from "../../lib/validation";
 
 interface JsonEditorProps {
   label: string;

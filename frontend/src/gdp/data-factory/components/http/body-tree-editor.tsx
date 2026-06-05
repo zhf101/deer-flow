@@ -41,10 +41,10 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import type { InputFieldDefinition, SceneDefinition } from "../lib/types";
-import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
-import { parseJsonWithComments, jsonToFields } from "../lib/schema-utils";
-import { VariableSelector } from "./variable-selector";
+import type { InputFieldDefinition, SceneDefinition } from "../../lib/types";
+import { isVariableRef, resolveVariableLabel } from "../../lib/variable-utils";
+import { parseJsonWithComments, jsonToFields } from "../../lib/schema-utils";
+import { VariableSelector } from "../shared/variable-selector";
 
 /* ── themes ─────────────────────────────────────────────────────── */
 

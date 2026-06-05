@@ -21,12 +21,12 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-import { listDatasources } from "../lib/api";
-import { SQL_OPERATIONS } from "../lib/defaults";
-import type { DatasourceResponse, SceneDefinition, SqlOperation, SqlTemplateResponse, StepDefinition } from "../lib/types";
-import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
+import { listDatasources } from "../../lib/api";
+import { SQL_OPERATIONS } from "../../lib/defaults";
+import type { DatasourceResponse, SceneDefinition, SqlOperation, SqlTemplateResponse, StepDefinition } from "../../lib/types";
+import { isVariableRef, resolveVariableLabel } from "../../lib/variable-utils";
 
-import { VariableSelector } from "./variable-selector";
+import { VariableSelector } from "../shared/variable-selector";
 
 interface SqlStepFormProps {
   scene: SceneDefinition;

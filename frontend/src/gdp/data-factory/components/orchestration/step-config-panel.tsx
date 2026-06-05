@@ -20,10 +20,10 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-import type { SceneDefinition, SqlTemplateResponse, StepDefinition } from "../lib/types";
+import type { SceneDefinition, SqlTemplateResponse, StepDefinition } from "../../lib/types";
 
-import { HttpStepForm } from "./http-step-form";
-import { SqlStepForm } from "./sql-step-form";
+import { HttpStepForm } from "../http/http-step-form";
+import { SqlStepForm } from "../sql/sql-step-form";
 
 interface StepConfigPanelProps {
   scene: SceneDefinition;

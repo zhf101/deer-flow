@@ -11,7 +11,7 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 
-import type { BatchConfig, SceneDefinition } from "../lib/types";
+import type { BatchConfig, SceneDefinition } from "../../lib/types";
 
 interface BatchConfigPanelProps {
   scene: SceneDefinition;

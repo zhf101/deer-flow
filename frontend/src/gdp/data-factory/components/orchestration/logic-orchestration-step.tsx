@@ -16,9 +16,9 @@ import type {
   SceneDefinition,
   SqlTemplateResponse,
   StepDefinition,
-} from "../lib/types";
+} from "../../lib/types";
 
-import { FlowCanvas } from "./flow-canvas";
+import { FlowCanvas } from "./flow/flow-canvas";
 import { StepConfigPanel } from "./step-config-panel";
 import { StepListView } from "./step-list-view";
 

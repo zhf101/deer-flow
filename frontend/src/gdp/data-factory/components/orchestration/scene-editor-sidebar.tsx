@@ -18,7 +18,7 @@ import {
   } from "@/components/ui/tooltip";
   import { cn } from "@/lib/utils";
 
-  import type { SceneStatus } from "../lib/types";
+  import type { SceneStatus } from "../../lib/types";
 
   function StatusBadge({ status }: { status: SceneStatus }) {
     const label =
@@ -36,7 +36,6 @@ import {
   interface SceneEditorSidebarProps {
     isSidebarExpanded: boolean;
     setIsSidebarExpanded: (expanded: boolean) => void;
-    onBack: () => void;
     sceneName: string | null;
     sceneCode: string | null;
     status: SceneStatus;
@@ -54,7 +53,6 @@ import {
   export function SceneEditorSidebar({
     isSidebarExpanded,
     setIsSidebarExpanded,
-    onBack,
     sceneName,
     sceneCode,
     status,
@@ -75,19 +73,13 @@ import {
             isSidebarExpanded ? "w-64" : "w-16"
         )}
       >
-        <div className="p-4 border-b flex items-center overflow-hidden h-14 shrink-0">
-            <Button variant="ghost" size="icon-sm" onClick={onBack} className="shrink-0">
-                <ChevronLeftIcon className="size-4" />
-            </Button>
+        <div className="p-4 border-b flex items-center justify-end overflow-hidden h-14 shrink-0">
             {isSidebarExpanded ? (
-                <>
-                    <span className="ml-2 text-xs font-bold truncate animate-in fade-in slide-in-from-left-1 flex-1">返回仪表盘</span>
-                    <Button variant="ghost" size="icon-sm" onClick={() => setIsSidebarExpanded(false)} className="shrink-0">
-                        <ChevronLeftIcon className="size-4" />
-                    </Button>
-                </>
+                <Button variant="ghost" size="icon-sm" onClick={() => setIsSidebarExpanded(false)} className="shrink-0">
+                    <ChevronLeftIcon className="size-4" />
+                </Button>
             ) : (
-                <Button variant="ghost" size="icon-sm" onClick={() => setIsSidebarExpanded(true)} className="shrink-0 ml-auto">
+                <Button variant="ghost" size="icon-sm" onClick={() => setIsSidebarExpanded(true)} className="shrink-0">
                     <ChevronRightIcon className="size-4" />
                 </Button>
             )}
