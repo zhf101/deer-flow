@@ -1,9 +1,15 @@
 "use client";
 
-import { PlusIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -48,116 +54,136 @@ export function StepConfigPanel({
 
   // Available steps for dependency: must be in the scene and not the current step
   const availableSteps = steps.filter(s => s.stepId !== step.stepId);
+  const [basicOpen, setBasicOpen] = useState(false);
+  const [depsOpen, setDepsOpen] = useState(true);
 
   return (
-    <div className={cn("space-y-6", readOnly && "pointer-events-none opacity-75")}>
-      {/* 1. Basic Step Info */}
-      <div className="space-y-4 border-b pb-6">
-        <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-                <Badge variant="outline" className="bg-primary/5 text-primary border-primary/20">
-                    {step.type}
-                </Badge>
-                <h4 className="text-sm font-bold tracking-tight">节点基础设置</h4>
-            </div>
-            <Switch
-              checked={step.enabled}
-              disabled={readOnly}
-              onCheckedChange={(checked) =>
-                onChange({ ...step, enabled: checked })
-              }
-            />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-muted-foreground uppercase">节点 ID (唯一)</label>
-            <Input
-              value={step.stepId}
-              disabled={readOnly}
-              readOnly={readOnly}
-              onChange={(event) => onChange({ ...step, stepId: event.target.value })}
-              className="h-8 font-mono text-[10px]"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold text-muted-foreground uppercase">展示名称</label>
-            <Input
-              value={step.stepName ?? ""}
-              disabled={readOnly}
-              readOnly={readOnly}
-              onChange={(event) =>
-                onChange({ ...step, stepName: event.target.value })
-              }
-              placeholder="e.g. 用户登录"
-              className="h-8 text-[10px]"
-            />
-          </div>
-          <div className="col-span-2 space-y-1">
-            <label className="text-[10px] font-bold text-muted-foreground uppercase">逻辑说明</label>
-            <Textarea
-              value={step.description ?? ""}
-              disabled={readOnly}
-              readOnly={readOnly}
-              onChange={(event) =>
-                onChange({ ...step, description: event.target.value })
-              }
-              className="min-h-12 resize-none text-[10px]"
-              placeholder="简述此节点的业务逻辑..."
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* 2. Dependency Management */}
-      <div className="space-y-4 border-b pb-6">
-        <div className="flex items-center justify-between">
-            <h4 className="text-xs font-bold">前序步骤依赖 (Depends On)</h4>
-            {!readOnly && (
-              <Popover>
-                  <PopoverTrigger asChild>
-                      <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1 border-dashed">
-                          <PlusIcon className="size-3" />
-                          添加依赖
-                      </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-[220px] p-0" align="end">
-                      <div className="max-h-[300px] overflow-auto p-1 space-y-1">
-                          {availableSteps.length > 0 ? (
-                              availableSteps.map(s => {
-                                  const isSelected = step.dependsOn.includes(s.stepId);
-                                  const typeName =
-                                    s.type === "HTTP" ? "HTTP"
-                                    : s.type === "AUTH_HTTP" ? "认证"
-                                    : s.type === "SQL" ? "SQL"
-                                    : s.type;
-                                  return (
-                                      <button
-                                          key={s.stepId}
-                                          onClick={() => {
-                                              const next = isSelected
-                                                  ? step.dependsOn.filter(id => id !== s.stepId)
-                                                  : [...step.dependsOn, s.stepId];
-                                              onChange({ ...step, dependsOn: next });
-                                          }}
-                                          className={cn(
-                                              "w-full text-left px-3 py-2 rounded-md transition-colors flex items-center gap-2 border text-xs",
-                                              isSelected ? "bg-primary/10 border-primary/20" : "hover:bg-muted border-transparent"
-                                          )}
-                                      >
-                                          {isSelected && <span className="text-primary">✓</span>}
-                                          <span className="font-medium">{typeName}-{s.stepName ?? s.stepId}</span>
-                                      </button>
-                                  );
-                              })
-                          ) : (
-                              <div className="p-4 text-center text-[10px] text-muted-foreground italic">暂无可依赖的节点</div>
-                          )}
-                      </div>
-                  </PopoverContent>
-              </Popover>
+    <div className={cn("space-y-3", readOnly && "pointer-events-none opacity-75")}>
+      {/* 1. Basic Step Info (collapsible) */}
+      <Collapsible open={basicOpen} onOpenChange={setBasicOpen}>
+        <div className="flex items-center justify-between w-full py-2 border-b">
+          <CollapsibleTrigger className="flex items-center gap-2 flex-1 min-w-0">
+            {basicOpen ? (
+              <ChevronDownIcon className="size-4 text-muted-foreground" />
+            ) : (
+              <ChevronRightIcon className="size-4 text-muted-foreground" />
             )}
+            <span className="text-sm font-bold tracking-tight truncate">{step.stepName || step.stepId}</span>
+          </CollapsibleTrigger>
+          <Switch
+            checked={step.enabled}
+            disabled={readOnly}
+            onCheckedChange={(checked) =>
+              onChange({ ...step, enabled: checked })
+            }
+          />
         </div>
-        <div className="space-y-2">
+
+        <CollapsibleContent className="space-y-3 pt-3">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase">节点 ID (唯一)</label>
+              <Input
+                value={step.stepId}
+                disabled={readOnly}
+                readOnly={readOnly}
+                onChange={(event) => onChange({ ...step, stepId: event.target.value })}
+                className="h-8 font-mono text-[10px]"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase">展示名称</label>
+              <Input
+                value={step.stepName ?? ""}
+                disabled={readOnly}
+                readOnly={readOnly}
+                onChange={(event) =>
+                  onChange({ ...step, stepName: event.target.value })
+                }
+                placeholder="e.g. 用户登录"
+                className="h-8 text-[10px]"
+              />
+            </div>
+            <div className="col-span-2 space-y-1">
+              <label className="text-[10px] font-bold text-muted-foreground uppercase">逻辑说明</label>
+              <Textarea
+                value={step.description ?? ""}
+                disabled={readOnly}
+                readOnly={readOnly}
+                onChange={(event) =>
+                  onChange({ ...step, description: event.target.value })
+                }
+                className="min-h-12 resize-none text-[10px]"
+                placeholder="简述此节点的业务逻辑..."
+              />
+            </div>
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+
+      {/* 2. Dependency Management (collapsible) */}
+      <Collapsible open={depsOpen} onOpenChange={setDepsOpen}>
+        <div className="flex items-center justify-between w-full py-2 border-b">
+          <CollapsibleTrigger className="flex items-center gap-2 flex-1 min-w-0">
+            {depsOpen ? (
+              <ChevronDownIcon className="size-4 text-muted-foreground" />
+            ) : (
+              <ChevronRightIcon className="size-4 text-muted-foreground" />
+            )}
+            <h4 className="text-sm font-bold">引用其他节点变量</h4>
+            {step.dependsOn.length > 0 && (
+              <span className="rounded-full bg-muted px-1.5 text-[9px] font-bold text-muted-foreground">
+                {step.dependsOn.length}
+              </span>
+            )}
+          </CollapsibleTrigger>
+          {!readOnly && (
+            <Popover>
+                <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="h-7 text-[10px] gap-1 border-dashed">
+                        <PlusIcon className="size-3" />
+                        添加依赖节点
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[220px] p-0" align="end">
+                    <div className="max-h-[300px] overflow-auto p-1 space-y-1">
+                        {availableSteps.length > 0 ? (
+                            availableSteps.map(s => {
+                                const isSelected = step.dependsOn.includes(s.stepId);
+                                const typeName =
+                                  s.type === "HTTP" ? "HTTP"
+                                  : s.type === "SQL" ? "SQL"
+                                  : s.type;
+                                return (
+                                    <button
+                                        key={s.stepId}
+                                        onClick={() => {
+                                            const next = isSelected
+                                                ? step.dependsOn.filter(id => id !== s.stepId)
+                                                : [...step.dependsOn, s.stepId];
+                                            onChange({ ...step, dependsOn: next });
+                                        }}
+                                        className={cn(
+                                            "w-full text-left px-3 py-2 rounded-md transition-colors flex items-center gap-2 border text-xs",
+                                            isSelected ? "bg-primary/10 border-primary/20" : "hover:bg-muted border-transparent"
+                                        )}
+                                    >
+                                        {isSelected && <span className="text-primary">✓</span>}
+                                        <span className="font-medium">{typeName}-{s.stepName ?? s.stepId}</span>
+                                    </button>
+                                );
+                            })
+                        ) : (
+                            <div className="p-4 text-center text-[10px] text-muted-foreground italic">暂无可依赖的节点</div>
+                        )}
+                    </div>
+                </PopoverContent>
+            </Popover>
+          )}
+        </div>
+
+        <CollapsibleContent className="space-y-2 pt-3">
+          <div className="space-y-2">
             {step.dependsOn.length > 0 ? (
                 <div className="rounded-md border overflow-hidden">
                   <table className="w-full text-[10px]">
@@ -175,7 +201,7 @@ export function StepConfigPanel({
                         const s = steps.find(item => item.stepId === id);
                         if (!s) return null;
                         const urlOrSql =
-                          s.type === "HTTP" || s.type === "AUTH_HTTP"
+                          s.type === "HTTP"
                             ? s.url ?? ""
                             : s.type === "SQL"
                               ? s.description?.startsWith("Raw SQL:")
@@ -220,12 +246,13 @@ export function StepConfigPanel({
                 </div>
             )}
         </div>
-      </div>
+        </CollapsibleContent>
+      </Collapsible>
 
       {/* 3. Detailed Logic Config */}
-      <div className="py-2">
+      <div>
         <div>
-          {step.type === "HTTP" || step.type === "AUTH_HTTP" ? (
+          {step.type === "HTTP" ? (
             <HttpStepForm scene={scene} step={step} onChange={onChange} />
           ) : null}
           {step.type === "SQL" ? (
@@ -241,7 +268,7 @@ export function StepConfigPanel({
 
       {/* Delete Footer */}
       {!readOnly && (
-        <div className="flex justify-end border-t pt-8">
+        <div className="flex justify-end border-t pt-3">
           <Button
             variant="destructive"
             size="sm"

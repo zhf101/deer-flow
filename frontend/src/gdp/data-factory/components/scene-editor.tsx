@@ -37,6 +37,7 @@ import { LogicOrchestrationStep } from "./logic-orchestration-step";
 import { ResultMappingPanel } from "./result-mapping-panel";
 import { SceneEditorHeader } from "./scene-editor-header";
 import { SceneEditorSidebar } from "./scene-editor-sidebar";
+import { SceneRunDialog } from "./scene-run-dialog";
 
 interface SceneEditorProps {
   sceneCode?: string | null;
@@ -65,6 +66,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   const [loading, setLoading] = useState(!!sceneCode);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const [orchView, setOrchView] = useState<"list" | "canvas">("list");
+  const [showRunDialog, setShowRunDialog] = useState(false);
 
   useEffect(() => {
     if (sceneCode) {
@@ -199,6 +201,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
         publishing={publishing}
         save={save}
         runPublish={runPublish}
+        onRun={persistedSceneCode && scene.status === "PUBLISHED" ? () => setShowRunDialog(true) : undefined}
         readOnly={readOnly}
       />
 
@@ -263,6 +266,16 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
           )}
         </main>
       </div>
+
+      {/* 执行场景对话框 */}
+      {persistedSceneCode && (
+        <SceneRunDialog
+          scene={scene}
+          sceneCode={persistedSceneCode}
+          open={showRunDialog}
+          onOpenChange={setShowRunDialog}
+        />
+      )}
     </div>
     </TooltipProvider>
   );

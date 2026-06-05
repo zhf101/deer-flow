@@ -160,7 +160,7 @@ export function LogicOrchestrationStep({
           {openTabs.map((stepId) => {
             const step = scene.steps.find((s) => s.stepId === stepId);
             if (!step) return null;
-            const isHttp = step.type === "HTTP" || step.type === "AUTH_HTTP";
+            const isHttp = step.type === "HTTP";
             const isActive = activeTabId === stepId;
 
             return (
@@ -249,7 +249,7 @@ export function LogicOrchestrationStep({
         ) : activeStep ? (
           /* Step config panel */
           <ScrollArea className="h-full">
-            <div className="mx-auto max-w-4xl p-6">
+            <div className="mx-auto max-w-[1200px] p-4">
               <StepConfigPanel
                 scene={scene}
                 step={activeStep}

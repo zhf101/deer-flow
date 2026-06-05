@@ -12,7 +12,7 @@ export interface StepNodeData extends Record<string, unknown> {
 
 export function stepsToNodes(steps: StepDefinition[]): Node<StepNodeData>[] {
   return steps.map((step, index) => {
-    const isHttp = step.type === 'HTTP' || step.type === 'AUTH_HTTP';
+    const isHttp = step.type === 'HTTP';
     return {
       id: step.stepId,
       type: isHttp ? "httpStep" : step.type === 'SQL' ? "sqlStep" : "default",

@@ -5,6 +5,8 @@ import type {
   DatasourceResponse,
   EnvironmentConfig,
   EnvironmentResponse,
+  ExecutionRequest,
+  ExecutionResult,
   SceneDefinition,
   SceneStatus,
   SceneSummary,
@@ -246,5 +248,18 @@ export async function updateSqlTemplate(
   return request<SqlTemplateResponse>(
     `/sql-templates/${encodeURIComponent(templateCode)}`,
     { method: "PUT", body: JSON.stringify(template) },
+  );
+}
+
+// ── 场景执行 ─────────────────────────────────────────────────────────
+
+/** 执行已发布的造数场景 */
+export async function runScene(
+  sceneCode: string,
+  body: ExecutionRequest,
+): Promise<ExecutionResult> {
+  return request<ExecutionResult>(
+    `/scenes/${encodeURIComponent(sceneCode)}/run`,
+    { method: "POST", body: JSON.stringify(body) },
   );
 }

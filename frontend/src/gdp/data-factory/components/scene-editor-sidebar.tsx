@@ -4,6 +4,7 @@ import {
     ChevronRightIcon,
     EyeIcon,
     Loader2Icon,
+    PlayIcon,
     RocketIcon,
     SaveIcon,
   } from "lucide-react";
@@ -46,6 +47,7 @@ import {
     publishing: boolean;
     save: () => void;
     runPublish: () => void;
+    onRun?: () => void;
     readOnly?: boolean;
   }
 
@@ -63,6 +65,7 @@ import {
     publishing,
     save,
     runPublish,
+    onRun,
     readOnly,
   }: SceneEditorSidebarProps) {
     return (
@@ -178,6 +181,26 @@ import {
                     </TooltipTrigger>
                     {!isSidebarExpanded && <TooltipContent side="right">发布上线</TooltipContent>}
                 </Tooltip>
+
+                {status === "PUBLISHED" && onRun && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size={isSidebarExpanded ? "sm" : "icon-sm"}
+                        className={cn(
+                          "w-full h-8 gap-2 border-green-200 text-green-700 hover:bg-green-50",
+                          !isSidebarExpanded && "justify-center p-0"
+                        )}
+                        onClick={onRun}
+                      >
+                        <PlayIcon className="size-3" />
+                        {isSidebarExpanded && <span className="text-xs">执行</span>}
+                      </Button>
+                    </TooltipTrigger>
+                    {!isSidebarExpanded && <TooltipContent side="right">执行场景</TooltipContent>}
+                  </Tooltip>
+                )}
             </div>
         ) : (
             <div className={cn("p-4 border-t", !isSidebarExpanded && "p-2 flex justify-center")}>

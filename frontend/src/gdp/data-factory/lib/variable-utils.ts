@@ -51,15 +51,6 @@ export function buildVariableList(
         group: "步骤输出",
       });
     });
-
-    if (step.type === "AUTH_HTTP" && step.authMapping?.token) {
-      const tokenLabel = meta.token?.label ?? meta.token?.remark ?? "Token";
-      list.push({
-        label: `${step.stepName ?? step.stepId} -> ${tokenLabel}`,
-        value: `\${steps.${step.stepId}.outputs.token}`,
-        group: "认证信息",
-      });
-    }
   });
 
   // System variables

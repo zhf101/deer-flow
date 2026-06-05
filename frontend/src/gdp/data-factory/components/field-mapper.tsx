@@ -30,6 +30,9 @@ interface FieldMapperProps {
   scene: SceneDefinition;
   currentStepId: string;
   placeholder?: string;
+  /** Optional description map for each key, displayed as a third column */
+  descriptions?: Record<string, string>;
+  onDescriptionsChange?: (descriptions: Record<string, string>) => void;
 }
 
 export function FieldMapper({
@@ -40,12 +43,22 @@ export function FieldMapper({
   scene,
   currentStepId,
   placeholder = "字段名",
+  descriptions,
+  onDescriptionsChange,
 }: FieldMapperProps) {
   const fields = Object.entries(value);
+  const hasDesc = descriptions != null && onDescriptionsChange != null;
 
   const updateField = (oldKey: string, newKey: string, newValue: any) => {
     const next = { ...value };
     if (oldKey !== newKey) {
+      // Also migrate description when key changes
+      if (hasDesc && descriptions![oldKey] != null) {
+        const nextDesc = { ...descriptions };
+        nextDesc[newKey] = nextDesc[oldKey]!;
+        delete nextDesc[oldKey];
+        onDescriptionsChange!(nextDesc);
+      }
       delete next[oldKey];
     }
     next[newKey] = newValue;
@@ -56,14 +69,23 @@ export function FieldMapper({
     const next = { ...value };
     delete next[key];
     onChange(next);
+    if (hasDesc) {
+      const nextDesc = { ...descriptions };
+      delete nextDesc[key];
+      onDescriptionsChange!(nextDesc);
+    }
   };
 
   const addField = () => {
     onChange({ ...value, [`field_${fields.length + 1}`]: "" });
   };
 
+  const updateDesc = (key: string, desc: string) => {
+    onDescriptionsChange!({ ...descriptions, [key]: desc });
+  };
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold">{label}</span>
@@ -85,16 +107,16 @@ export function FieldMapper({
         </Button>
       </div>
 
-      <div className="space-y-2">
+      <div className="space-y-1.5">
         {fields.map(([key, val]) => (
-          <div key={key} className="flex items-center gap-2">
+          <div key={key} className={cn("flex items-center gap-2", hasDesc && "grid grid-cols-[1fr_1fr_1fr_32px]")}>
             <Input
               value={key}
               onChange={(e) => updateField(key, e.target.value, val)}
               placeholder={placeholder}
-              className="h-8 w-1/3 font-mono text-[10px]"
+              className={cn("h-8 font-mono text-[10px]", !hasDesc && "w-1/3")}
             />
-            <div className="relative flex-1 group">
+            <div className={cn("relative group", !hasDesc && "flex-1")}>
               {(() => {
                 const rawVal = typeof val === "string" ? val : JSON.stringify(val);
                 const isVar = rawVal && isVariableRef(rawVal);
@@ -143,6 +165,14 @@ export function FieldMapper({
                 </Popover>
               </div>
             </div>
+            {hasDesc && (
+              <Input
+                value={descriptions![key] ?? ""}
+                onChange={(e) => updateDesc(key, e.target.value)}
+                placeholder="说明"
+                className="h-8 text-[10px]"
+              />
+            )}
             <Button
               variant="ghost"
               size="icon-sm"
@@ -154,7 +184,7 @@ export function FieldMapper({
           </div>
         ))}
         {fields.length === 0 && (
-          <div className="py-4 text-center text-[10px] text-muted-foreground italic border border-dashed rounded-md">
+          <div className="py-3 text-center text-[10px] text-muted-foreground italic border border-dashed rounded-md">
             暂无配置
           </div>
         )}

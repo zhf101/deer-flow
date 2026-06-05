@@ -1,7 +1,7 @@
 export type SceneStatus = "DRAFT" | "PUBLISHED" | "DISABLED";
 export type VersionStatus = "DRAFT" | "PUBLISHED";
 export type ConfigStatus = "ENABLED" | "DISABLED";
-export type StepType = "HTTP" | "AUTH_HTTP" | "SQL" | "ASSERT" | "TRANSFORM";
+export type StepType = "HTTP" | "SQL" | "ASSERT" | "TRANSFORM";
 export type InputFieldType =
   | "string"
   | "number"
@@ -10,7 +10,7 @@ export type InputFieldType =
   | "enum"
   | "object"
   | "array";
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+export type HttpMethod = "GET" | "POST";
 export type SqlOperation = "SELECT" | "INSERT" | "UPDATE" | "DELETE";
 export type ConditionOperator =
   | "EQ"
@@ -92,12 +92,6 @@ export interface RetryPolicy {
   retryOn: RetryErrorType[];
 }
 
-export interface AuthMapping {
-  token?: string | null;
-  tokenType?: string | null;
-  fields: Record<string, string>;
-}
-
 export interface AssertionDefinition {
   expression: string;
   message?: string | null;
@@ -118,12 +112,13 @@ export interface StepDefinition {
   bodySchema?: InputFieldDefinition[] | null;
   bodyMapping?: Record<string, unknown> | null;
   responseSchema?: InputFieldDefinition[] | null;
+  responseHeadersSchema?: InputFieldDefinition[] | null;
+  responseCookiesSchema?: InputFieldDefinition[] | null;
   responseHandling?: ResponseHandling | null;
   errorMapping?: ErrorMapping | null;
   outputMapping: Record<string, string>;
   outputMeta?: Record<string, { label?: string; remark?: string }> | null;
   retryPolicy?: RetryPolicy | null;
-  authMapping?: AuthMapping | null;
   datasource?: string | null;
   sqlTemplateCode?: string | null;
   operation?: SqlOperation | null;
@@ -266,4 +261,41 @@ export interface SqlTemplateResponse extends SqlTemplateConfig {
   updatedBy?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── 执行引擎相关类型 ─────────────────────────────────────────────────
+
+/** 执行请求——客户端提交的执行参数 */
+export interface ExecutionRequest {
+  envCode: string;
+  inputs: Record<string, unknown>;
+}
+
+/** 单个步骤的执行结果 */
+export interface StepResult {
+  stepId: string;
+  stepName?: string | null;
+  type: StepType;
+  status: "SUCCESS" | "FAILED" | "SKIPPED";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  outputs: Record<string, unknown>;
+  rawResponse?: unknown;
+  error?: string | null;
+  statusCode?: number | null;
+}
+
+/** 整个场景的执行结果 */
+export interface ExecutionResult {
+  sceneCode: string;
+  versionNo: number;
+  envCode: string;
+  status: "SUCCESS" | "FAILED" | "PARTIAL";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  stepResults: StepResult[];
+  finalOutput: Record<string, unknown>;
+  errors: string[];
 }

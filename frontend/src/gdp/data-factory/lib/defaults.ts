@@ -22,7 +22,7 @@ export const STEP_TYPES: StepType[] = [
   "SQL",
 ];
 
-export const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
+export const HTTP_METHODS = ["GET", "POST"] as const;
 export const SQL_OPERATIONS = ["SELECT", "INSERT", "UPDATE", "DELETE"] as const;
 export const CONDITION_OPERATORS = [
   "EQ",
@@ -104,7 +104,7 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
     assignments: {},
   };
 
-  if (type === "HTTP" || type === "AUTH_HTTP") {
+  if (type === "HTTP") {
     base.method = "POST";
     base.url = "";
     base.serviceCode = "";
@@ -127,13 +127,6 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
       intervalMs: 1000,
       retryOn: [],
     };
-    if (type === "AUTH_HTTP") {
-      base.authMapping = {
-        token: "$.body.data.token",
-        tokenType: "Bearer",
-        fields: {},
-      };
-    }
   }
 
   if (type === "SQL") {
@@ -157,8 +150,6 @@ export function stepLabel(type: StepType): string {
   switch (type) {
     case "HTTP":
       return "HTTP 请求";
-    case "AUTH_HTTP":
-      return "认证请求";
     case "SQL":
       return "SQL 操作";
     case "ASSERT":

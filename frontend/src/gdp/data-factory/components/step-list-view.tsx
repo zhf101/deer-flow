@@ -81,9 +81,9 @@ export function StepListView({
                         <div className="flex items-center gap-2">
                             <Badge variant="outline" className={cn(
                                 "text-[9px] uppercase font-bold",
-                                (step.type === 'HTTP' || step.type === 'AUTH_HTTP') ? "border-blue-200 text-blue-600 bg-blue-50" : "border-emerald-200 text-emerald-600 bg-emerald-50"
+                                step.type === 'HTTP' ? "border-blue-200 text-blue-600 bg-blue-50" : "border-emerald-200 text-emerald-600 bg-emerald-50"
                             )}>
-                                {step.type === 'AUTH_HTTP' ? 'HTTP (AUTH)' : step.type}
+                                {step.type}
                             </Badge>
                             <span className="font-bold text-sm truncate">{step.stepName || step.stepId}</span>
                             {!step.enabled && (
@@ -93,7 +93,7 @@ export function StepListView({
                         
                         <div className="flex items-center gap-4 text-xs">
                             <div className="flex items-center gap-1.5 text-muted-foreground truncate max-w-md bg-muted/30 px-2 py-0.5 rounded">
-                                {(step.type === 'HTTP' || step.type === 'AUTH_HTTP') ? (
+                                {step.type === 'HTTP' ? (
                                     <>
                                         <GlobeIcon className="size-3 shrink-0" />
                                         <span className="font-mono text-[11px] truncate">{step.url || '未配置 URL'}</span>
