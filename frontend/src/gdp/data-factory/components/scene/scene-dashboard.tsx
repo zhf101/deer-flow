@@ -10,7 +10,6 @@ import {
   SearchIcon,
   Trash2Icon,
   SparklesIcon,
-  SettingsIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -147,6 +146,8 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
                         "expiresIn": { label: "过期时间", remark: "单位秒，默认7200" }
                     },
                     paramMapping: {},
+                    httpParamMapping: {},
+                    sqlParamMapping: {},
                     assertions: [],
                     assignments: {}
                 },
@@ -172,6 +173,8 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
                         "product_status": { label: "商品状态", remark: "ON_SALE=在售, OFF_SHELF=已下架" }
                     },
                     requestMapping: {},
+                    httpParamMapping: {},
+                    sqlParamMapping: {},
                     assertions: [],
                     assignments: {}
                 },
@@ -241,6 +244,8 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
                         "orderStatus": { label: "订单状态", remark: "PENDING=待付款" }
                     },
                     paramMapping: {},
+                    httpParamMapping: {},
+                    sqlParamMapping: {},
                     assertions: [],
                     assignments: {}
                 },
@@ -267,6 +272,8 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
                         "insert_id": { label: "日志主键", remark: "自增ID，用于确认日志写入成功" }
                     },
                     requestMapping: {},
+                    httpParamMapping: {},
+                    sqlParamMapping: {},
                     assertions: [],
                     assignments: {}
                 }
@@ -334,10 +341,6 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
           </p>
         </div>
         <div className="flex items-center gap-3">
-            <Button variant="outline" onClick={onConfig} className="gap-2">
-                <SettingsIcon className="size-4" />
-                配置管理
-            </Button>
             <Button variant="outline" onClick={handleGenerateDemo} disabled={generatingDemo} className="gap-2 border-primary/20 text-primary hover:bg-primary/5">
                 <SparklesIcon className="size-4" />
                 生成演示配置 (Demo)

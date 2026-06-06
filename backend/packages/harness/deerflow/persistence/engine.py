@@ -149,6 +149,13 @@ async def init_engine(
     try:
         async with _engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            if backend == "sqlite":
+                try:
+                    from app.gdp.persistence.schema import ensure_sqlite_gdp_schema
+                except ImportError:
+                    logger.debug("GDP persistence schema helper not found; skipping GDP SQLite compatibility migrations")
+                else:
+                    await conn.run_sync(ensure_sqlite_gdp_schema)
     except Exception as exc:
         if backend == "postgres" and "does not exist" in str(exc):
             # Database not yet created — attempt to auto-create it, then retry.

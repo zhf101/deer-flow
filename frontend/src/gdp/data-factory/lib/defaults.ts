@@ -1,10 +1,13 @@
 import type {
   BatchConfig,
   ConditionRule,
+  HttpSourceConfig,
   InputFieldDefinition,
   SceneDefinition,
+  SqlSourceConfig,
   StepDefinition,
   StepType,
+  TaskDefinition,
 } from "./types";
 
 export const INPUT_FIELD_TYPES = [
@@ -97,6 +100,10 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
     dependsOn: [],
     description: "",
     position: { x: 120 + index * 120, y: 120 + index * 36 },
+    httpSourceCode: null,
+    httpParamMapping: {},
+    sqlSourceCode: null,
+    sqlParamMapping: {},
     requestMapping: {},
     outputMapping: {},
     paramMapping: {},
@@ -157,4 +164,66 @@ export function stepLabel(type: StepType): string {
     case "TRANSFORM":
       return "转换";
   }
+}
+
+export function createDefaultHttpSource(): HttpSourceConfig {
+  return {
+    sourceCode: "",
+    sourceName: "",
+    serviceCode: "",
+    path: "",
+    method: "POST",
+    requestMapping: { headers: {}, query: {}, body: {} },
+    bodySchema: null,
+    responseSchema: null,
+    responseHeadersSchema: null,
+    responseCookiesSchema: null,
+    responseHandling: {
+      expectedContentType: "JSON",
+      statusCode: { success: [200] },
+      businessSuccess: { allOf: [createConditionRule()] },
+      businessFailure: { anyOf: [] },
+    },
+    errorMapping: {
+      messageTemplate: "",
+      fields: {},
+      fallbackMessage: "",
+      exposeRawResponse: false,
+    },
+    outputMapping: {},
+    outputMeta: null,
+    retryPolicy: {
+      enabled: false,
+      maxAttempts: 1,
+      intervalMs: 1000,
+      retryOn: [],
+    },
+    status: "ENABLED",
+  };
+}
+
+export function createDefaultSqlSource(): SqlSourceConfig {
+  return {
+    sourceCode: "",
+    sourceName: "",
+    datasourceCode: "",
+    operation: "SELECT",
+    sqlText: "",
+    parameters: [],
+    safety: { requireWhere: true, maxAffectedRows: null },
+    status: "ENABLED",
+  };
+}
+
+export function createDefaultTask(): TaskDefinition {
+  return {
+    taskCode: "",
+    taskName: "",
+    taskRemark: "",
+    environmentField: "env",
+    inputSchema: [createEnvField()],
+    steps: [],
+    resultMapping: {},
+    status: "DRAFT",
+  };
 }

@@ -167,6 +167,7 @@ class DataFactorySqlTemplateRow(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
     template_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     template_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    datasource_code: Mapped[str] = mapped_column(String(128), nullable=False)
     operation: Mapped[str] = mapped_column(String(32), nullable=False)
     datasource_type: Mapped[str] = mapped_column(String(64), nullable=False)
     sql_text: Mapped[str] = mapped_column(Text, nullable=False)
@@ -198,3 +199,92 @@ class DataFactoryConfigAuditRow(Base):
     before_json: Mapped[str | None] = mapped_column(Text)
     after_json: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+
+
+# ========================= HTTP 接口配置表 =========================
+# 存放可复用的 HTTP 接口定义，供场景 HTTP 步骤引用
+class DataFactoryHttpSourceRow(Base):
+    """HTTP 接口配置表行模型。
+
+    source_code 为业务唯一键，记录接口的服务引用、路径、方法、请求映射、
+    响应处理策略等完整配置，可被多个场景的 HTTP 步骤共享引用。
+    """
+    __tablename__ = "df_http_source"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    source_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    service_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    path: Mapped[str] = mapped_column(String(1024), nullable=False)
+    method: Mapped[str] = mapped_column(String(16), nullable=False)
+    # JSON 格式的请求映射、响应处理、输出提取等配置
+    request_mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
+    body_schema_json: Mapped[str | None] = mapped_column(Text)
+    response_handling_json: Mapped[str | None] = mapped_column(Text)
+    error_mapping_json: Mapped[str | None] = mapped_column(Text)
+    output_mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
+    output_meta_json: Mapped[str | None] = mapped_column(Text)
+    retry_policy_json: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_by: Mapped[str | None] = mapped_column(String(128))
+    updated_by: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+
+# ========================= 造数任务主表 =========================
+# 存储造数任务的顶层元信息，task_code 为业务唯一键
+class DataFactoryTaskRow(Base):
+    """造数任务主表行模型。
+
+    一条记录对应一个造数任务，通过组合多个场景完成复杂的造数流程。
+    状态流转与场景一致：DRAFT -> PUBLISHED -> DISABLED。
+    """
+    __tablename__ = "df_task"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    task_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    task_remark: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    current_version_no: Mapped[int | None] = mapped_column(Integer)
+    created_by: Mapped[str | None] = mapped_column(String(128))
+    updated_by: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+    __table_args__ = (
+        Index("idx_df_task_status", "status"),
+    )
+
+
+# ========================= 造数任务版本表 =========================
+# 每次任务编辑生成一条版本记录，保留完整的配置快照
+class DataFactoryTaskVersionRow(Base):
+    """造数任务版本表行模型。
+
+    以 task_id + version_no 联合唯一，存储某一版本的完整任务配置：
+    输入参数定义、场景步骤编排、结果映射。
+    """
+    __tablename__ = "df_task_version"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    task_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    task_code: Mapped[str] = mapped_column(String(128), nullable=False)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    version_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    # JSON 格式的任务配置快照
+    input_schema_json: Mapped[str] = mapped_column(Text, nullable=False)
+    steps_json: Mapped[str] = mapped_column(Text, nullable=False)
+    result_mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
+    validation_result_json: Mapped[str | None] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=_now)
+    published_by: Mapped[str | None] = mapped_column(String(128))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "version_no", name="uq_df_task_version"),
+        Index("idx_df_task_version_task_code", "task_code"),
+        Index("idx_df_task_version_status", "version_status"),
+    )

@@ -283,6 +283,7 @@ class DataFactoryRepository:
                     id=_new_id(),
                     template_code=template.templateCode,
                     template_name=template.templateName,
+                    datasource_code="",
                     operation=template.operation.value,
                     datasource_type=template.datasourceType,
                     sql_text=template.sqlText,

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDownIcon, ChevronRightIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, LinkIcon, PlusIcon, Trash2Icon, UnlinkIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -11,16 +11,30 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-import type { SceneDefinition, SqlTemplateResponse, StepDefinition } from "../../lib/types";
+import type {
+  HttpSourceResponse,
+  SceneDefinition,
+  SqlSourceResponse,
+  SqlTemplateResponse,
+  StepDefinition,
+} from "../../lib/types";
 
 import { HttpStepForm } from "../http/http-step-form";
 import { SqlStepForm } from "../sql/sql-step-form";
@@ -30,6 +44,8 @@ interface StepConfigPanelProps {
   step: StepDefinition | null;
   steps: StepDefinition[];
   sqlTemplates: SqlTemplateResponse[];
+  httpSources?: HttpSourceResponse[];
+  sqlSources?: SqlSourceResponse[];
   onChange: (step: StepDefinition) => void;
   onDelete: (stepId: string) => void;
   readOnly?: boolean;
@@ -40,6 +56,8 @@ export function StepConfigPanel({
   step,
   steps,
   sqlTemplates,
+  httpSources = [],
+  sqlSources = [],
   onChange,
   onDelete,
   readOnly,
@@ -52,10 +70,18 @@ export function StepConfigPanel({
     );
   }
 
+  // Determine if step uses reference mode (has httpSourceCode or sqlSourceCode set)
+  const isRefMode =
+    (step.type === "HTTP" && step.httpSourceCode !== null && step.httpSourceCode !== undefined) ||
+    (step.type === "SQL" && step.sqlSourceCode !== null && step.sqlSourceCode !== undefined);
+
   // Available steps for dependency: must be in the scene and not the current step
   const availableSteps = steps.filter(s => s.stepId !== step.stepId);
   const [basicOpen, setBasicOpen] = useState(false);
   const [depsOpen, setDepsOpen] = useState(true);
+
+  const enabledHttpSources = httpSources.filter((s) => s.status === "ENABLED");
+  const enabledSqlSources = sqlSources.filter((s) => s.status === "ENABLED");
 
   return (
     <div className={cn("space-y-3", readOnly && "pointer-events-none opacity-75")}>
@@ -202,10 +228,12 @@ export function StepConfigPanel({
                         if (!s) return null;
                         const urlOrSql =
                           s.type === "HTTP"
-                            ? s.url ?? ""
+                            ? s.httpSourceCode
+                              ? `ref: ${s.httpSourceCode}`
+                              : s.url ?? ""
                             : s.type === "SQL"
-                              ? s.description?.startsWith("Raw SQL:")
-                                ? s.description.substring(9).trim()
+                              ? s.sqlSourceCode
+                                ? `ref: ${s.sqlSourceCode}`
                                 : s.sqlTemplateCode ?? ""
                               : "";
                         return (
@@ -245,25 +273,151 @@ export function StepConfigPanel({
                     该节点暂未配置前序依赖。建议显式声明依赖关系。
                 </div>
             )}
-        </div>
+          </div>
         </CollapsibleContent>
       </Collapsible>
 
       {/* 3. Detailed Logic Config */}
       <div>
-        <div>
-          {step.type === "HTTP" ? (
-            <HttpStepForm scene={scene} step={step} onChange={onChange} />
-          ) : null}
-          {step.type === "SQL" ? (
-            <SqlStepForm
-              scene={scene}
-              step={step}
-              sqlTemplates={sqlTemplates}
-              onChange={onChange}
-            />
-          ) : null}
-        </div>
+        {/* Mode toggle for HTTP / SQL steps */}
+        {(step.type === "HTTP" || step.type === "SQL") && !readOnly && (
+          <div className="flex items-center gap-2 mb-3 pb-2 border-b">
+            <span className="text-[10px] font-bold text-muted-foreground uppercase">配置模式</span>
+            <Button
+              variant={isRefMode ? "default" : "outline"}
+              size="sm"
+              className="h-6 text-[10px] gap-1 px-2"
+              onClick={() => {
+                if (step.type === "HTTP") {
+                  onChange({ ...step, httpSourceCode: "", httpParamMapping: {} });
+                } else {
+                  onChange({ ...step, sqlSourceCode: "", sqlParamMapping: {} });
+                }
+              }}
+            >
+              <LinkIcon className="size-3" /> 引用配置
+            </Button>
+            <Button
+              variant={!isRefMode ? "default" : "outline"}
+              size="sm"
+              className="h-6 text-[10px] gap-1 px-2"
+              onClick={() => {
+                if (step.type === "HTTP") {
+                  onChange({ ...step, httpSourceCode: null, httpParamMapping: {} });
+                } else {
+                  onChange({ ...step, sqlSourceCode: null, sqlParamMapping: {} });
+                }
+              }}
+            >
+              <UnlinkIcon className="size-3" /> 内联配置
+            </Button>
+          </div>
+        )}
+
+        {/* Reference mode: HTTP */}
+        {step.type === "HTTP" && step.httpSourceCode !== null && step.httpSourceCode !== undefined && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-[10px] font-bold uppercase text-muted-foreground">HTTP 接口配置</Label>
+              <Select
+                value={step.httpSourceCode || ""}
+                onValueChange={(v) => onChange({ ...step, httpSourceCode: v })}
+                disabled={readOnly}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="选择 HTTP 接口..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {enabledHttpSources.map((s) => (
+                    <SelectItem key={s.sourceCode} value={s.sourceCode}>
+                      {s.sourceName} ({s.method} {s.path})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {step.httpSourceCode && (
+                <p className="text-[10px] text-muted-foreground">
+                  引用接口: {enabledHttpSources.find((s) => s.sourceCode === step.httpSourceCode)?.sourceName || step.httpSourceCode}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] font-bold uppercase text-muted-foreground">参数映射 (JSON)</Label>
+              <p className="text-[9px] text-muted-foreground">
+                运行时参数覆盖，如 {"{"} &quot;userId&quot;: &quot;$&#123;input.userId&#125;&quot; {"}"}
+              </p>
+              <Textarea
+                className="font-mono text-[10px]"
+                rows={4}
+                disabled={readOnly}
+                value={JSON.stringify(step.httpParamMapping || {}, null, 2)}
+                onChange={(e) => {
+                  try { onChange({ ...step, httpParamMapping: JSON.parse(e.target.value) }); }
+                  catch { /* ignore parse errors while typing */ }
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Reference mode: SQL */}
+        {step.type === "SQL" && step.sqlSourceCode !== null && step.sqlSourceCode !== undefined && (
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <Label className="text-[10px] font-bold uppercase text-muted-foreground">SQL 配置</Label>
+              <Select
+                value={step.sqlSourceCode || ""}
+                onValueChange={(v) => onChange({ ...step, sqlSourceCode: v })}
+                disabled={readOnly}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue placeholder="选择 SQL 配置..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {enabledSqlSources.map((s) => (
+                    <SelectItem key={s.sourceCode} value={s.sourceCode}>
+                      {s.sourceName} ({s.operation})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {step.sqlSourceCode && (
+                <p className="text-[10px] text-muted-foreground">
+                  引用 SQL: {enabledSqlSources.find((s) => s.sourceCode === step.sqlSourceCode)?.sourceName || step.sqlSourceCode}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1">
+              <Label className="text-[10px] font-bold uppercase text-muted-foreground">参数映射 (JSON)</Label>
+              <p className="text-[9px] text-muted-foreground">
+                运行时参数覆盖，如 {"{"} &quot;orderId&quot;: &quot;$&#123;steps.createOrder.outputs.orderNo&#125;&quot; {"}"}
+              </p>
+              <Textarea
+                className="font-mono text-[10px]"
+                rows={4}
+                disabled={readOnly}
+                value={JSON.stringify(step.sqlParamMapping || {}, null, 2)}
+                onChange={(e) => {
+                  try { onChange({ ...step, sqlParamMapping: JSON.parse(e.target.value) }); }
+                  catch { /* ignore */ }
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Inline mode: existing forms */}
+        {step.type === "HTTP" && (step.httpSourceCode === null || step.httpSourceCode === undefined) ? (
+          <HttpStepForm scene={scene} step={step} onChange={onChange} />
+        ) : null}
+        {step.type === "SQL" && (step.sqlSourceCode === null || step.sqlSourceCode === undefined) ? (
+          <SqlStepForm
+            scene={scene}
+            step={step}
+            sqlTemplates={sqlTemplates}
+            onChange={onChange}
+          />
+        ) : null}
       </div>
 
       {/* Delete Footer */}

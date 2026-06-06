@@ -17,13 +17,17 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import {
   createScene,
   getScene,
+  listHttpSources,
+  listSqlSources,
   listSqlTemplates,
   publishScene,
   updateScene,
 } from "../../lib/api";
 import { createDefaultScene, createDefaultStep } from "../../lib/defaults";
 import type {
+  HttpSourceResponse,
   SceneDefinition,
+  SqlSourceResponse,
   SqlTemplateResponse,
   StepDefinition,
   ValidationIssue,
@@ -63,6 +67,8 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   const [publishing, setPublishing] = useState(false);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
   const [sqlTemplates, setSqlTemplates] = useState<SqlTemplateResponse[]>([]);
+  const [httpSources, setHttpSources] = useState<HttpSourceResponse[]>([]);
+  const [sqlSources, setSqlSources] = useState<SqlSourceResponse[]>([]);
   const [loading, setLoading] = useState(!!sceneCode);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
   const [orchView, setOrchView] = useState<"list" | "canvas">("list");
@@ -91,6 +97,12 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
     listSqlTemplates()
       .then(setSqlTemplates)
       .catch(() => setSqlTemplates([]));
+    listHttpSources()
+      .then(setHttpSources)
+      .catch(() => setHttpSources([]));
+    listSqlSources()
+      .then(setSqlSources)
+      .catch(() => setSqlSources([]));
   }, []);
 
   useEffect(() => {
@@ -222,6 +234,8 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
                 orchView={orchView}
                 setOrchView={setOrchView}
                 sqlTemplates={sqlTemplates}
+                httpSources={httpSources}
+                sqlSources={sqlSources}
                 updateStep={updateStep}
                 deleteStep={deleteStep}
                 addStep={addStep}

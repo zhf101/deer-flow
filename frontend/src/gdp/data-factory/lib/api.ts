@@ -7,14 +7,23 @@ import type {
   EnvironmentResponse,
   ExecutionRequest,
   ExecutionResult,
+  HttpSourceConfig,
+  HttpSourceResponse,
   SceneDefinition,
   SceneStatus,
   SceneSummary,
   SceneVersion,
   ServiceEndpointConfig,
   ServiceEndpointResponse,
+  SqlSourceConfig,
+  SqlSourceParseResponse,
+  SqlSourceResponse,
   SqlTemplateConfig,
   SqlTemplateResponse,
+  TaskDefinition,
+  TaskSummary,
+  TaskValidationResult,
+  TaskVersion,
   ValidationResult,
 } from "./types";
 
@@ -261,5 +270,193 @@ export async function runScene(
   return request<ExecutionResult>(
     `/scenes/${encodeURIComponent(sceneCode)}/run`,
     { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+// ── HTTP 接口配置（httpsource）───────────────────────────────────────────
+
+export async function listHttpSources(): Promise<HttpSourceResponse[]> {
+  return request<HttpSourceResponse[]>("/http-sources");
+}
+
+export async function createHttpSource(
+  config: HttpSourceConfig,
+): Promise<HttpSourceResponse> {
+  return request<HttpSourceResponse>("/http-sources", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+}
+
+export async function getHttpSource(
+  sourceCode: string,
+): Promise<HttpSourceResponse> {
+  return request<HttpSourceResponse>(
+    `/http-sources/${encodeURIComponent(sourceCode)}`,
+  );
+}
+
+export async function updateHttpSource(
+  sourceCode: string,
+  config: HttpSourceConfig,
+): Promise<HttpSourceResponse> {
+  return request<HttpSourceResponse>(
+    `/http-sources/${encodeURIComponent(sourceCode)}`,
+    { method: "PUT", body: JSON.stringify(config) },
+  );
+}
+
+export async function disableHttpSource(
+  sourceCode: string,
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(
+    `/http-sources/${encodeURIComponent(sourceCode)}/disable`,
+    { method: "POST" },
+  );
+}
+
+export async function deleteHttpSource(
+  sourceCode: string,
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(
+    `/http-sources/${encodeURIComponent(sourceCode)}/delete`,
+    { method: "POST" },
+  );
+}
+
+// ── SQL 配置（sqlsource）─────────────────────────────────────────────────
+
+export async function listSqlSources(): Promise<SqlSourceResponse[]> {
+  return request<SqlSourceResponse[]>("/sql-sources");
+}
+
+export async function parseSqlSource(
+  sqlText: string,
+  parameters: SqlSourceConfig["parameters"] = [],
+): Promise<SqlSourceParseResponse> {
+  return request<SqlSourceParseResponse>("/sql-sources/parse", {
+    method: "POST",
+    body: JSON.stringify({ sqlText, parameters }),
+  });
+}
+
+export async function createSqlSource(
+  config: SqlSourceConfig,
+): Promise<SqlSourceResponse> {
+  return request<SqlSourceResponse>("/sql-sources", {
+    method: "POST",
+    body: JSON.stringify(config),
+  });
+}
+
+export async function getSqlSource(
+  sourceCode: string,
+): Promise<SqlSourceResponse> {
+  return request<SqlSourceResponse>(
+    `/sql-sources/${encodeURIComponent(sourceCode)}`,
+  );
+}
+
+export async function updateSqlSource(
+  sourceCode: string,
+  config: SqlSourceConfig,
+): Promise<SqlSourceResponse> {
+  return request<SqlSourceResponse>(
+    `/sql-sources/${encodeURIComponent(sourceCode)}`,
+    { method: "PUT", body: JSON.stringify(config) },
+  );
+}
+
+export async function disableSqlSource(
+  sourceCode: string,
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(
+    `/sql-sources/${encodeURIComponent(sourceCode)}/disable`,
+    { method: "POST" },
+  );
+}
+
+// ── 造数任务（task）──────────────────────────────────────────────────────
+
+export async function listTasks(params?: {
+  keyword?: string;
+  status?: SceneStatus | "";
+  limit?: number;
+  offset?: number;
+}): Promise<TaskSummary[]> {
+  return request<TaskSummary[]>(
+    `/tasks${searchParams({
+      keyword: params?.keyword,
+      status: params?.status === "" ? undefined : params?.status,
+      limit: params?.limit ?? 100,
+      offset: params?.offset ?? 0,
+    })}`,
+  );
+}
+
+export async function createTask(
+  task: TaskDefinition,
+): Promise<TaskVersion> {
+  return request<TaskVersion>("/tasks", {
+    method: "POST",
+    body: JSON.stringify(task),
+  });
+}
+
+export async function getTask(taskCode: string): Promise<TaskDefinition> {
+  return request<TaskDefinition>(`/tasks/${encodeURIComponent(taskCode)}`);
+}
+
+export async function updateTask(
+  taskCode: string,
+  task: TaskDefinition,
+): Promise<TaskVersion> {
+  return request<TaskVersion>(`/tasks/${encodeURIComponent(taskCode)}`, {
+    method: "PUT",
+    body: JSON.stringify(task),
+  });
+}
+
+export async function validateTask(
+  taskCode: string,
+): Promise<TaskValidationResult> {
+  return request<TaskValidationResult>(
+    `/tasks/${encodeURIComponent(taskCode)}/validate`,
+    { method: "POST" },
+  );
+}
+
+export async function publishTask(
+  taskCode: string,
+): Promise<TaskVersion> {
+  return request<TaskVersion>(
+    `/tasks/${encodeURIComponent(taskCode)}/publish`,
+    { method: "POST" },
+  );
+}
+
+export async function disableTask(
+  taskCode: string,
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(
+    `/tasks/${encodeURIComponent(taskCode)}/disable`,
+    { method: "POST" },
+  );
+}
+
+export async function deleteTask(
+  taskCode: string,
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(
+    `/tasks/${encodeURIComponent(taskCode)}/delete`,
+    { method: "POST" },
+  );
+}
+
+export async function listTaskVersions(
+  taskCode: string,
+): Promise<TaskVersion[]> {
+  return request<TaskVersion[]>(
+    `/tasks/${encodeURIComponent(taskCode)}/versions`,
   );
 }

@@ -105,6 +105,13 @@ export interface StepDefinition {
   dependsOn: string[];
   description?: string | null;
   position?: Position | null;
+  // HTTP 步骤：引用 httpsource
+  httpSourceCode?: string | null;
+  httpParamMapping: Record<string, unknown>;
+  // SQL 步骤：引用 sqlsource
+  sqlSourceCode?: string | null;
+  sqlParamMapping: Record<string, unknown>;
+  // 以下为兼容旧内联模式的字段（逐步废弃）
   method?: HttpMethod | null;
   url?: string | null;
   serviceCode?: string | null;
@@ -261,6 +268,156 @@ export interface SqlTemplateResponse extends SqlTemplateConfig {
   updatedBy?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── HTTP 接口配置（httpsource）──────────────────────────────────────────
+
+export interface HttpSourceConfig {
+  sourceCode: string;
+  sourceName: string;
+  serviceCode: string;
+  path: string;
+  method: HttpMethod;
+  requestMapping: Record<string, unknown>;
+  bodySchema?: InputFieldDefinition[] | null;
+  responseSchema?: InputFieldDefinition[] | null;
+  responseHeadersSchema?: InputFieldDefinition[] | null;
+  responseCookiesSchema?: InputFieldDefinition[] | null;
+  responseHandling?: ResponseHandling | null;
+  errorMapping?: ErrorMapping | null;
+  outputMapping: Record<string, string>;
+  outputMeta?: Record<string, { label?: string; remark?: string }> | null;
+  retryPolicy?: RetryPolicy | null;
+  status: ConfigStatus;
+}
+
+export interface HttpSourceResponse extends HttpSourceConfig {
+  id: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── SQL 配置（sqlsource）────────────────────────────────────────────────
+
+export interface SqlSourceParameter {
+  name: string;
+  type: InputFieldType | string;
+  required: boolean;
+  defaultValue?: unknown;
+  description?: string | null;
+}
+
+export interface SqlSourceTableMeta {
+  id: string;
+  tableName: string;
+  alias: string;
+  description: string;
+}
+
+export interface SqlSourceFieldMeta {
+  id: string;
+  fieldName: string;
+  sourceTable: string;
+  alias: string;
+  description: string;
+}
+
+export interface SqlSourceConditionMeta {
+  id: string;
+  fieldName: string;
+  sourceTable: string;
+  paramName: string;
+  description: string;
+}
+
+export interface SqlSourceParseResponse {
+  normalizedSql: string;
+  operation: SqlOperation;
+  tables: SqlSourceTableMeta[];
+  resultFields: SqlSourceFieldMeta[];
+  conditionFields: SqlSourceConditionMeta[];
+  parameters: SqlSourceParameter[];
+}
+
+export interface SqlSourceConfig {
+  sourceCode: string;
+  sourceName: string;
+  datasourceCode: string;
+  operation: SqlOperation;
+  sqlText: string;
+  parameters: SqlSourceParameter[];
+  safety: SqlTemplateSafety;
+  status: ConfigStatus;
+}
+
+export interface SqlSourceResponse extends SqlSourceConfig {
+  id: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── 造数任务（task）──────────────────────────────────────────────────────
+
+export interface TaskStepDefinition {
+  stepId: string;
+  sceneCode: string;
+  stepName?: string | null;
+  enabled: boolean;
+  dependsOn: string[];
+  inputMapping: Record<string, unknown>;
+  outputMapping: Record<string, string>;
+}
+
+export interface TaskDefinition {
+  taskCode: string;
+  taskName: string;
+  taskRemark?: string | null;
+  environmentField: "env";
+  inputSchema: InputFieldDefinition[];
+  steps: TaskStepDefinition[];
+  resultMapping: Record<string, unknown>;
+  status: SceneStatus;
+}
+
+export interface TaskSummary {
+  id: string;
+  taskCode: string;
+  taskName: string;
+  taskRemark?: string | null;
+  status: SceneStatus;
+  currentVersionNo?: number | null;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TaskVersion {
+  id: string;
+  taskCode: string;
+  versionNo: number;
+  versionStatus: VersionStatus;
+  definition: TaskDefinition;
+  validationResult?: Record<string, unknown> | null;
+  createdBy?: string | null;
+  createdAt: string;
+  publishedBy?: string | null;
+  publishedAt?: string | null;
+}
+
+export interface TaskValidationIssue {
+  field: string;
+  message: string;
+  level: "ERROR" | "WARNING";
+}
+
+export interface TaskValidationResult {
+  valid: boolean;
+  issues: TaskValidationIssue[];
 }
 
 // ── 执行引擎相关类型 ─────────────────────────────────────────────────

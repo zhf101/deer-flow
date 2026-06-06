@@ -74,6 +74,8 @@ const lightTheme = basicLightInit({
 interface HttpResponseMappingEditorProps {
   step: StepDefinition;
   onChange: (updates: Partial<StepDefinition>) => void;
+  /** Whether to show the extraction manager (Section 2). Default true. */
+  showExtraction?: boolean;
 }
 
 type ResponseTab = "body" | "headers" | "cookies";
@@ -104,6 +106,7 @@ const COMMON_RESPONSE_HEADERS = [
 export function HttpResponseMappingEditor({
   step,
   onChange,
+  showExtraction = true,
 }: HttpResponseMappingEditorProps) {
   const { resolvedTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<ResponseTab>("body");
@@ -281,9 +284,9 @@ export function HttpResponseMappingEditor({
       {/* ═══ SECTION 1: Response Tabs ═══ */}
       <section className="space-y-2">
         <div className="flex items-center justify-between border-b pb-2">
-          <div className="flex items-center gap-2 text-primary font-bold text-sm">
+          <div className="flex items-center gap-2 text-blue-600 font-bold text-sm">
             <FileJsonIcon className="size-4" />
-            <span>1. 响应报文定义</span>
+            <span>响应报文定义</span>
           </div>
         </div>
 
@@ -747,6 +750,7 @@ export function HttpResponseMappingEditor({
       </section>
 
       {/* ═══ SECTION 2: Extraction Manager ═══ */}
+      {showExtraction && (
       <section className="space-y-3">
         <div className="flex items-center justify-between border-b pb-2">
           <div className="flex items-center gap-2 text-blue-600 font-bold text-sm">
@@ -953,21 +957,25 @@ export function HttpResponseMappingEditor({
           </div>
         </div>
       </section>
+      )}
 
       {/* ═══ SECTION 3: Business Rules ═══ */}
       <section className="space-y-3">
         <div className="flex items-center justify-between border-b pb-2">
           <div className="flex items-center gap-2 text-green-600 font-bold text-sm">
             <ShieldCheckIcon className="size-4" />
-            <span>3. 业务成功规则配置</span>
+            <span>业务结果判定规则</span>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          当 HTTP 状态码为 2xx 时，根据响应报文中的特定字段判定业务是否成功。例如：返回 code === &quot;0000&quot; 表示业务成功，code === &quot;9999&quot; 表示业务失败。
+        </p>
         <div className="space-y-4">
           {/* Failure Rules */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-1">
-              <span className="bg-destructive/10 text-destructive text-[10px] px-1.5 py-0.5 rounded font-bold">优先判定失败</span>
-              <span className="text-[10px] text-muted-foreground">(任一规则命中即判定为失败)</span>
+              <span className="bg-destructive/10 text-destructive text-[10px] px-1.5 py-0.5 rounded font-bold">优先判定为失败</span>
+              <span className="text-[10px] text-muted-foreground">(任意一条规则命中即判定为业务失败，短路判断)</span>
             </div>
             <div className="rounded-lg border border-destructive/10 bg-destructive/[0.02] p-1.5 space-y-1.5">
               {failureRules.map((rule, idx) => (
@@ -1041,8 +1049,8 @@ export function HttpResponseMappingEditor({
           {/* Success Rules */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-1">
-              <span className="bg-green-500/10 text-green-600 text-[10px] px-1.5 py-0.5 rounded font-bold">满足条件成功</span>
-              <span className="text-[10px] text-muted-foreground">(需全部规则同时命中判定为成功)</span>
+              <span className="bg-green-500/10 text-green-600 text-[10px] px-1.5 py-0.5 rounded font-bold">满足条件判定为成功</span>
+              <span className="text-[10px] text-muted-foreground">(需全部规则同时命中才判定为业务成功)</span>
             </div>
             <div className="rounded-lg border border-green-500/10 bg-green-500/[0.02] p-1.5 space-y-1.5">
               {successRules.map((rule, idx) => (
@@ -1120,15 +1128,18 @@ export function HttpResponseMappingEditor({
         <div className="flex items-center justify-between border-b pb-2">
           <div className="flex items-center gap-2 text-orange-600 font-bold text-sm">
             <ShieldAlertIcon className="size-4" />
-            <span>4. 请求异常配置</span>
+            <span>请求异常与重试策略</span>
           </div>
         </div>
+        <p className="text-xs text-muted-foreground">
+          当请求未返回预期结果时（如 HTTP 状态码为 404、403、502 或网络不可达），定义异常处理方式和自动重试策略。
+        </p>
         <div className="space-y-4">
           {/* Error Mapping */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-1">
-              <span className="bg-orange-500/10 text-orange-600 text-[10px] px-1.5 py-0.5 rounded font-bold">响应异常处理</span>
-              <span className="text-[10px] text-muted-foreground">(定义错误消息映射和暴露策略)</span>
+              <span className="bg-orange-500/10 text-orange-600 text-[10px] px-1.5 py-0.5 rounded font-bold">异常响应处理</span>
+              <span className="text-[10px] text-muted-foreground">(定义请求失败时的错误消息提取策略，如 HTTP 404/403/502 或网络超时场景)</span>
             </div>
             <div className="rounded-lg border border-orange-500/10 bg-orange-500/[0.02] p-3 space-y-3">
               <div className="grid grid-cols-2 gap-2">
@@ -1178,9 +1189,9 @@ export function HttpResponseMappingEditor({
             <div className="flex items-center gap-2 px-1">
               <span className="bg-amber-500/10 text-amber-600 text-[10px] px-1.5 py-0.5 rounded font-bold">
                 <RefreshCwIcon className="size-3 inline mr-1" />
-                重试策略
+                自动重试策略
               </span>
-              <span className="text-[10px] text-muted-foreground">(失败时自动重试配置)</span>
+              <span className="text-[10px] text-muted-foreground">(当请求异常发生时，可配置自动重试：设置最大重试次数和每次重试的等待间隔)</span>
             </div>
             <div className="rounded-lg border border-amber-500/10 bg-amber-500/[0.02] p-3 space-y-3">
               <label className="flex items-center justify-between gap-3 rounded-md border bg-background p-2.5 text-xs font-medium">

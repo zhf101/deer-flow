@@ -265,7 +265,7 @@ export function SqlStepForm({ scene, step, sqlTemplates, onChange }: SqlStepForm
                         <div className="relative">
                             {(() => {
                                 const rawVal = String(val);
-                                const isVar = rawVal && isVariableRef(rawVal);
+                                const isVar = !!(rawVal && isVariableRef(rawVal));
                                 const displayVal = isVar
                                     ? resolveVariableLabel(rawVal, scene, step.stepId)
                                     : rawVal;

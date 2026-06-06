@@ -69,7 +69,7 @@ export function SceneRunDialog({
         .then((envs) => {
           setEnvironments(envs.filter((e) => e.status === "ENABLED"));
           if (envs.length > 0 && !envCode) {
-            setEnvCode(envs[0].envCode);
+            setEnvCode(envs[0]?.envCode ?? "");
           }
         })
         .catch(() => toast.error("加载环境列表失败"));

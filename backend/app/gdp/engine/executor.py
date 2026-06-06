@@ -25,23 +25,29 @@ from app.gdp.engine.variable_resolver import resolve_value
 from app.gdp.models import (
     ConfigStatus,
     InputFieldDefinition,
-    SceneDefinition,
     SceneStatus,
-    SqlTemplateConfig,
-    StepDefinition,
+    StepType,
 )
 from app.gdp.persistence.model import (
     DataFactoryDatasourceRow,
+    DataFactoryHttpSourceRow,
     DataFactorySceneRow,
     DataFactorySceneVersionRow,
     DataFactoryServiceEndpointRow,
     DataFactorySqlTemplateRow,
 )
-from app.gdp.persistence.repository import DataFactoryNotFoundError, _loads
 
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
+
+
+def _loads(value: str | None, default):
+    """JSON 反序列化辅助。"""
+    import json
+    if value is None or value == "":
+        return default
+    return json.loads(value)
 
 
 class SceneExecutor:
@@ -95,11 +101,20 @@ class SceneExecutor:
         # 预加载 SQL 模板（供 SQL 步骤使用）
         sql_templates = await self._load_sql_templates()
 
+        # 预加载 HTTP 接口配置（供 HTTP 步骤使用）
+        http_sources = await self._load_http_sources()
+
+        # 预加载 SQL 配置（供 SQL 步骤使用）
+        sql_sources = await self._load_sql_sources()
+
+        # 解析步骤引用：将 httpSourceCode/sqlSourceCode 展开为内联配置
+        resolved_steps = self._resolve_step_references(definition.steps, http_sources, sql_sources)
+
         # ── 4. 逐步执行 ──
         step_results: list[StepResult] = []
         stop_on_error = definition.batchConfig.failurePolicy == "STOP_ON_ERROR"
 
-        for step_def in definition.steps:
+        for step_def in resolved_steps:
             # 跳过禁用的步骤
             if not step_def.enabled:
                 now = datetime.now(UTC)
@@ -154,7 +169,7 @@ class SceneExecutor:
 
     async def _load_published_scene(
         self, scene_code: str
-    ) -> tuple[DataFactorySceneRow, DataFactorySceneVersionRow, SceneDefinition]:
+    ) -> tuple[DataFactorySceneRow, DataFactorySceneVersionRow, Any]:
         """加载已发布的场景定义。"""
         from fastapi import HTTPException
 
@@ -179,8 +194,9 @@ class SceneExecutor:
             if version_row is None:
                 raise HTTPException(status_code=404, detail="场景版本不存在")
 
-            # 重建 SceneDefinition
-            definition = SceneDefinition(
+            # 重建 SceneDefinition（使用新版 datagen 模型，支持 httpSourceCode/sqlSourceCode）
+            from app.gdp.datagen.scene.models import SceneDefinition as NewSceneDefinition
+            definition = NewSceneDefinition(
                 sceneCode=scene_row.scene_code,
                 sceneName=scene_row.scene_name,
                 sceneRemark=scene_row.scene_remark,
@@ -253,6 +269,107 @@ class SceneExecutor:
                 )
             return templates
 
+    async def _load_http_sources(self) -> dict[str, dict[str, Any]]:
+        """预加载所有启用的 HTTP 接口配置。"""
+        async with self._sf() as session:
+            stmt = (
+                select(DataFactoryHttpSourceRow)
+                .where(DataFactoryHttpSourceRow.status == ConfigStatus.ENABLED.value)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            sources: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                sources[row.source_code] = {
+                    "sourceCode": row.source_code,
+                    "sourceName": row.source_name,
+                    "serviceCode": row.service_code,
+                    "path": row.path,
+                    "method": row.method,
+                    "requestMapping": _loads(row.request_mapping_json, {}),
+                    "bodySchema": _loads(row.body_schema_json, None),
+                    "responseHandling": _loads(row.response_handling_json, None),
+                    "errorMapping": _loads(row.error_mapping_json, None),
+                    "outputMapping": _loads(row.output_mapping_json, {}),
+                    "outputMeta": _loads(row.output_meta_json, None),
+                    "retryPolicy": _loads(row.retry_policy_json, None),
+                }
+            return sources
+
+    async def _load_sql_sources(self) -> dict[str, dict[str, Any]]:
+        """预加载所有启用的 SQL 配置（从 df_sql_template 表读取）。"""
+        async with self._sf() as session:
+            stmt = (
+                select(DataFactorySqlTemplateRow)
+                .where(DataFactorySqlTemplateRow.status == ConfigStatus.ENABLED.value)
+            )
+            rows = (await session.execute(stmt)).scalars().all()
+            sources: dict[str, dict[str, Any]] = {}
+            for row in rows:
+                sources[row.template_code] = {
+                    "sourceCode": row.template_code,
+                    "sourceName": row.template_name,
+                    "datasourceCode": row.datasource_code,
+                    "operation": row.operation,
+                    "sqlText": row.sql_text,
+                    "parameters": _loads(row.parameters_json, []),
+                    "safety": _loads(row.safety_json, {}),
+                }
+            return sources
+
+    @staticmethod
+    def _resolve_step_references(
+        steps: list,
+        http_sources: dict[str, dict[str, Any]],
+        sql_sources: dict[str, dict[str, Any]],
+    ) -> list:
+        """解析步骤引用——将 httpSourceCode/sqlSourceCode 展开为执行器需要的内联字段。
+
+        对于 HTTP 步骤：从 httpSource 获取 url（serviceCode.baseUrl + path）、method、
+        requestMapping、responseHandling、outputMapping、retryPolicy 等。
+        对于 SQL 步骤：从 sqlSource 获取 sqlTemplateCode、datasource、operation、paramMapping 等。
+        返回新的步骤列表（浅拷贝 + 修改），不修改原始定义。
+        """
+        from app.gdp.models import StepDefinition
+        from copy import deepcopy
+
+        resolved: list = []
+        for step in steps:
+            step_data = step.model_dump(mode="json") if hasattr(step, "model_dump") else dict(step)
+            step_type = step_data.get("type", "")
+
+            if step_type == StepType.HTTP.value or step_type == "HTTP":
+                source_code = step_data.get("httpSourceCode")
+                if source_code and source_code in http_sources:
+                    source = http_sources[source_code]
+                    # 构建完整 URL：${env.services.{serviceCode}.baseUrl}{path}
+                    service_code = source.get("serviceCode", "")
+                    path = source.get("path", "")
+                    step_data["url"] = step_data.get("url") or f"${{{{env.services.{service_code}.baseUrl}}}}{path}"
+                    step_data["method"] = step_data.get("method") or source.get("method", "GET")
+                    # 合并 requestMapping：source 的映射为基础，步骤的 httpParamMapping 覆盖
+                    base_mapping = deepcopy(source.get("requestMapping", {}))
+                    param_override = step_data.get("httpParamMapping", {})
+                    if param_override:
+                        _deep_merge(base_mapping, param_override)
+                    step_data["requestMapping"] = base_mapping
+                    step_data["responseHandling"] = step_data.get("responseHandling") or source.get("responseHandling")
+                    step_data["errorMapping"] = step_data.get("errorMapping") or source.get("errorMapping")
+                    step_data["outputMapping"] = step_data.get("outputMapping") or source.get("outputMapping", {})
+                    step_data["retryPolicy"] = step_data.get("retryPolicy") or source.get("retryPolicy")
+
+            elif step_type == StepType.SQL.value or step_type == "SQL":
+                source_code = step_data.get("sqlSourceCode")
+                if source_code and source_code in sql_sources:
+                    source = sql_sources[source_code]
+                    step_data["sqlTemplateCode"] = source_code
+                    step_data["datasource"] = step_data.get("datasource") or source.get("datasourceCode", "")
+                    step_data["operation"] = step_data.get("operation") or source.get("operation")
+                    # 合并 paramMapping：source 参数默认值 + 步骤的 sqlParamMapping 覆盖
+                    step_data["paramMapping"] = step_data.get("sqlParamMapping") or step_data.get("paramMapping") or {}
+
+            resolved.append(StepDefinition(**step_data))
+        return resolved
+
     def _validate_inputs(
         self, schema: list[InputFieldDefinition], inputs: dict[str, Any]
     ) -> list[str]:
@@ -321,6 +438,16 @@ class SceneExecutor:
 
         logger.warning("不支持的数据库类型: %s", db_type)
         return None
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """深度合并两个字典，override 覆盖 base。"""
+    for key, value in override.items():
+        if key in base and isinstance(base[key], dict) and isinstance(value, dict):
+            _deep_merge(base[key], value)
+        else:
+            base[key] = value
+    return base
 
 
 def _duration_ms(started: datetime, finished: datetime) -> int:

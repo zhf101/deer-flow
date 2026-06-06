@@ -27,8 +27,8 @@ interface FieldMapperProps {
   description?: string;
   value: Record<string, any>;
   onChange: (value: Record<string, any>) => void;
-  scene: SceneDefinition;
-  currentStepId: string;
+  scene?: SceneDefinition;
+  currentStepId?: string;
   placeholder?: string;
   /** Optional description map for each key, displayed as a third column */
   descriptions?: Record<string, string>;
@@ -119,9 +119,10 @@ export function FieldMapper({
             <div className={cn("relative group", !hasDesc && "flex-1")}>
               {(() => {
                 const rawVal = typeof val === "string" ? val : JSON.stringify(val);
-                const isVar = rawVal && isVariableRef(rawVal);
+                const canResolve = !!scene;
+                const isVar = canResolve && !!(rawVal && isVariableRef(rawVal));
                 const displayVal = isVar
-                  ? resolveVariableLabel(rawVal, scene, currentStepId)
+                  ? resolveVariableLabel(rawVal, scene!, currentStepId)
                   : rawVal;
                 return (
                   <TooltipProvider>
@@ -148,6 +149,7 @@ export function FieldMapper({
                   </TooltipProvider>
                 );
               })()}
+              {scene && (
               <div className="absolute right-1 top-1/2 -translate-y-1/2">
                 <Popover>
                   <PopoverTrigger asChild>
@@ -164,6 +166,7 @@ export function FieldMapper({
                   </PopoverContent>
                 </Popover>
               </div>
+              )}
             </div>
             {hasDesc && (
               <Input

@@ -59,9 +59,15 @@ import { BodyTreeEditor } from "./body-tree-editor";
 /* ── types ──────────────────────────────────────────────────────── */
 
 interface HttpStepFormProps {
-  scene: SceneDefinition;
+  scene?: SceneDefinition;
   step: StepDefinition;
   onChange: (step: StepDefinition) => void;
+  /** Whether to show the response config section. Default true. */
+  showResponse?: boolean;
+  /** Whether to show extraction manager inside response section. Default true. */
+  showExtraction?: boolean;
+  /** Whether the request config section can be collapsed. Default true. */
+  requestCollapsible?: boolean;
 }
 
 type AuthType = "none" | "bearer" | "basic" | "apikey";
@@ -80,7 +86,14 @@ type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "raw-json" | "r
 
 /* ── main component ─────────────────────────────────────────────── */
 
-export function HttpStepForm({ scene, step, onChange }: HttpStepFormProps) {
+export function HttpStepForm({
+  scene,
+  step,
+  onChange,
+  showResponse = true,
+  showExtraction = true,
+  requestCollapsible = true,
+}: HttpStepFormProps) {
   const [endpoints, setEndpoints] = useState<ServiceEndpointResponse[]>([]);
   const [activeTab, setActiveTab] = useState("body");
   const [requestOpen, setRequestOpen] = useState(true);
@@ -192,21 +205,29 @@ export function HttpStepForm({ scene, step, onChange }: HttpStepFormProps) {
 
   return (
     <div className="space-y-2">
-      {/* ═══════════════════ REQUEST (collapsible) ═══════════════════ */}
-      <Collapsible open={requestOpen} onOpenChange={setRequestOpen}>
-        <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 border-b text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors">
-          {requestOpen ? (
-            <ChevronDownIcon className="size-4" />
-          ) : (
-            <ChevronRightIcon className="size-4" />
-          )}
-          请求配置
-          <span className="ml-auto text-[10px] font-normal text-muted-foreground">
-            {method} {step.url ? (step.url.length > 50 ? step.url.slice(0, 50) + "..." : step.url) : "未配置 URL"}
-          </span>
-        </CollapsibleTrigger>
+      {/* ═══════════════════ REQUEST SECTION ═══════════════════ */}
+      <Collapsible
+        open={requestCollapsible ? requestOpen : true}
+        onOpenChange={requestCollapsible ? setRequestOpen : undefined}
+      >
+        {requestCollapsible ? (
+          <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 border-b text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors">
+            {requestOpen ? (
+              <ChevronDownIcon className="size-4" />
+            ) : (
+              <ChevronRightIcon className="size-4" />
+            )}
+            请求配置
+            <span className="ml-auto text-[10px] font-normal text-muted-foreground">
+              {method} {step.url ? (step.url.length > 50 ? step.url.slice(0, 50) + "..." : step.url) : "未配置 URL"}
+            </span>
+          </CollapsibleTrigger>
+        ) : null}
 
-        <CollapsibleContent className="space-y-2 pt-2">
+        <CollapsibleContent
+          {...(!requestCollapsible ? { forceMount: true as const } : {})}
+          className="space-y-2 pt-2"
+        >
           {/* ── ADDRESS BAR ── */}
           <div className="flex items-center gap-1.5 rounded-lg border bg-muted/20 p-1.5">
             <Select
@@ -585,6 +606,7 @@ export function HttpStepForm({ scene, step, onChange }: HttpStepFormProps) {
       </Collapsible>
 
       {/* ═══════════════════ RESPONSE SECTION ═══════════════════ */}
+      {showResponse && (
       <Collapsible open={responseOpen} onOpenChange={setResponseOpen}>
         <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 border-b text-sm font-bold text-emerald-600 hover:text-emerald-700 transition-colors">
           {responseOpen ? (
@@ -599,9 +621,11 @@ export function HttpStepForm({ scene, step, onChange }: HttpStepFormProps) {
           <HttpResponseMappingEditor
             step={step}
             onChange={(updates) => onChange({ ...step, ...updates })}
+            showExtraction={showExtraction}
           />
         </CollapsibleContent>
       </Collapsible>
+      )}
 
     </div>
   );
@@ -621,7 +645,7 @@ function FormDataEditor({
   step,
   onChange,
 }: {
-  scene: SceneDefinition;
+  scene?: SceneDefinition;
   step: StepDefinition;
   onChange: (step: StepDefinition) => void;
 }) {
@@ -675,9 +699,9 @@ function FormDataEditor({
       {/* Table rows */}
       <div className="space-y-1">
         {rows.map((row, idx) => {
-          const isVar = row.value && isVariableRef(row.value);
+          const isVar = !!(scene && row.value && isVariableRef(row.value));
           const displayVal = isVar
-            ? resolveVariableLabel(row.value, scene, step.stepId)
+            ? resolveVariableLabel(row.value, scene!, step.stepId)
             : row.value;
 
           return (
@@ -716,6 +740,7 @@ function FormDataEditor({
                   )}
                   readOnly={isVar}
                 />
+                {scene && (
                 <div className="absolute right-0.5 top-1/2 -translate-y-1/2">
                   <Popover>
                     <PopoverTrigger asChild>
@@ -732,6 +757,7 @@ function FormDataEditor({
                     </PopoverContent>
                   </Popover>
                 </div>
+                )}
               </div>
 
               {/* Description */}

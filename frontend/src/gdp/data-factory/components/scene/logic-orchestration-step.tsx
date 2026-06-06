@@ -13,7 +13,9 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 import type {
+  HttpSourceResponse,
   SceneDefinition,
+  SqlSourceResponse,
   SqlTemplateResponse,
   StepDefinition,
 } from "../../lib/types";
@@ -27,6 +29,8 @@ interface LogicOrchestrationStepProps {
   orchView: "list" | "canvas";
   setOrchView: (view: "list" | "canvas") => void;
   sqlTemplates: SqlTemplateResponse[];
+  httpSources?: HttpSourceResponse[];
+  sqlSources?: SqlSourceResponse[];
   updateStep: (step: StepDefinition) => void;
   deleteStep: (id: string) => void;
   addStep: (type: "HTTP" | "SQL") => void;
@@ -42,6 +46,8 @@ export function LogicOrchestrationStep({
   orchView,
   setOrchView,
   sqlTemplates,
+  httpSources,
+  sqlSources,
   updateStep,
   deleteStep,
   addStep,
@@ -80,7 +86,7 @@ export function LogicOrchestrationStep({
         // If the closed tab was active, activate neighbor or canvas.
         if (activeTabId === stepId) {
           if (next.length > 0) {
-            const neighbor = next[Math.min(idx, next.length - 1)];
+            const neighbor = next[Math.min(idx, next.length - 1)] ?? CANVAS_TAB;
             setActiveTabId(neighbor);
           } else {
             setActiveTabId(CANVAS_TAB);
@@ -255,6 +261,8 @@ export function LogicOrchestrationStep({
                 step={activeStep}
                 steps={scene.steps}
                 sqlTemplates={sqlTemplates}
+                httpSources={httpSources}
+                sqlSources={sqlSources}
                 onChange={updateStep}
                 onDelete={handleDeleteStep}
                 readOnly={readOnly}

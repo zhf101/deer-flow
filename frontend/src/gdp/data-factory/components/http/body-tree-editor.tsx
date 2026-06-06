@@ -7,7 +7,6 @@ import CodeMirror from "@uiw/react-codemirror";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
-  CodeIcon,
   EyeIcon,
   FileCodeIcon,
   FileJsonIcon,
@@ -59,12 +58,12 @@ const lightTheme = basicLightInit({
 
 interface BodyTreeEditorProps {
   format: "json" | "xml";
-  scene: SceneDefinition;
-  step: { stepId: string; requestMapping: Record<string, unknown> };
+  scene?: SceneDefinition;
+  step?: { stepId?: string; requestMapping: Record<string, unknown> };
   onChange: (requestMapping: Record<string, unknown>) => void;
 }
 
-type SubView = "tree" | "raw" | "preview";
+type SubView = "tree" | "preview";
 
 /* ── main component ─────────────────────────────────────────────── */
 
@@ -75,11 +74,11 @@ export function BodyTreeEditor({
   onChange,
 }: BodyTreeEditorProps) {
   const { resolvedTheme } = useTheme();
-  const rm = step.requestMapping;
+  const rm = step?.requestMapping ?? {};
 
   const bodyTree: InputFieldDefinition[] = (rm as any).bodyTree ?? [];
-  const bodyView: SubView = ((rm as any).bodyView as SubView) ?? "tree";
-  const rawBodyText = (rm as any).rawBody ?? "";
+  const storedBodyView = (rm as any).bodyView;
+  const bodyView: SubView = storedBodyView === "preview" ? "preview" : "tree";
 
   const [showJsonDialog, setShowJsonDialog] = useState(false);
   const [showXmlDialog, setShowXmlDialog] = useState(false);
@@ -90,11 +89,7 @@ export function BodyTreeEditor({
   /* ── view switch ──────────────────────────────────────────────── */
   const switchView = useCallback(
     (next: SubView) => {
-      if (next === "raw" && bodyTree.length > 0) {
-        const obj = treeToJson(bodyTree);
-        const text = format === "xml" ? jsonToXml(obj) : JSON.stringify(obj, null, 2);
-        onChange({ ...rm, bodyView: next, rawBody: text });
-      } else if (next === "preview" && bodyTree.length > 0) {
+      if (next === "preview" && bodyTree.length > 0) {
         const obj = treeToJson(bodyTree);
         const text = format === "xml" ? jsonToXml(obj) : JSON.stringify(obj, null, 2);
         onChange({ ...rm, bodyView: next, rawBody: text });
@@ -143,14 +138,6 @@ export function BodyTreeEditor({
     }
   }, [dialogInput, rm, onChange]);
 
-  /* ── raw text update ──────────────────────────────────────────── */
-  const updateRawBody = useCallback(
-    (text: string) => {
-      onChange({ ...rm, rawBody: text });
-    },
-    [rm, onChange],
-  );
-
   /* ── generate preview text ────────────────────────────────────── */
   const previewText = useMemo(() => {
     if (bodyTree.length === 0) return "";
@@ -160,7 +147,7 @@ export function BodyTreeEditor({
 
   return (
     <div className="space-y-2">
-      {/* ── toolbar: 3-mode toggle + import buttons ── */}
+      {/* ── toolbar: 2-mode toggle + import buttons ── */}
       <div className="flex items-center gap-2">
         <div className="flex items-center rounded-md border bg-muted/30 p-0.5">
           <button
@@ -175,19 +162,6 @@ export function BodyTreeEditor({
           >
             <TreePineIcon className="size-3" />
             树状
-          </button>
-          <button
-            type="button"
-            onClick={() => switchView("raw")}
-            className={cn(
-              "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[10px] font-medium transition-colors",
-              bodyView === "raw"
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            <CodeIcon className="size-3" />
-            Raw
           </button>
           <button
             type="button"
@@ -252,7 +226,7 @@ export function BodyTreeEditor({
                   field={field}
                   depth={0}
                   scene={scene}
-                  currentStepId={step.stepId}
+                  currentStepId={step?.stepId}
                   onUpdate={(updated) => {
                     const next = [...bodyTree];
                     next[idx] = updated;
@@ -261,42 +235,6 @@ export function BodyTreeEditor({
                 />
               ))}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* ── raw editable ── */}
-      {bodyView === "raw" && (
-        <div className="space-y-1">
-          <span className="text-[10px] text-muted-foreground">
-            {format === "json"
-              ? "Content-Type: application/json · 支持 // 注释和 /* 块注释 */（发送时自动剥离）"
-              : "Content-Type: application/xml"}
-          </span>
-          {format === "json" ? (
-            <div className="json-raw-cm rounded-md border border-input overflow-hidden">
-              <style>{`
-                .json-raw-cm .cm-property { color: #64748b !important; }
-                .json-raw-cm .cm-string { color: #2563eb !important; }
-                .json-raw-cm .cm-number { color: #2563eb !important; }
-                .json-raw-cm .cm-bool { color: #2563eb !important; }
-                .json-raw-cm .cm-null { color: #2563eb !important; }
-              `}</style>
-              <CodeMirror
-                value={rawBodyText || "{\n  \n}"}
-                height="260px"
-                extensions={cmExtensions}
-                theme={resolvedTheme === "dark" ? darkTheme : lightTheme}
-                onChange={updateRawBody}
-              />
-            </div>
-          ) : (
-            <textarea
-              value={rawBodyText}
-              onChange={(e) => updateRawBody(e.target.value)}
-              placeholder={'<?xml version="1.0"?>\n<root>\n  <field>value</field>\n</root>'}
-              className="w-full h-[260px] rounded-md border border-input bg-muted/20 p-3 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-ring resize-y"
-            />
           )}
         </div>
       )}
@@ -404,8 +342,8 @@ function TreeNode({
 }: {
   field: InputFieldDefinition;
   depth: number;
-  scene: SceneDefinition;
-  currentStepId: string;
+  scene?: SceneDefinition;
+  currentStepId?: string;
   onUpdate: (updated: InputFieldDefinition) => void;
 }) {
   const [expanded, setExpanded] = useState(depth < 2);
@@ -413,9 +351,10 @@ function TreeNode({
   const isLeaf = !hasChildren;
 
   const rawVal = typeof field.defaultValue === "string" ? field.defaultValue : String(field.defaultValue ?? "");
-  const isVar = rawVal && isVariableRef(rawVal);
+  const canResolve = !!scene;
+  const isVar = canResolve && rawVal && isVariableRef(rawVal);
   const displayVal = isVar
-    ? resolveVariableLabel(rawVal, scene, currentStepId)
+    ? resolveVariableLabel(rawVal, scene!, currentStepId)
     : rawVal;
 
   const typeBadge = hasChildren
@@ -486,6 +425,7 @@ function TreeNode({
                 )}
               </Tooltip>
             </TooltipProvider>
+            {scene && (
             <div className="absolute right-0.5 top-1/2 -translate-y-1/2">
               <Popover>
                 <PopoverTrigger asChild>
@@ -502,6 +442,7 @@ function TreeNode({
                 </PopoverContent>
               </Popover>
             </div>
+            )}
           </div>
         ) : (
           <span className="text-[10px] text-muted-foreground/50 italic pl-2">

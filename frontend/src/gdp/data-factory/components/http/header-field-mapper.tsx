@@ -54,8 +54,8 @@ interface HeaderFieldMapperProps {
   description?: string;
   value: Record<string, any>;
   onChange: (value: Record<string, any>) => void;
-  scene: SceneDefinition;
-  currentStepId: string;
+  scene?: SceneDefinition;
+  currentStepId?: string;
   placeholder?: string;
   /** Optional description map for each header key */
   descriptions?: Record<string, string>;
@@ -187,8 +187,8 @@ function HeaderRow({
   val: any;
   listId: string;
   placeholder: string;
-  scene: SceneDefinition;
-  currentStepId: string;
+  scene?: SceneDefinition;
+  currentStepId?: string;
   hasDesc: boolean;
   descValue?: string;
   onUpdate: (newKey: string, newVal: any) => void;
@@ -208,8 +208,9 @@ function HeaderRow({
   }, [filter, k]);
 
   const rawVal = typeof val === "string" ? val : JSON.stringify(val);
-  const isVar = rawVal && isVariableRef(rawVal);
-  const displayVal = isVar ? resolveVariableLabel(rawVal, scene, currentStepId) : rawVal;
+  const canResolve = !!scene;
+  const isVar = canResolve && !!(rawVal && isVariableRef(rawVal));
+  const displayVal = isVar ? resolveVariableLabel(rawVal, scene!, currentStepId) : rawVal;
 
   return (
     <div className={cn("flex items-center gap-2", hasDesc && "grid grid-cols-[1fr_1fr_1fr_32px]")}>
@@ -279,6 +280,7 @@ function HeaderRow({
             )}
           </Tooltip>
         </TooltipProvider>
+        {scene && (
         <div className="absolute right-1 top-1/2 -translate-y-1/2">
           <Popover>
             <PopoverTrigger asChild>
@@ -295,6 +297,7 @@ function HeaderRow({
             </PopoverContent>
           </Popover>
         </div>
+        )}
       </div>
 
       {hasDesc && (

@@ -25,19 +25,25 @@ try:
         DataFactoryConfigAuditRow,
         DataFactoryDatasourceRow,
         DataFactoryEnvironmentRow,
+        DataFactoryHttpSourceRow,
         DataFactorySceneRow,
         DataFactorySceneVersionRow,
         DataFactoryServiceEndpointRow,
         DataFactorySqlTemplateRow,
+        DataFactoryTaskRow,
+        DataFactoryTaskVersionRow,
     )
 except ImportError:
     DataFactoryConfigAuditRow = None
     DataFactoryDatasourceRow = None
     DataFactoryEnvironmentRow = None
+    DataFactoryHttpSourceRow = None
     DataFactorySceneRow = None
     DataFactorySceneVersionRow = None
     DataFactoryServiceEndpointRow = None
     DataFactorySqlTemplateRow = None
+    DataFactoryTaskRow = None
+    DataFactoryTaskVersionRow = None
 
 __all__ = [
     "FeedbackRow",
@@ -48,8 +54,11 @@ __all__ = [
     "DataFactoryConfigAuditRow",
     "DataFactoryDatasourceRow",
     "DataFactoryEnvironmentRow",
+    "DataFactoryHttpSourceRow",
     "DataFactorySceneRow",
     "DataFactorySceneVersionRow",
     "DataFactoryServiceEndpointRow",
     "DataFactorySqlTemplateRow",
+    "DataFactoryTaskRow",
+    "DataFactoryTaskVersionRow",
 ]

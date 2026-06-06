@@ -219,6 +219,51 @@ class TestEngineLifecycle:
         assert get_session_factory() is None
 
     @pytest.mark.anyio
+    async def test_sqlite_migrates_existing_gdp_sql_template_columns(self, tmp_path):
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import create_async_engine
+
+        from app.gdp.datagen.sqlsource.repository import SqlSourceRepository
+        from deerflow.persistence.engine import close_engine, get_session_factory, init_engine
+
+        db_path = tmp_path / "test.db"
+        engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                """
+                CREATE TABLE df_sql_template (
+                    id VARCHAR(64) PRIMARY KEY,
+                    template_code VARCHAR(128) NOT NULL UNIQUE,
+                    template_name VARCHAR(256) NOT NULL,
+                    operation VARCHAR(32) NOT NULL,
+                    datasource_type VARCHAR(64) NOT NULL,
+                    sql_text TEXT NOT NULL,
+                    parameters_json TEXT NOT NULL,
+                    safety_json TEXT NOT NULL,
+                    status VARCHAR(32) NOT NULL,
+                    created_by VARCHAR(128),
+                    updated_by VARCHAR(128),
+                    created_at DATETIME NOT NULL,
+                    updated_at DATETIME NOT NULL
+                )
+                """
+            ))
+        await engine.dispose()
+
+        await init_engine("sqlite", url=f"sqlite+aiosqlite:///{db_path}", sqlite_dir=str(tmp_path))
+        try:
+            sf = get_session_factory()
+            assert sf is not None
+            async with sf() as session:
+                cols = (await session.execute(text("PRAGMA table_info(df_sql_template)"))).all()
+                column_names = {row[1] for row in cols}
+
+            assert "datasource_code" in column_names
+            assert await SqlSourceRepository(sf).list_sql_sources() == []
+        finally:
+            await close_engine()
+
+    @pytest.mark.anyio
     async def test_postgres_without_asyncpg_gives_actionable_error(self):
         """If asyncpg is not installed, error message tells user what to do."""
         from deerflow.persistence.engine import init_engine
