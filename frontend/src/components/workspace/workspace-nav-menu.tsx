@@ -99,7 +99,7 @@ export function WorkspaceNavMenu() {
                     <Settings2Icon />
                     {t.common.settings}
                   </DropdownMenuItem>
-                  <Link href="/workspace/data-factory">
+                  <Link href="/workspace/datagen">
                     <DropdownMenuItem>
                       <DatabaseZapIcon />
                       造数编排

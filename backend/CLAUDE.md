@@ -603,3 +603,7 @@ See `docs/` directory for detailed documentation:
 - [PATH_EXAMPLES.md](docs/PATH_EXAMPLES.md) - Path types and usage
 - [summarization.md](docs/summarization.md) - Context summarization
 - [plan_mode_usage.md](docs/plan_mode_usage.md) - Plan mode with TodoList
+
+datagen相关后端api 的设计风格我希望仅仅是get post请求。
+类似这种风格的api @router.put("/environments/{envCode}", response_model=EnvironmentResponse)
+我不喜欢，帮我改成把envCode做成json请求报文里面的参数然后发post请求这个api获取信息。

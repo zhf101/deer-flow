@@ -21,18 +21,21 @@ from deerflow.persistence.thread_meta.model import ThreadMetaRow
 from deerflow.persistence.user.model import UserRow
 
 try:
-    from app.gdp.persistence.model import (
+    from app.gdp.datagen.config.base.repository import (
         DataFactoryConfigAuditRow,
         DataFactoryDatasourceRow,
         DataFactoryEnvironmentRow,
-        DataFactoryHttpSourceRow,
-        DataFactorySceneRow,
-        DataFactorySceneVersionRow,
         DataFactoryServiceEndpointRow,
-        DataFactorySqlTemplateRow,
-        DataFactoryTaskRow,
-        DataFactoryTaskVersionRow,
+        DataFactorySystemRow,
     )
+    from app.gdp.datagen.config.httpsource.repository import DataFactoryHttpSourceRow
+    from app.gdp.datagen.config.sqlsource.repository import DataFactorySqlSourceRow
+
+    DataFactorySceneRow = None
+    DataFactorySceneVersionRow = None
+    DataFactorySqlTemplateRow = None
+    DataFactoryTaskRow = None
+    DataFactoryTaskVersionRow = None
 except ImportError:
     DataFactoryConfigAuditRow = None
     DataFactoryDatasourceRow = None
@@ -41,9 +44,28 @@ except ImportError:
     DataFactorySceneRow = None
     DataFactorySceneVersionRow = None
     DataFactoryServiceEndpointRow = None
+    DataFactorySqlSourceRow = None
     DataFactorySqlTemplateRow = None
+    DataFactorySystemRow = None
     DataFactoryTaskRow = None
     DataFactoryTaskVersionRow = None
+else:
+    try:
+        from app.gdp.persistence.model import (
+            DataFactorySceneRow as _DataFactorySceneRow,
+            DataFactorySceneVersionRow as _DataFactorySceneVersionRow,
+            DataFactorySqlTemplateRow as _DataFactorySqlTemplateRow,
+            DataFactoryTaskRow as _DataFactoryTaskRow,
+            DataFactoryTaskVersionRow as _DataFactoryTaskVersionRow,
+        )
+    except ImportError:
+        pass
+    else:
+        DataFactorySceneRow = _DataFactorySceneRow
+        DataFactorySceneVersionRow = _DataFactorySceneVersionRow
+        DataFactorySqlTemplateRow = _DataFactorySqlTemplateRow
+        DataFactoryTaskRow = _DataFactoryTaskRow
+        DataFactoryTaskVersionRow = _DataFactoryTaskVersionRow
 
 __all__ = [
     "FeedbackRow",
@@ -58,7 +80,9 @@ __all__ = [
     "DataFactorySceneRow",
     "DataFactorySceneVersionRow",
     "DataFactoryServiceEndpointRow",
+    "DataFactorySqlSourceRow",
     "DataFactorySqlTemplateRow",
+    "DataFactorySystemRow",
     "DataFactoryTaskRow",
     "DataFactoryTaskVersionRow",
 ]
