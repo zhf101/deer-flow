@@ -13,7 +13,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-from app.gdp.datagen.config.common.models import ConditionRule
+from app.gdp.datagen.config.common.models import ConditionRule, ErrorMapping
 from app.gdp.datagen.config.httpsource.models import (
     BusinessResult,
     HttpSourceConfig,
@@ -27,6 +27,15 @@ from app.gdp.datagen.config.httpsource.models import (
 
 # 路径解析时标记缺失值
 _MISSING = object()
+
+_EXTRACTOR_RE = re.compile(r"^\$\{(?P<source>[A-Z_]+)\((?P<path>.*)\)\}$")
+_EXTRACTOR_TOKEN_RE = re.compile(r"\$\{(?P<source>[A-Z_]+)\((?P<path>.*?)\)\}")
+_REQUEST_BODY = "REQ_BODY"
+_REQUEST_HEADER = "REQ_HEADER"
+_REQUEST_AUTH = "REQ_AUTH"
+_RESPONSE_BODY = "RES_BODY"
+_RESPONSE_HEADER = "RES_HEADER"
+_RESPONSE_COOKIE = "RES_COOKIE"
 
 
 # ── 公开入口 ─────────────────────────────────────────────────────────
@@ -60,7 +69,8 @@ async def execute_http_test(
     if send_error is not None:
         error_msg = str(send_error)
         if config.errorMapping:
-            error_msg = apply_error_mapping(config, None, error_msg)
+            context = build_runtime_context(config, request_info, None, {}, [])
+            error_msg = apply_error_mapping(config, None, error_msg, context=context)
         return HttpSourceTestResponse(
             success=False,
             request=request_info,
@@ -78,12 +88,28 @@ async def execute_http_test(
     body = response_body(response)
     cookies = parse_response_cookies(response)
     headers_dict = dict(response.headers)
+    context = build_runtime_context(config, request_info, body, headers_dict, cookies)
 
     # 5. 求值业务结果
-    business_result = evaluate_business_result(config, response.status_code, body)
+    business_result = evaluate_business_result(config, response.status_code, body, context=context)
 
     # 6. 提取输出变量
-    extracted = extract_outputs(config, body, headers_dict, cookies)
+    extracted = extract_outputs(config, body, headers_dict, cookies, request_info=request_info)
+
+    error_info = None
+    if business_result is not None and not business_result.isSuccess:
+        error_msg = apply_error_mapping(
+            config,
+            body,
+            business_result.reason,
+            mapping=config.businessErrorMapping,
+            context=context,
+        )
+        error_info = HttpSourceTestErrorInfo(
+            type="BusinessError",
+            message=error_msg,
+            detail=business_result.reason,
+        )
 
     return HttpSourceTestResponse(
         success=business_result.isSuccess if business_result else True,
@@ -98,6 +124,7 @@ async def execute_http_test(
         businessResult=business_result,
         extractedOutputs=extracted,
         retryInfo=retry_info if retry_info.attempts > 1 else None,
+        error=error_info,
     )
 
 
@@ -396,12 +423,74 @@ def _parse_set_cookie(raw: str) -> ParsedCookie | None:
     )
 
 
+# ── 表达式上下文 ────────────────────────────────────────────────────
+
+def build_runtime_context(
+    config: HttpSourceConfig,
+    request_info: HttpSourceTestRequestInfo | None,
+    response_body_value: Any,
+    response_headers: dict[str, str],
+    response_cookies: list[ParsedCookie],
+) -> dict[str, Any]:
+    """构建 ${REQ_*()} / ${RES_*()} 表达式可访问的数据上下文。"""
+    request_mapping = config.requestMapping or {}
+    auth_config = request_mapping.get("authConfig")
+    cookie_dict = {c.name: c.value for c in response_cookies}
+
+    return {
+        _REQUEST_BODY: request_info.body if request_info is not None else None,
+        _REQUEST_HEADER: request_info.headers if request_info is not None else {},
+        _REQUEST_AUTH: auth_config if isinstance(auth_config, dict) else {},
+        _RESPONSE_BODY: response_body_value,
+        _RESPONSE_HEADER: response_headers,
+        _RESPONSE_COOKIE: cookie_dict,
+    }
+
+
+def resolve_expression(
+    context: dict[str, Any],
+    expression: str,
+) -> Any:
+    """解析 ${REQ_*()} / ${RES_*()} 标识符表达式。"""
+    match = _EXTRACTOR_RE.match((expression or "").strip())
+    if not match:
+        return _MISSING
+
+    source = match.group("source")
+    path = match.group("path").strip()
+    current = context.get(source)
+    return resolve_path(
+        current,
+        path,
+        case_insensitive=is_header_source(source),
+    )
+
+
+def interpolate_expressions(template: str, context: dict[str, Any]) -> str:
+    """替换模板中的 ${REQ_*()} / ${RES_*()} 标识符。"""
+    def replace(match: re.Match[str]) -> str:
+        value = resolve_expression(context, match.group(0))
+        return "" if value is _MISSING else str(value)
+
+    return _EXTRACTOR_TOKEN_RE.sub(replace, template)
+
+
+def _clean_path(path: str) -> str:
+    return path.lstrip("$").lstrip(".")
+
+
+def is_header_source(source: str) -> bool:
+    return source in {_REQUEST_HEADER, _RESPONSE_HEADER}
+
+
 # ── 条件求值引擎 ────────────────────────────────────────────────────
 
 def evaluate_business_result(
     config: HttpSourceConfig,
     status_code: int,
     body: Any,
+    *,
+    context: dict[str, Any] | None = None,
 ) -> BusinessResult | None:
     """根据配置的响应处理规则求值业务结果。"""
     handling = config.responseHandling
@@ -421,7 +510,7 @@ def evaluate_business_result(
     # 求值失败规则（OR，短路）
     failure_rules = handling.businessFailure.anyOf or []
     for rule in failure_rules:
-        if _check_condition(body, rule):
+        if _check_condition(body, rule, context=context):
             return BusinessResult(
                 isSuccess=False,
                 reason=f"命中失败规则: {rule.path} {rule.op} {rule.value}",
@@ -437,7 +526,7 @@ def evaluate_business_result(
         )
 
     for rule in success_rules:
-        if _check_condition(body, rule):
+        if _check_condition(body, rule, context=context):
             matched.append(f"{rule.path} {rule.op} {rule.value}")
         else:
             return BusinessResult(
@@ -453,9 +542,12 @@ def evaluate_business_result(
     )
 
 
-def _check_condition(body: Any, rule: ConditionRule) -> bool:
+def _check_condition(body: Any, rule: ConditionRule, *, context: dict[str, Any] | None = None) -> bool:
     """对单条条件规则求值。"""
-    value = resolve_path(body, rule.path)
+    if context is not None:
+        value = resolve_expression(context, rule.path)
+    else:
+        value = resolve_path(body, rule.path)
     target = rule.value
     op = rule.op.upper()
 
@@ -472,7 +564,7 @@ def _check_condition(body: Any, rule: ConditionRule) -> bool:
 
     if op == "EQ":
         return _loose_eq(value, target)
-    if op == "NE":
+    if op in ("NE", "NEQ"):
         return not _loose_eq(value, target)
     if op in ("GT", "GTE", "LT", "LTE"):
         try:
@@ -505,16 +597,16 @@ def _loose_eq(actual: Any, expected: Any) -> bool:
     return str(actual) == str(expected)
 
 
-def resolve_path(obj: Any, path: str) -> Any:
+def resolve_path(obj: Any, path: str, *, case_insensitive: bool = False) -> Any:
     """按点分路径从 dict/list 中提取值。
 
-    支持格式: ``data.code``, ``data.items[0].id``, ``body.result``。
+    支持格式: ``data.code``, ``data.items[0].id``。
     """
     if not path:
         return _MISSING
 
     # 去除开头的 $. 前缀
-    cleaned = path.lstrip("$").lstrip(".")
+    cleaned = _clean_path(path)
     parts = re.split(r"\.|\[|\]", cleaned)
 
     current = obj
@@ -524,6 +616,11 @@ def resolve_path(obj: Any, path: str) -> Any:
         if isinstance(current, dict):
             if part in current:
                 current = current[part]
+            elif case_insensitive:
+                matched = next((k for k in current if str(k).lower() == part.lower()), None)
+                if matched is None:
+                    return _MISSING
+                current = current[matched]
             else:
                 return _MISSING
         elif isinstance(current, list):
@@ -543,45 +640,51 @@ def extract_outputs(
     body: Any,
     headers: dict[str, str],
     cookies: list[ParsedCookie],
+    *,
+    request_info: HttpSourceTestRequestInfo | None = None,
 ) -> dict[str, Any]:
     """根据 outputMapping 从响应中提取输出变量。"""
     if not config.outputMapping:
         return {}
 
-    # 构建虚拟文档供路径解析使用
-    cookie_dict = {c.name: c.value for c in cookies}
-    doc: dict[str, Any] = {
-        "body": body,
-        "headers": headers,
-        "cookies": cookie_dict,
-    }
+    context = build_runtime_context(config, request_info, body, headers, cookies)
 
     result: dict[str, Any] = {}
     for var_name, path in config.outputMapping.items():
-        value = resolve_path(doc, path)
+        value = resolve_expression(context, path)
         result[var_name] = None if value is _MISSING else value
     return result
 
 
 # ── 错误映射 ────────────────────────────────────────────────────────
 
-def apply_error_mapping(config: HttpSourceConfig, body: Any, raw_error: str) -> str:
+def apply_error_mapping(
+    config: HttpSourceConfig,
+    body: Any,
+    raw_error: str,
+    *,
+    mapping: ErrorMapping | None = None,
+    context: dict[str, Any] | None = None,
+) -> str:
     """根据错误映射配置生成人类可读的错误信息。"""
-    em = config.errorMapping
+    em = mapping if mapping is not None else config.errorMapping
     if em is None:
         return raw_error
+
+    if context is None:
+        context = build_runtime_context(config, None, body, {}, [])
 
     # 提取字段
     extracted: dict[str, str] = {}
     for var_name, path in em.fields.items():
-        value = resolve_path(body, path) if body is not None else _MISSING
+        value = resolve_expression(context, path)
         extracted[var_name] = "" if value is _MISSING else str(value)
 
     # 应用模板
     message = ""
     if em.messageTemplate:
         try:
-            message = em.messageTemplate.format_map(extracted)
+            message = interpolate_expressions(em.messageTemplate, context).format_map(extracted)
         except (KeyError, ValueError):
             message = ""
 

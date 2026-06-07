@@ -134,12 +134,12 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
                     responseHandling: {
                         expectedContentType: "JSON",
                         statusCode: { success: [200] },
-                        businessSuccess: { allOf: [{ path: "$.body.code", op: "EQ", value: "200" }] },
+                        businessSuccess: { allOf: [{ path: "${RES_BODY(code)}", op: "EQ", value: "200" }] },
                         businessFailure: { anyOf: [] }
                     },
                     outputMapping: {
-                        "accessToken": "$.body.data.accessToken",
-                        "expiresIn": "$.body.data.expiresIn"
+                        "accessToken": "${RES_BODY(data.accessToken)}",
+                        "expiresIn": "${RES_BODY(data.expiresIn)}"
                     },
                     outputMeta: {
                         "accessToken": { label: "访问令牌", remark: "JWT格式，后续请求携带此Token鉴权" },
@@ -231,13 +231,13 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
                     responseHandling: {
                         expectedContentType: "JSON",
                         statusCode: { success: [200] },
-                        businessSuccess: { allOf: [{ path: "$.body.success", op: "EQ", value: "true" }] },
-                        businessFailure: { anyOf: [{ path: "$.body.errorCode", op: "EXISTS", value: "" }] }
+                        businessSuccess: { allOf: [{ path: "${RES_BODY(success)}", op: "EQ", value: "true" }] },
+                        businessFailure: { anyOf: [{ path: "${RES_BODY(errorCode)}", op: "EXISTS", value: "" }] }
                     },
                     outputMapping: {
-                        "orderNo": "$.body.data.orderNo",
-                        "payAmount": "$.body.data.payAmount",
-                        "orderStatus": "$.body.data.orderStatus"
+                        "orderNo": "${RES_BODY(data.orderNo)}",
+                        "payAmount": "${RES_BODY(data.payAmount)}",
+                        "orderStatus": "${RES_BODY(data.orderStatus)}"
                     },
                     outputMeta: {
                         "orderNo": { label: "全局订单号", remark: "订单唯一标识，用于后续查询和对账" },

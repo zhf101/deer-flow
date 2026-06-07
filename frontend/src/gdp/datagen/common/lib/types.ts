@@ -15,6 +15,7 @@ export type SqlOperation = "SELECT" | "INSERT" | "UPDATE" | "DELETE";
 export type ConditionOperator =
   | "EQ"
   | "NE"
+  | "NEQ"
   | "GT"
   | "GTE"
   | "LT"
@@ -123,6 +124,7 @@ export interface StepDefinition {
   responseCookiesSchema?: InputFieldDefinition[] | null;
   responseHandling?: ResponseHandling | null;
   errorMapping?: ErrorMapping | null;
+  businessErrorMapping?: ErrorMapping | null;
   outputMapping: Record<string, string>;
   outputMeta?: Record<string, { label?: string; remark?: string }> | null;
   retryPolicy?: RetryPolicy | null;
@@ -337,6 +339,7 @@ export interface HttpSourceConfig {
   responseCookiesSchema?: InputFieldDefinition[] | null;
   responseHandling?: ResponseHandling | null;
   errorMapping?: ErrorMapping | null;
+  businessErrorMapping?: ErrorMapping | null;
   outputMapping: Record<string, string>;
   outputMeta?: Record<string, { label?: string; remark?: string }> | null;
   retryPolicy?: RetryPolicy | null;

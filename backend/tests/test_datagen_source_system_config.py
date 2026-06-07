@@ -66,6 +66,37 @@ async def test_http_source_accepts_enabled_system(datagen_client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_http_source_test_reports_missing_service_endpoint_in_chinese(
+    datagen_client: AsyncClient,
+):
+    await _create_system(datagen_client, "SYS_HTTP_TEST")
+    await _create_environment(datagen_client, "YD01")
+
+    response = await datagen_client.post(
+        "/api/v1/datagen/http-sources/test",
+        json={
+            "envCode": "YD01",
+            "config": {
+                "sourceCode": "testApi",
+                "sourceName": "Test API",
+                "sysCode": "SYS_HTTP_TEST",
+                "path": "/health",
+                "method": "GET",
+                "requestMapping": {},
+                "outputMapping": {},
+                "status": "ENABLED",
+            },
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == (
+        "当前选择的环境「YD01」还没有为系统「SYS_HTTP_TEST」配置启用的服务端点。"
+        "请先到「基础配置 > 服务端点」新增或启用对应配置后再测试接口。"
+    )
+
+
+@pytest.mark.anyio
 async def test_sql_source_requires_enabled_datasource_for_system(datagen_client: AsyncClient):
     await _create_system(datagen_client, "ORDER")
 

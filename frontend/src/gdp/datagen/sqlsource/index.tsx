@@ -223,7 +223,7 @@ export function SqlSourceManagement() {
       </div>
 
       <div className="flex-1 overflow-auto p-6">
-        <div className="mb-4 grid grid-cols-1 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-[160px_220px_minmax(180px,1fr)_minmax(180px,1fr)_auto]">
+        <div className="mb-4 grid grid-cols-1 gap-3 rounded-md border bg-muted/20 p-3 md:grid-cols-2 xl:grid-cols-[160px_minmax(180px,1fr)_minmax(160px,1fr)_minmax(160px,1fr)_auto] items-center">
           <Select
             value={operationFilter}
             onValueChange={(value) => {
@@ -250,7 +250,7 @@ export function SqlSourceManagement() {
               setPage(0);
             }}
           >
-            <SelectTrigger className="h-8 text-xs">
+            <SelectTrigger className="h-8 text-xs w-full">
               <SelectValue placeholder="所属系统" />
             </SelectTrigger>
             <SelectContent>
@@ -649,6 +649,27 @@ function SqlSourceEditor({
     });
   };
 
+  const updateSqlText = (sqlText: string) => {
+    const nextAnalysis: SqlAnalysis = {
+      normalizedSql: "",
+      operation: config.operation,
+      tables: [],
+      resultFields: [],
+      conditionFields: [],
+      parameters: analysis.parameters,
+    };
+    setAnalysis(nextAnalysis);
+    onChange({
+      ...config,
+      sqlText,
+      normalizedSql: "",
+      tables: [],
+      resultFields: [],
+      conditionFields: [],
+      parameters: analysis.parameters,
+    });
+  };
+
   const updateParameter = (
     index: number,
     updates: Partial<SqlSourceParameter>,
@@ -836,9 +857,7 @@ function SqlSourceEditor({
             </div>
             <Textarea
               value={config.sqlText}
-              onChange={(e) =>
-                onChange({ ...config, sqlText: e.target.value })
-              }
+              onChange={(e) => updateSqlText(e.target.value)}
               placeholder={'支持直接粘贴可执行 SQL、:userId、#{userId}、${tenantId}，也支持 MyBatis XML 片段。\n\n<select id="queryUser">\n  SELECT u.id, u.name FROM user_account u WHERE u.id = #{userId}\n</select>'}
               className="min-h-[220px] resize-y font-mono text-xs"
             />
@@ -851,6 +870,21 @@ function SqlSourceEditor({
               <span>条件字段 {analysis.conditionFields.length}</span>
               <span>参数 {analysis.parameters.length}</span>
             </div>
+          </section>
+
+          <section className="space-y-3 rounded-lg border bg-card p-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div className="flex items-center gap-2 text-sky-600 text-sm font-bold">
+                <ListChecksIcon className="size-4" />
+                <span>格式化后SQL</span>
+              </div>
+            </div>
+            <Textarea
+              value={analysis.normalizedSql}
+              readOnly
+              placeholder="请点击解析SQL按钮解析成系统规范的SQL"
+              className="min-h-24 resize-y font-mono text-xs bg-muted/30"
+            />
           </section>
 
           <section className="space-y-3 rounded-lg border bg-card p-4">
@@ -1138,7 +1172,7 @@ function EditableMetaTable<T>({
 function sanitizeSqlSourceConfig(config: SqlSourceConfig): SqlSourceConfig {
   return {
     ...config,
-    normalizedSql: config.normalizedSql || config.sqlText,
+    normalizedSql: config.normalizedSql,
     tables: config.tables ?? [],
     resultFields: config.resultFields ?? [],
     conditionFields: config.conditionFields ?? [],
@@ -1148,7 +1182,7 @@ function sanitizeSqlSourceConfig(config: SqlSourceConfig): SqlSourceConfig {
 
 function createInitialAnalysis(config: SqlSourceConfig): SqlAnalysis {
   return {
-    normalizedSql: config.normalizedSql || config.sqlText,
+    normalizedSql: config.normalizedSql,
     operation: config.operation,
     tables: config.tables ?? [],
     resultFields: config.resultFields ?? [],

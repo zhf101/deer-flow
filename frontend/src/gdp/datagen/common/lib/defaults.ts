@@ -84,7 +84,7 @@ export function createDefaultScene(): SceneDefinition {
 
 export function createConditionRule(): ConditionRule {
   return {
-    path: "$.body.success",
+    path: "${RES_BODY(success)}",
     op: "EQ",
     value: true,
   };
@@ -123,6 +123,12 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
       businessFailure: { anyOf: [] },
     };
     base.errorMapping = {
+      messageTemplate: "",
+      fields: {},
+      fallbackMessage: "",
+      exposeRawResponse: false,
+    };
+    base.businessErrorMapping = {
       messageTemplate: "",
       fields: {},
       fallbackMessage: "",
@@ -186,6 +192,12 @@ export function createDefaultHttpSource(): HttpSourceConfig {
       businessFailure: { anyOf: [] },
     },
     errorMapping: {
+      messageTemplate: "",
+      fields: {},
+      fallbackMessage: "",
+      exposeRawResponse: false,
+    },
+    businessErrorMapping: {
       messageTemplate: "",
       fields: {},
       fallbackMessage: "",

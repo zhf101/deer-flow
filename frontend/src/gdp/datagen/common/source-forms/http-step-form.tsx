@@ -371,9 +371,6 @@ export function HttpStepForm({
                 {authConfig.type === "bearer" && (
                   <div className="space-y-1.5 rounded-md border bg-muted/10 p-2.5">
                     <span className="text-xs font-medium">Token</span>
-                    <p className="text-[10px] text-muted-foreground">
-                      支持变量引用，如 <code className="font-mono text-blue-600">${"{{steps.login.outputs.token}}"}</code>
-                    </p>
                     <Input
                       value={authConfig.token ?? ""}
                       onChange={(e) => updateAuthConfig({ ...authConfig, token: e.target.value })}
@@ -399,7 +396,7 @@ export function HttpStepForm({
                       <Input
                         value={authConfig.password ?? ""}
                         onChange={(e) => updateAuthConfig({ ...authConfig, password: e.target.value })}
-                        placeholder="密码（支持变量引用）"
+                        placeholder="密码"
                         className="h-8 text-xs font-mono"
                       />
                     </div>
@@ -597,12 +594,12 @@ export function HttpStepForm({
                   {bodyType === "raw-text" && (
                     <div className="space-y-2">
                       <span className="text-[10px] text-muted-foreground">
-                        Content-Type: text/plain · 支持变量引用
+                        Content-Type: text/plain ·
                       </span>
                       <textarea
                         value={rawBodyText}
                         onChange={(e) => updateRawBody(e.target.value)}
-                        placeholder="输入纯文本内容，支持变量引用 ${...}"
+                        placeholder="输入纯文本内容"
                         className="w-full h-[200px] rounded-md border border-input bg-muted/20 p-3 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-ring resize-y"
                       />
                     </div>

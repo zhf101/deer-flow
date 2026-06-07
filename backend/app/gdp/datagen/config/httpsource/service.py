@@ -66,7 +66,10 @@ class HttpSourceService:
         except BaseConfigNotFoundError as exc:
             raise HTTPException(
                 status_code=422,
-                detail=f"enabled service endpoint not found: {request.envCode}/{config.sysCode}",
+                detail=(
+                    f"当前选择的环境「{request.envCode}」还没有为系统「{config.sysCode}」"
+                    "配置启用的服务端点。请先到「基础配置 > 服务端点」新增或启用对应配置后再测试接口。"
+                ),
             ) from exc
 
         return await execute_http_test(config, endpoint.baseUrl, request.timeoutSeconds)

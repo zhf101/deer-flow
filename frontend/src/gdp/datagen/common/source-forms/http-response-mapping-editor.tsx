@@ -104,6 +104,59 @@ const COMMON_RESPONSE_HEADERS = [
   { name: "Access-Control-Allow-Origin", desc: "CORS 允许来源" },
 ];
 
+const EXPRESSION_RE = /^\$\{([A-Z_]+)\((.*)\)\}$/;
+
+function extractorExpression(source: string, path: string) {
+  return `\${${source}(${path})}`;
+}
+
+function bodyExpression(path: string) {
+  return extractorExpression("RES_BODY", expressionPath(path));
+}
+
+function headerExpression(name: string) {
+  return extractorExpression("RES_HEADER", name);
+}
+
+function cookieExpression(name: string) {
+  return extractorExpression("RES_COOKIE", name);
+}
+
+function expressionPath(path: string) {
+  return path.replace(/^\$\.?/, "");
+}
+
+function parseExtractor(value: string): { source: string; path: string } | null {
+  const match = EXPRESSION_RE.exec(value.trim());
+  if (!match) return null;
+  return { source: match[1] ?? "", path: match[2] ?? "" };
+}
+
+function mappingSource(value: string): "Body" | "Headers" | "Cookies" {
+  const parsed = parseExtractor(value);
+  if (parsed?.source === "RES_HEADER") return "Headers";
+  if (parsed?.source === "RES_COOKIE") return "Cookies";
+  return "Body";
+}
+
+function mappingDisplayName(value: string) {
+  const parsed = parseExtractor(value);
+  if (parsed) return parsed.path.split(".").pop()?.replace("[*]", "") || parsed.path;
+  return value.split(".").pop()?.replace("[*]", "") || value;
+}
+
+function normalizeMapping(value: string) {
+  const parsed = parseExtractor(value);
+  if (parsed) {
+    return `${parsed.source}:${parsed.source === "RES_HEADER" ? parsed.path.toLowerCase() : parsed.path}`;
+  }
+  return `INVALID:${value}`;
+}
+
+function isSameMapping(a: string, b: string) {
+  return normalizeMapping(a) === normalizeMapping(b);
+}
+
 /* ── main component ─────────────────────────────────────────────── */
 
 export function HttpResponseMappingEditor({
@@ -142,7 +195,7 @@ export function HttpResponseMappingEditor({
   }, [responseHandling.expectedContentType]);
 
   /* ── flat field lists ─────────────────────────────────────────── */
-  const bodyFlatFields = useMemo(() => flattenSchema(schema, "$.body"), [schema]);
+  const bodyFlatFields = useMemo(() => flattenSchema(schema, "$"), [schema]);
   const extractableBodyFields = useMemo(
     () => bodyFlatFields.filter((f) => f.type !== "object" && f.type !== "array"),
     [bodyFlatFields],
@@ -162,6 +215,12 @@ export function HttpResponseMappingEditor({
 
   /* ── error mapping & retry policy (section 4) ─────────────────── */
   const errorMapping = step.errorMapping ?? {
+    messageTemplate: "",
+    fields: {},
+    fallbackMessage: "",
+    exposeRawResponse: false,
+  };
+  const businessErrorMapping = step.businessErrorMapping ?? {
     messageTemplate: "",
     fields: {},
     fallbackMessage: "",
@@ -261,7 +320,7 @@ export function HttpResponseMappingEditor({
       const next = { ...outputMapping };
       const nextMeta = { ...(step.outputMeta ?? {}) };
       Object.entries(next).forEach(([k, v]) => {
-        if (v === path) {
+        if (isSameMapping(v, path)) {
           delete next[k];
           delete nextMeta[k];
         }
@@ -271,9 +330,9 @@ export function HttpResponseMappingEditor({
   };
 
   /* ── tab badge counts ─────────────────────────────────────────── */
-  const bodyExtractCount = Object.values(outputMapping).filter((v) => v.startsWith("$.body.")).length;
-  const headersExtractCount = Object.values(outputMapping).filter((v) => v.startsWith("$.headers.")).length;
-  const cookiesExtractCount = Object.values(outputMapping).filter((v) => v.startsWith("$.cookies.")).length;
+  const bodyExtractCount = Object.values(outputMapping).filter((v) => mappingSource(v) === "Body").length;
+  const headersExtractCount = Object.values(outputMapping).filter((v) => mappingSource(v) === "Headers").length;
+  const cookiesExtractCount = Object.values(outputMapping).filter((v) => mappingSource(v) === "Cookies").length;
 
   /* ── treeToJson for preview ───────────────────────────────────── */
   const previewText = useMemo(() => {
@@ -521,8 +580,8 @@ export function HttpResponseMappingEditor({
                   </div>
                 ) : (
                   headersSchema.map((header, idx) => {
-                    const headerPath = `$.headers.${header.name}`;
-                    const isExtracted = Object.values(outputMapping).some((v) => v === headerPath);
+                    const headerPath = headerExpression(header.name);
+                    const isExtracted = Object.values(outputMapping).some((v) => isSameMapping(v, headerPath));
                     return (
                       <div key={idx} className="grid grid-cols-[32px_1fr_1fr_1fr_32px] gap-2 items-center px-3 py-1.5 hover:bg-muted/20 transition-colors">
                         <div className="flex justify-center">
@@ -621,8 +680,8 @@ export function HttpResponseMappingEditor({
                   </div>
                 ) : (
                   cookiesSchema.map((cookie, idx) => {
-                    const cookiePath = `$.cookies.${cookie.name}`;
-                    const isExtracted = Object.values(outputMapping).some((v) => v === cookiePath);
+                    const cookiePath = cookieExpression(cookie.name);
+                    const isExtracted = Object.values(outputMapping).some((v) => isSameMapping(v, cookiePath));
                     return (
                       <div key={idx} className="grid grid-cols-[32px_1fr_1fr_100px_80px_100px_56px_56px_32px] gap-2 items-center px-3 py-1.5 hover:bg-muted/20 transition-colors">
                         <div className="flex justify-center">
@@ -750,13 +809,7 @@ export function HttpResponseMappingEditor({
             </div>
             <div className="p-1.5 space-y-1.5">
               {Object.entries(outputMapping).map(([varName, path]) => {
-                const source = path.startsWith("$.body.")
-                  ? "Body"
-                  : path.startsWith("$.headers.")
-                    ? "Headers"
-                    : path.startsWith("$.cookies.")
-                      ? "Cookies"
-                      : "Body";
+                const source = mappingSource(path);
                 const sourceColor =
                   source === "Body"
                     ? "bg-emerald-500/10 text-emerald-600"
@@ -764,7 +817,7 @@ export function HttpResponseMappingEditor({
                       ? "bg-blue-500/10 text-blue-600"
                       : "bg-amber-500/10 text-amber-600";
 
-                const matched = bodyFlatFields.find((f) => f.path === path);
+                const matched = bodyFlatFields.find((f) => isSameMapping(bodyExpression(f.path), path));
                 const meta = step.outputMeta?.[varName] ?? {};
 
                 return (
@@ -775,7 +828,7 @@ export function HttpResponseMappingEditor({
                       </span>
                     </div>
                     <div className="px-2 text-xs truncate font-mono" title={path}>
-                      {matched ? matched.label : path.split(".").pop()?.replace("[*]", "") ?? path}
+                      {matched ? matched.label : mappingDisplayName(path)}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-[10px] text-muted-foreground shrink-0">=</span>
@@ -843,13 +896,14 @@ export function HttpResponseMappingEditor({
                   varName = `${baseName}_${suffix++}`;
                 }
                 const matchedField = bodyFlatFields.find((f) => f.path === path);
+                const expression = bodyExpression(path);
                 const nextMeta = { ...(step.outputMeta ?? {}) };
                 nextMeta[varName] = {
                   label: matchedField?.fieldLabel ?? "",
                   remark: matchedField?.fieldRemark ?? "",
                 };
                 onChange({
-                  outputMapping: { ...outputMapping, [varName]: path },
+                  outputMapping: { ...outputMapping, [varName]: expression },
                   outputMeta: nextMeta,
                 });
               }}>
@@ -859,9 +913,9 @@ export function HttpResponseMappingEditor({
                 </SelectTrigger>
                 <SelectContent>
                   {extractableBodyFields.map((f) => (
-                    <SelectItem key={f.path} value={f.path} className="text-xs">
-                      {f.label}
-                    </SelectItem>
+                      <SelectItem key={f.path} value={f.path} className="text-xs">
+                        {f.label}
+                      </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -869,7 +923,7 @@ export function HttpResponseMappingEditor({
             {headerExtractable.length > 0 && (
               <Select onValueChange={(name) => {
                 if (!name) return;
-                const path = `$.headers.${name}`;
+                const path = headerExpression(name);
                 let varName = name.replace(/-/g, "_").toLowerCase();
                 let suffix = 1;
                 while (varName in outputMapping) {
@@ -899,7 +953,7 @@ export function HttpResponseMappingEditor({
             {cookieExtractable.length > 0 && (
               <Select onValueChange={(name) => {
                 if (!name) return;
-                const path = `$.cookies.${name}`;
+                const path = cookieExpression(name);
                 let varName = name;
                 let suffix = 1;
                 while (varName in outputMapping) {
@@ -966,7 +1020,7 @@ export function HttpResponseMappingEditor({
                     </SelectTrigger>
                     <SelectContent>
                       {extractableBodyFields.map((f) => (
-                        <SelectItem key={f.path} value={f.path} className="text-xs">{f.label}</SelectItem>
+                        <SelectItem key={f.path} value={bodyExpression(f.path)} className="text-xs">{f.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1006,7 +1060,8 @@ export function HttpResponseMappingEditor({
                 </div>
               ))}
               <Button variant="ghost" size="sm" className="w-full h-8 text-[10px] border border-dashed text-destructive border-destructive/20 hover:bg-destructive/5" onClick={() => {
-                const next = [...failureRules, { path: extractableBodyFields[0]?.path ?? "", op: "EQ" as ConditionOperator, value: "" }];
+                const firstPath = extractableBodyFields[0]?.path;
+                const next = [...failureRules, { path: firstPath ? bodyExpression(firstPath) : "", op: "EQ" as ConditionOperator, value: "" }];
                 onChange({ responseHandling: { ...responseHandling, businessFailure: { anyOf: next } } });
               }}>
                 <PlusIcon className="mr-1 size-3" />
@@ -1038,7 +1093,7 @@ export function HttpResponseMappingEditor({
                     </SelectTrigger>
                     <SelectContent>
                       {extractableBodyFields.map((f) => (
-                        <SelectItem key={f.path} value={f.path} className="text-xs">{f.label}</SelectItem>
+                        <SelectItem key={f.path} value={bodyExpression(f.path)} className="text-xs">{f.label}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -1078,7 +1133,8 @@ export function HttpResponseMappingEditor({
                 </div>
               ))}
               <Button variant="ghost" size="sm" className="w-full h-8 text-[10px] border border-dashed text-green-600 border-green-500/20 hover:bg-green-500/5" onClick={() => {
-                const next = [...successRules, { path: extractableBodyFields[0]?.path ?? "", op: "EQ" as ConditionOperator, value: "" }];
+                const firstPath = extractableBodyFields[0]?.path;
+                const next = [...successRules, { path: firstPath ? bodyExpression(firstPath) : "", op: "EQ" as ConditionOperator, value: "" }];
                 onChange({ responseHandling: { ...responseHandling, businessSuccess: { allOf: next } } });
               }}>
                 <PlusIcon className="mr-1 size-3" />
@@ -1101,11 +1157,60 @@ export function HttpResponseMappingEditor({
           当请求未返回预期结果时（如 HTTP 状态码为 404、403、502 或网络不可达），定义异常处理方式和自动重试策略。
         </p>
         <div className={cn("space-y-4", disabled && "pointer-events-none opacity-50")}>
+          {/* Business Error Mapping */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 px-1">
+              <span className="bg-rose-500/10 text-rose-600 text-[10px] px-1.5 py-0.5 rounded font-bold">业务异常响应</span>
+              <span className="text-[10px] text-muted-foreground">(已收到响应但状态码或业务规则判定失败时使用)</span>
+            </div>
+            <div className="rounded-lg border border-rose-500/10 bg-rose-500/[0.02] p-3 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <span className="text-[10px] text-muted-foreground">业务错误消息模板</span>
+                  <Input
+                    value={businessErrorMapping.messageTemplate ?? ""}
+                    onChange={(e) =>
+                      onChange({
+                        businessErrorMapping: { ...businessErrorMapping, messageTemplate: e.target.value },
+                      })
+                    }
+                    placeholder="如: 创建失败：${RES_BODY(message)}"
+                    className="h-7 text-xs"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-muted-foreground">兜底业务错误消息</span>
+                  <Input
+                    value={businessErrorMapping.fallbackMessage ?? ""}
+                    onChange={(e) =>
+                      onChange({
+                        businessErrorMapping: { ...businessErrorMapping, fallbackMessage: e.target.value },
+                      })
+                    }
+                    placeholder="业务处理失败"
+                    className="h-7 text-xs"
+                  />
+                </div>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Switch
+                  checked={businessErrorMapping.exposeRawResponse}
+                  onCheckedChange={(checked) =>
+                    onChange({
+                      businessErrorMapping: { ...businessErrorMapping, exposeRawResponse: checked },
+                    })
+                  }
+                />
+                暴露原始响应体给调用方
+              </label>
+            </div>
+          </div>
+
           {/* Error Mapping */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-1">
-              <span className="bg-orange-500/10 text-orange-600 text-[10px] px-1.5 py-0.5 rounded font-bold">异常响应处理</span>
-              <span className="text-[10px] text-muted-foreground">(定义请求失败时的错误消息提取策略，如 HTTP 404/403/502 或网络超时场景)</span>
+              <span className="bg-orange-500/10 text-orange-600 text-[10px] px-1.5 py-0.5 rounded font-bold">网络/传输异常</span>
+              <span className="text-[10px] text-muted-foreground">(请求未收到响应时使用，如网络超时、连接失败、DNS 异常)</span>
             </div>
             <div className="rounded-lg border border-orange-500/10 bg-orange-500/[0.02] p-3 space-y-3">
               <div className="grid grid-cols-2 gap-2">
@@ -1118,7 +1223,7 @@ export function HttpResponseMappingEditor({
                         errorMapping: { ...errorMapping, messageTemplate: e.target.value },
                       })
                     }
-                    placeholder="如: 创建失败：${error.bizCode}"
+                    placeholder="如: 请求失败：${REQ_HEADER(X-Request-Id)}"
                     className="h-7 text-xs"
                   />
                 </div>
@@ -1307,21 +1412,21 @@ export function HttpResponseMappingEditor({
           if (!pendingDelete) return;
           const { type, idx, key } = pendingDelete;
           if (type === "header" && idx != null) {
-            const headerPath = `headers.${headersSchema[idx]?.name ?? idx}`;
+            const headerPath = headerExpression(headersSchema[idx]?.name ?? `${idx}`);
             const next = headersSchema.filter((_, i) => i !== idx);
             const nextMapping = { ...outputMapping };
             const nextMeta = { ...(step.outputMeta ?? {}) };
             Object.entries(nextMapping).forEach(([k, v]) => {
-              if (v === headerPath) { delete nextMapping[k]; delete nextMeta[k]; }
+              if (isSameMapping(v, headerPath)) { delete nextMapping[k]; delete nextMeta[k]; }
             });
             onChange({ responseHeadersSchema: next, outputMapping: nextMapping, outputMeta: nextMeta });
           } else if (type === "cookie" && idx != null) {
-            const cookiePath = `cookies.${cookiesSchema[idx]?.name ?? idx}`;
+            const cookiePath = cookieExpression(cookiesSchema[idx]?.name ?? `${idx}`);
             const next = cookiesSchema.filter((_, i) => i !== idx);
             const nextMapping = { ...outputMapping };
             const nextMeta = { ...(step.outputMeta ?? {}) };
             Object.entries(nextMapping).forEach(([k, v]) => {
-              if (v === cookiePath) { delete nextMapping[k]; delete nextMeta[k]; }
+              if (isSameMapping(v, cookiePath)) { delete nextMapping[k]; delete nextMeta[k]; }
             });
             onChange({ responseCookiesSchema: next, outputMapping: nextMapping, outputMeta: nextMeta });
           } else if (type === "output" && key != null) {
@@ -1412,7 +1517,8 @@ function BodyTreeNode({
   const isLeaf = field.type !== "object" && field.type !== "array";
   const flatEntry = flatFields[flatIndex];
   const fieldPath = flatEntry?.path ?? "";
-  const isExtracted = isLeaf && Object.values(outputMapping).some((v) => v === fieldPath);
+  const fieldExpression = bodyExpression(fieldPath);
+  const isExtracted = isLeaf && Object.values(outputMapping).some((v) => isSameMapping(v, fieldExpression));
 
   const typeBadge = !isLeaf
     ? field.type === "array"
@@ -1433,7 +1539,7 @@ function BodyTreeNode({
               checked={isExtracted}
               onChange={(e) => {
                 const baseName = fieldPath.split(".").pop()?.replace("[*]", "") ?? "field";
-                onToggleExtract(fieldPath, baseName, e.target.checked, field.label ?? "", field.remark ?? "");
+                onToggleExtract(fieldExpression, baseName, e.target.checked, field.label ?? "", field.remark ?? "");
               }}
               className="h-3.5 w-3.5 rounded border-border accent-blue-600 cursor-pointer"
             />

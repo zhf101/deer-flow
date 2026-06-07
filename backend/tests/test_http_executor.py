@@ -1,5 +1,7 @@
 """HTTP 执行器核心逻辑单元测试。"""
 
+# ruff: noqa: E402,I001
+
 from __future__ import annotations
 
 import sys
@@ -10,11 +12,10 @@ _harness = str(Path(__file__).resolve().parents[1] / "packages" / "harness")
 if _harness not in sys.path:
     sys.path.insert(0, _harness)
 
-import pytest
-
 from app.gdp.datagen.config.common.models import ConditionRule
 from app.gdp.datagen.config.httpsource.models import (
     HttpSourceConfig,
+    HttpSourceTestRequestInfo,
     ParsedCookie,
 )
 from app.gdp.datagen.config.httpsource.executor import (
@@ -22,8 +23,10 @@ from app.gdp.datagen.config.httpsource.executor import (
     _check_condition,
     _parse_set_cookie,
     apply_error_mapping,
+    build_runtime_context,
     evaluate_business_result,
     extract_outputs,
+    interpolate_expressions,
     resolve_path,
 )
 
@@ -119,6 +122,10 @@ class TestCheckCondition:
         rule = ConditionRule(path="code", op="NE", value=500)
         assert _check_condition({"code": 200}, rule) is True
 
+    def test_neq(self):
+        rule = ConditionRule(path="code", op="NEQ", value=500)
+        assert _check_condition({"code": 200}, rule) is True
+
     def test_gt(self):
         rule = ConditionRule(path="count", op="GT", value=5)
         assert _check_condition({"count": 10}, rule) is True
@@ -212,14 +219,56 @@ class TestEvaluateBusinessResult:
             statusCode=ResponseStatusCodeRule(success=[200]),
             businessSuccess=ResponseConditionGroup(
                 allOf=[
-                    ConditionRule(path="code", op="EQ", value=0),
-                    ConditionRule(path="msg", op="EQ", value="ok"),
+                    ConditionRule(path="${RES_BODY(code)}", op="EQ", value=0),
+                    ConditionRule(path="${RES_BODY(msg)}", op="EQ", value="ok"),
                 ]
             ),
             businessFailure=ResponseConditionGroup(anyOf=[]),
         )
         config = self._make_config(handling)
-        result = evaluate_business_result(config, 200, {"code": 0, "msg": "ok"})
+        body = {"code": 0, "msg": "ok"}
+        context = build_runtime_context(config, None, body, {}, [])
+        result = evaluate_business_result(config, 200, body, context=context)
+        assert result is not None
+        assert result.isSuccess is True
+
+    def test_legacy_body_path_is_not_supported(self):
+        from app.gdp.datagen.config.common.models import (
+            ConditionRule,
+            ResponseConditionGroup,
+            ResponseHandling,
+            ResponseStatusCodeRule,
+        )
+        handling = ResponseHandling(
+            statusCode=ResponseStatusCodeRule(success=[200]),
+            businessSuccess=ResponseConditionGroup(
+                allOf=[ConditionRule(path="$.body.code", op="EQ", value=0)]
+            ),
+            businessFailure=ResponseConditionGroup(anyOf=[]),
+        )
+        config = self._make_config(handling)
+        context = build_runtime_context(config, None, {"code": 0}, {}, [])
+        result = evaluate_business_result(config, 200, {"code": 0}, context=context)
+        assert result is not None
+        assert result.isSuccess is False
+
+    def test_identifier_success_rule_matches_response_body(self):
+        from app.gdp.datagen.config.common.models import (
+            ConditionRule,
+            ResponseConditionGroup,
+            ResponseHandling,
+            ResponseStatusCodeRule,
+        )
+        handling = ResponseHandling(
+            statusCode=ResponseStatusCodeRule(success=[200]),
+            businessSuccess=ResponseConditionGroup(
+                allOf=[ConditionRule(path="${RES_BODY(code)}", op="EQ", value=0)]
+            ),
+            businessFailure=ResponseConditionGroup(anyOf=[]),
+        )
+        config = self._make_config(handling)
+        context = build_runtime_context(config, None, {"code": 0}, {}, [])
+        result = evaluate_business_result(config, 200, {"code": 0}, context=context)
         assert result is not None
         assert result.isSuccess is True
 
@@ -234,11 +283,13 @@ class TestEvaluateBusinessResult:
             statusCode=ResponseStatusCodeRule(success=[200]),
             businessSuccess=ResponseConditionGroup(allOf=[]),
             businessFailure=ResponseConditionGroup(
-                anyOf=[ConditionRule(path="error", op="NOT_EMPTY", value=None)]
+                anyOf=[ConditionRule(path="${RES_BODY(error)}", op="NOT_EMPTY", value=None)]
             ),
         )
         config = self._make_config(handling)
-        result = evaluate_business_result(config, 200, {"error": "timeout"})
+        body = {"error": "timeout"}
+        context = build_runtime_context(config, None, body, {}, [])
+        result = evaluate_business_result(config, 200, body, context=context)
         assert result is not None
         assert result.isSuccess is False
 
@@ -253,13 +304,55 @@ class TestExtractOutputs:
             sysCode="SYS",
             path="/test",
             requestMapping={},
-            outputMapping={"token": "body.data.token", "trace": "headers.x-trace-id"},
+            outputMapping={"token": "${RES_BODY(data.token)}", "trace": "${RES_HEADER(x-trace-id)}"},
         )
         body = {"data": {"token": "abc123"}}
         headers = {"x-trace-id": "trace-456"}
         result = extract_outputs(config, body, headers, [])
         assert result["token"] == "abc123"
         assert result["trace"] == "trace-456"
+
+    def test_identifier_extraction_and_header_case_insensitive(self):
+        config = HttpSourceConfig(
+            sourceCode="test",
+            sourceName="test",
+            sysCode="SYS",
+            path="/test",
+            requestMapping={},
+            outputMapping={
+                "token": "${RES_BODY(data.token)}",
+                "trace": "${RES_HEADER(X-Trace-Id)}",
+            },
+        )
+        body = {"data": {"token": "abc123"}}
+        headers = {"x-trace-id": "trace-456"}
+        result = extract_outputs(config, body, headers, [])
+        assert result["token"] == "abc123"
+        assert result["trace"] == "trace-456"
+
+    def test_request_identifier_extraction(self):
+        request_info = HttpSourceTestRequestInfo(
+            url="http://example.test",
+            method="POST",
+            headers={"X-Request-Id": "req-1"},
+            body={"code": "A001"},
+        )
+        config = HttpSourceConfig(
+            sourceCode="test",
+            sourceName="test",
+            sysCode="SYS",
+            path="/test",
+            requestMapping={"authConfig": {"type": "bearer", "token": "secret"}},
+            outputMapping={
+                "requestCode": "${REQ_BODY(code)}",
+                "requestId": "${REQ_HEADER(x-request-id)}",
+                "authType": "${REQ_AUTH(type)}",
+            },
+        )
+        result = extract_outputs(config, {}, {}, [], request_info=request_info)
+        assert result["requestCode"] == "A001"
+        assert result["requestId"] == "req-1"
+        assert result["authType"] == "bearer"
 
     def test_cookie_extraction(self):
         config = HttpSourceConfig(
@@ -268,11 +361,24 @@ class TestExtractOutputs:
             sysCode="SYS",
             path="/test",
             requestMapping={},
-            outputMapping={"session": "cookies.SESSION"},
+            outputMapping={"session": "${RES_COOKIE(SESSION)}"},
         )
         cookies = [ParsedCookie(name="SESSION", value="sess_789")]
         result = extract_outputs(config, {}, {}, cookies)
         assert result["session"] == "sess_789"
+
+    def test_legacy_output_paths_are_not_supported(self):
+        config = HttpSourceConfig(
+            sourceCode="test",
+            sourceName="test",
+            sysCode="SYS",
+            path="/test",
+            requestMapping={},
+            outputMapping={"token": "body.data.token", "trace": "$.headers.X-Trace-Id"},
+        )
+        result = extract_outputs(config, {"data": {"token": "abc123"}}, {"x-trace-id": "trace-456"}, [])
+        assert result["token"] is None
+        assert result["trace"] is None
 
     def test_missing_path_returns_none(self):
         config = HttpSourceConfig(
@@ -281,7 +387,7 @@ class TestExtractOutputs:
             sysCode="SYS",
             path="/test",
             requestMapping={},
-            outputMapping={"missing": "body.nonexistent"},
+            outputMapping={"missing": "${RES_BODY(nonexistent)}"},
         )
         result = extract_outputs(config, {"data": 1}, {}, [])
         assert result["missing"] is None
@@ -312,7 +418,7 @@ class TestApplyErrorMapping:
             outputMapping={},
             errorMapping=ErrorMapping(
                 messageTemplate="错误码: {code}, 消息: {msg}",
-                fields={"code": "error.code", "msg": "error.message"},
+                fields={"code": "${RES_BODY(error.code)}", "msg": "${RES_BODY(error.message)}"},
             ),
         )
         body = {"error": {"code": "E001", "message": "参数无效"}}
@@ -366,3 +472,16 @@ class TestApplyErrorMapping:
         body = {"detail": "bad request"}
         result = apply_error_mapping(config, body, "raw")
         assert "原始响应" in result
+
+    def test_identifier_template_interpolation(self):
+        config = HttpSourceConfig(
+            sourceCode="test",
+            sourceName="test",
+            sysCode="SYS",
+            path="/test",
+            requestMapping={},
+            outputMapping={},
+        )
+        context = build_runtime_context(config, None, {"message": "参数无效"}, {"x-trace-id": "t1"}, [])
+        result = interpolate_expressions("失败: ${RES_BODY(message)}, trace=${RES_HEADER(X-Trace-Id)}", context)
+        assert result == "失败: 参数无效, trace=t1"

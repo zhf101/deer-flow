@@ -54,11 +54,11 @@ const NAV_ITEMS: {
   icon: typeof LayoutListIcon;
   group: string;
 }[] = [
-  { id: "scene-list", type: "scene-list", label: "造数场景", icon: LayoutListIcon, group: "编排" },
-  { id: "task-list", type: "task-list", label: "造数任务", icon: WorkflowIcon, group: "编排" },
+  { id: "config", type: "config", label: "基础配置", icon: SettingsIcon, group: "配置" },
   { id: "httpsource", type: "httpsource", label: "HTTP 接口", icon: GlobeIcon, group: "配置" },
   { id: "sqlsource", type: "sqlsource", label: "SQL 配置", icon: DatabaseIcon, group: "配置" },
-  { id: "config", type: "config", label: "基础配置", icon: SettingsIcon, group: "配置" },
+  { id: "scene-list", type: "scene-list", label: "造数场景", icon: LayoutListIcon, group: "编排" },
+  { id: "task-list", type: "task-list", label: "造数任务", icon: WorkflowIcon, group: "编排" },
 ];
 
 /* ── main component ─────────────────────────────────────────────── */

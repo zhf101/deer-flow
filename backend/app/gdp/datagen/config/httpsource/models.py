@@ -83,7 +83,11 @@ class HttpSourceConfig(BaseModel):
     )
     errorMapping: ErrorMapping | None = Field(
         default=None,
-        description="错误信息映射规则。用于把 HTTP 失败或业务失败转换成人类可读错误描述。",
+        description="传输异常错误信息映射规则。用于把网络超时、连接失败等无响应异常转换成人类可读错误描述。",
+    )
+    businessErrorMapping: ErrorMapping | None = Field(
+        default=None,
+        description="业务异常错误信息映射规则。用于把已收到响应但业务判定失败的结果转换成人类可读错误描述。",
     )
     outputMapping: dict[str, str] = Field(
         default_factory=dict,

@@ -120,7 +120,7 @@ class SqlSourceRepository:
                     datasource_code=config.datasourceCode,
                     operation=config.operation.value,
                     sql_text=config.sqlText,
-                    normalized_sql=config.normalizedSql or config.sqlText,
+                    normalized_sql=config.normalizedSql,
                     tables_json=_dumps([item.model_dump(mode="json") for item in config.tables]),
                     result_fields_json=_dumps([item.model_dump(mode="json") for item in config.resultFields]),
                     condition_fields_json=_dumps([item.model_dump(mode="json") for item in config.conditionFields]),
@@ -140,7 +140,7 @@ class SqlSourceRepository:
                 row.datasource_code = config.datasourceCode
                 row.operation = config.operation.value
                 row.sql_text = config.sqlText
-                row.normalized_sql = config.normalizedSql or config.sqlText
+                row.normalized_sql = config.normalizedSql
                 row.tables_json = _dumps([item.model_dump(mode="json") for item in config.tables])
                 row.result_fields_json = _dumps([item.model_dump(mode="json") for item in config.resultFields])
                 row.condition_fields_json = _dumps([item.model_dump(mode="json") for item in config.conditionFields])

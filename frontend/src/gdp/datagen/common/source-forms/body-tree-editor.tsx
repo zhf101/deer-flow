@@ -244,7 +244,7 @@ export function BodyTreeEditor({
         <div className="space-y-1">
           <span className="text-[10px] text-muted-foreground">
             {format === "json"
-              ? "Content-Type: application/json · 只读预览（变量引用保持原样显示）"
+              ? "Content-Type: application/json · 只读预览"
               : "Content-Type: application/xml · 只读预览"}
           </span>
           {format === "json" ? (

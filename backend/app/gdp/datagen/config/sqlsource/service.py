@@ -80,22 +80,20 @@ class SqlSourceService:
         """保存前补齐 SQL 解析元数据。
 
         前端可能尚未点击“解析 SQL”，此时后端使用同一解析器补齐规范 SQL、
-        操作表、查询字段、条件字段和参数定义。已有的操作表、字段说明优先
-        保留，只补齐缺失的部分，避免覆盖用户手工维护的说明。
+        操作表、查询字段、条件字段和参数定义。只有当前保存的 normalizedSql
+        与本次解析结果一致时，才保留前端维护过的元数据说明，避免 SQL 已变化
+        但旧元数据被继续持久化。
         """
 
-        missing_metadata = not config.tables or not config.resultFields or not config.conditionFields
-        if config.normalizedSql and not missing_metadata:
-            return config
-
         parsed = parse_sql_source(config.sqlText, config.parameters)
+        metadata_is_current = config.normalizedSql == parsed.normalizedSql
         return config.model_copy(
             update={
-                "normalizedSql": config.normalizedSql or parsed.normalizedSql,
+                "normalizedSql": parsed.normalizedSql,
                 "operation": parsed.operation,
-                "tables": config.tables or parsed.tables,
-                "resultFields": config.resultFields or parsed.resultFields,
-                "conditionFields": config.conditionFields or parsed.conditionFields,
+                "tables": config.tables if metadata_is_current and config.tables else parsed.tables,
+                "resultFields": config.resultFields if metadata_is_current and config.resultFields else parsed.resultFields,
+                "conditionFields": config.conditionFields if metadata_is_current and config.conditionFields else parsed.conditionFields,
                 "parameters": parsed.parameters,
             }
         )

@@ -12,9 +12,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.gdp.datagen.config.base.repository import DataFactoryConfigAuditRow
 from app.gdp.datagen.config.common.models import ConfigStatus
 from app.gdp.datagen.config.httpsource.models import HttpSourceConfig, HttpSourceResponse
-from app.gdp.datagen.config.base.repository import DataFactoryConfigAuditRow
 from deerflow.persistence.base import Base
 
 
@@ -48,6 +48,7 @@ class DataFactoryHttpSourceRow(Base):
     response_cookies_schema_json: Mapped[str | None] = mapped_column(Text, comment="响应 Cookie 字段结构 JSON。")
     response_handling_json: Mapped[str | None] = mapped_column(Text, comment="响应判定规则 JSON。")
     error_mapping_json: Mapped[str | None] = mapped_column(Text, comment="错误信息映射规则 JSON。")
+    business_error_mapping_json: Mapped[str | None] = mapped_column(Text, comment="业务异常错误信息映射规则 JSON。")
     output_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="输出变量映射 JSON。")
     output_meta_json: Mapped[str | None] = mapped_column(Text, comment="输出变量展示元信息 JSON。")
     retry_policy_json: Mapped[str | None] = mapped_column(Text, comment="HTTP 重试策略 JSON。")
@@ -142,6 +143,7 @@ class HttpSourceRepository:
                     response_cookies_schema_json=_dumps(_model_dump(config.responseCookiesSchema)) if config.responseCookiesSchema else None,
                     response_handling_json=_dumps(_model_dump(config.responseHandling)) if config.responseHandling else None,
                     error_mapping_json=_dumps(_model_dump(config.errorMapping)) if config.errorMapping else None,
+                    business_error_mapping_json=_dumps(_model_dump(config.businessErrorMapping)) if config.businessErrorMapping else None,
                     output_mapping_json=_dumps(config.outputMapping),
                     output_meta_json=_dumps(config.outputMeta) if config.outputMeta else None,
                     retry_policy_json=_dumps(_model_dump(config.retryPolicy)) if config.retryPolicy else None,
@@ -165,6 +167,7 @@ class HttpSourceRepository:
                 row.response_cookies_schema_json = _dumps(_model_dump(config.responseCookiesSchema)) if config.responseCookiesSchema else None
                 row.response_handling_json = _dumps(_model_dump(config.responseHandling)) if config.responseHandling else None
                 row.error_mapping_json = _dumps(_model_dump(config.errorMapping)) if config.errorMapping else None
+                row.business_error_mapping_json = _dumps(_model_dump(config.businessErrorMapping)) if config.businessErrorMapping else None
                 row.output_mapping_json = _dumps(config.outputMapping)
                 row.output_meta_json = _dumps(config.outputMeta) if config.outputMeta else None
                 row.retry_policy_json = _dumps(_model_dump(config.retryPolicy)) if config.retryPolicy else None
@@ -243,6 +246,7 @@ class HttpSourceRepository:
             responseCookiesSchema=_loads(row.response_cookies_schema_json, None),
             responseHandling=_loads(row.response_handling_json, None),
             errorMapping=_loads(row.error_mapping_json, None),
+            businessErrorMapping=_loads(row.business_error_mapping_json, None),
             outputMapping=_loads(row.output_mapping_json, {}),
             outputMeta=_loads(row.output_meta_json, None),
             retryPolicy=_loads(row.retry_policy_json, None),
