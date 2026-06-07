@@ -1,4 +1,4 @@
-"""Business service for datagen base configuration."""
+"""造数基础配置业务服务层。"""
 
 from __future__ import annotations
 

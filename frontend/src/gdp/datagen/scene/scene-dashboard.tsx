@@ -159,7 +159,8 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
                     dependsOn: ["user_login"],
                     description: "查询商品库存表，确认商品可用且库存充足",
                     operation: "SELECT",
-                    datasource: "${env.datasources.tradeDb}",
+                    sysCode: "trade",
+                    datasourceCode: "tradeDb",
                     sqlTemplateCode: "",
                     paramMapping: {
                         "productId": "${input.productId}"
@@ -257,7 +258,8 @@ export function SceneDashboard({ onEdit, onView, onCreate, onConfig }: SceneDash
                     dependsOn: ["create_order"],
                     description: "将订单创建结果写入日志表，便于后续审计追溯",
                     operation: "INSERT",
-                    datasource: "${env.datasources.tradeDb}",
+                    sysCode: "trade",
+                    datasourceCode: "tradeDb",
                     sqlTemplateCode: "",
                     paramMapping: {
                         "orderNo": "${steps.create_order.outputs.orderNo}",

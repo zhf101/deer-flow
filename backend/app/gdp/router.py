@@ -1,4 +1,4 @@
-"""GDP datagen router aggregation."""
+"""GDP 造数模块路由聚合。"""
 
 from __future__ import annotations
 

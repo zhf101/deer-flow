@@ -111,10 +111,10 @@ export interface StepDefinition {
   // SQL 步骤：引用 sqlsource
   sqlSourceCode?: string | null;
   sqlParamMapping: Record<string, unknown>;
-  // 以下为兼容旧内联模式的字段（逐步废弃）
+  // 内联步骤字段
   method?: HttpMethod | null;
   url?: string | null;
-  serviceCode?: string | null;
+  sysCode?: string | null;
   requestMapping: Record<string, unknown>;
   bodySchema?: InputFieldDefinition[] | null;
   bodyMapping?: Record<string, unknown> | null;
@@ -126,7 +126,7 @@ export interface StepDefinition {
   outputMapping: Record<string, string>;
   outputMeta?: Record<string, { label?: string; remark?: string }> | null;
   retryPolicy?: RetryPolicy | null;
-  datasource?: string | null;
+  datasourceCode?: string | null;
   sqlTemplateCode?: string | null;
   operation?: SqlOperation | null;
   paramMapping: Record<string, unknown>;
@@ -252,6 +252,45 @@ export interface DatasourceResponse extends DatasourceConfig {
   updatedAt: string;
 }
 
+export type IdentifierReferenceType =
+  | "TIME"
+  | "MATCHER"
+  | "TPN"
+  | "LOGIN"
+  | "BASE64";
+
+export interface IdentifierReferenceParameter {
+  name: string;
+  description: string;
+  required: boolean;
+  defaultValue?: unknown;
+}
+
+export interface IdentifierReferenceExample {
+  expression: string;
+  description: string;
+}
+
+export interface IdentifierReferenceConfig {
+  refCode: string;
+  refName: string;
+  refType: IdentifierReferenceType;
+  syntax: string;
+  description: string;
+  usageScope: string[];
+  parameters: IdentifierReferenceParameter[];
+  examples: IdentifierReferenceExample[];
+  status: ConfigStatus;
+  remark?: string | null;
+}
+
+export interface IdentifierReferenceResponse
+  extends IdentifierReferenceConfig {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SqlTemplateParameter {
   name: string;
   type: InputFieldType | string;
@@ -288,7 +327,7 @@ export interface SqlTemplateResponse extends SqlTemplateConfig {
 export interface HttpSourceConfig {
   sourceCode: string;
   sourceName: string;
-  serviceCode: string;
+  sysCode: string;
   path: string;
   method: HttpMethod;
   requestMapping: Record<string, unknown>;
@@ -310,6 +349,35 @@ export interface HttpSourceResponse extends HttpSourceConfig {
   updatedBy?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface HttpSourceTestRequestInfo {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  query: Record<string, unknown>;
+  body?: unknown;
+  bodyType: string;
+}
+
+export interface HttpSourceTestResponseInfo {
+  statusCode?: number | null;
+  headers: Record<string, string>;
+  body?: unknown;
+  elapsedMs?: number | null;
+}
+
+export interface HttpSourceTestErrorInfo {
+  type: string;
+  message: string;
+  detail?: string | null;
+}
+
+export interface HttpSourceTestResult {
+  success: boolean;
+  request: HttpSourceTestRequestInfo;
+  response?: HttpSourceTestResponseInfo | null;
+  error?: HttpSourceTestErrorInfo | null;
 }
 
 // ── SQL 配置（sqlsource）────────────────────────────────────────────────
@@ -357,6 +425,7 @@ export interface SqlSourceParseResponse {
 export interface SqlSourceConfig {
   sourceCode: string;
   sourceName: string;
+  sysCode: string;
   datasourceCode: string;
   operation: SqlOperation;
   sqlText: string;

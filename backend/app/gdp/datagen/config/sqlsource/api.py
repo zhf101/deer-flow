@@ -1,4 +1,4 @@
-"""SQL source FastAPI routes."""
+"""SQL 源 FastAPI 路由。"""
 
 from __future__ import annotations
 

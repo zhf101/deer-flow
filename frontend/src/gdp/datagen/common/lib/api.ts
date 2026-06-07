@@ -9,6 +9,7 @@ import type {
   ExecutionResult,
   HttpSourceConfig,
   HttpSourceResponse,
+  HttpSourceTestResult,
   SceneDefinition,
   SceneStatus,
   SceneSummary,
@@ -219,21 +220,21 @@ export async function listDatasources(
 }
 
 export async function createDatasource(
-  datasource: DatasourceConfig,
+  config: DatasourceConfig,
 ): Promise<DatasourceResponse> {
   return request<DatasourceResponse>("/datasources", {
     method: "POST",
-    body: JSON.stringify(datasource),
+    body: JSON.stringify(config),
   });
 }
 
 export async function updateDatasource(
   id: string,
-  datasource: DatasourceConfig,
+  config: DatasourceConfig,
 ): Promise<DatasourceResponse> {
   return request<DatasourceResponse>(`/datasources/${encodeURIComponent(id)}`, {
     method: "PUT",
-    body: JSON.stringify(datasource),
+    body: JSON.stringify(config),
   });
 }
 
@@ -302,8 +303,12 @@ export async function runScene(
 
 // ── HTTP 接口配置（httpsource）───────────────────────────────────────────
 
-export async function listHttpSources(): Promise<HttpSourceResponse[]> {
-  return request<HttpSourceResponse[]>("/http-sources");
+export async function listHttpSources(params?: {
+  sysCode?: string;
+}): Promise<HttpSourceResponse[]> {
+  return request<HttpSourceResponse[]>(
+    `/http-sources${searchParams(params ?? {})}`,
+  );
 }
 
 export async function createHttpSource(
@@ -351,10 +356,24 @@ export async function deleteHttpSource(
   );
 }
 
+export async function testHttpSource(
+  envCode: string,
+  config: HttpSourceConfig,
+): Promise<HttpSourceTestResult> {
+  return request<HttpSourceTestResult>("/http-sources/test", {
+    method: "POST",
+    body: JSON.stringify({ envCode, config }),
+  });
+}
+
 // ── SQL 配置（sqlsource）─────────────────────────────────────────────────
 
-export async function listSqlSources(): Promise<SqlSourceResponse[]> {
-  return request<SqlSourceResponse[]>("/sql-sources");
+export async function listSqlSources(params?: {
+  sysCode?: string;
+}): Promise<SqlSourceResponse[]> {
+  return request<SqlSourceResponse[]>(
+    `/sql-sources${searchParams(params ?? {})}`,
+  );
 }
 
 export async function parseSqlSource(
@@ -399,6 +418,15 @@ export async function disableSqlSource(
 ): Promise<{ success: boolean }> {
   return request<{ success: boolean }>(
     `/sql-sources/${encodeURIComponent(sourceCode)}/disable`,
+    { method: "POST" },
+  );
+}
+
+export async function deleteSqlSource(
+  sourceCode: string,
+): Promise<{ success: boolean }> {
+  return request<{ success: boolean }>(
+    `/sql-sources/${encodeURIComponent(sourceCode)}/delete`,
     { method: "POST" },
   );
 }

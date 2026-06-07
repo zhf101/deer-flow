@@ -1,2 +1,2 @@
-"""Common datagen helpers shared by feature modules."""
+"""造数功能模块共享的公共工具。"""
 

@@ -25,6 +25,7 @@ try:
         DataFactoryConfigAuditRow,
         DataFactoryDatasourceRow,
         DataFactoryEnvironmentRow,
+        DataFactoryIdentifierReferenceRow,
         DataFactoryServiceEndpointRow,
         DataFactorySystemRow,
     )
@@ -41,6 +42,7 @@ except ImportError:
     DataFactoryDatasourceRow = None
     DataFactoryEnvironmentRow = None
     DataFactoryHttpSourceRow = None
+    DataFactoryIdentifierReferenceRow = None
     DataFactorySceneRow = None
     DataFactorySceneVersionRow = None
     DataFactoryServiceEndpointRow = None
@@ -77,6 +79,7 @@ __all__ = [
     "DataFactoryDatasourceRow",
     "DataFactoryEnvironmentRow",
     "DataFactoryHttpSourceRow",
+    "DataFactoryIdentifierReferenceRow",
     "DataFactorySceneRow",
     "DataFactorySceneVersionRow",
     "DataFactoryServiceEndpointRow",

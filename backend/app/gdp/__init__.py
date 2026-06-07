@@ -1,1 +1,1 @@
-"""GDP data-factory configuration module."""
+"""GDP 造数配置模块。"""

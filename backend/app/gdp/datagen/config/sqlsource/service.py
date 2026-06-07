@@ -1,4 +1,4 @@
-"""SQL source business service."""
+"""SQL 源业务服务层。"""
 
 from __future__ import annotations
 

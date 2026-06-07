@@ -1,11 +1,17 @@
-"""HTTP source FastAPI routes."""
+"""HTTP 源 FastAPI 路由。"""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.gdp.datagen.config.base.repository import BaseConfigRepository
-from app.gdp.datagen.config.httpsource.models import DisableResponse, HttpSourceConfig, HttpSourceResponse
+from app.gdp.datagen.config.httpsource.models import (
+    DisableResponse,
+    HttpSourceConfig,
+    HttpSourceResponse,
+    HttpSourceTestRequest,
+    HttpSourceTestResponse,
+)
 from app.gdp.datagen.config.httpsource.repository import HttpSourceRepository
 from app.gdp.datagen.config.httpsource.service import HttpSourceService
 from deerflow.persistence.engine import get_session_factory
@@ -41,6 +47,14 @@ async def create_http_source(
     service: HttpSourceService = Depends(_get_service),
 ) -> HttpSourceResponse:
     return await service.upsert_http_source(body, operator=operator)
+
+
+@router.post("/http-sources/test", response_model=HttpSourceTestResponse)
+async def test_http_source(
+    body: HttpSourceTestRequest,
+    service: HttpSourceService = Depends(_get_service),
+) -> HttpSourceTestResponse:
+    return await service.test_http_source(body)
 
 
 @router.get("/http-sources/{sourceCode}", response_model=HttpSourceResponse)

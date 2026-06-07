@@ -1,4 +1,4 @@
-"""FastAPI routes for datagen base configuration."""
+"""造数基础配置 FastAPI 路由。"""
 
 from __future__ import annotations
 

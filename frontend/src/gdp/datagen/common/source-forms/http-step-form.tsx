@@ -56,6 +56,7 @@ import { BodyTreeEditor } from "./body-tree-editor";
 import { FieldMapper } from "./field-mapper";
 import { HeaderFieldMapper } from "./header-field-mapper";
 import { HttpResponseMappingEditor } from "./http-response-mapping-editor";
+import { ConfirmDialog } from "../ui/confirm-dialog";
 
 /* ── types ──────────────────────────────────────────────────────── */
 
@@ -69,6 +70,8 @@ interface HttpStepFormProps {
   showExtraction?: boolean;
   /** Whether the request config section can be collapsed. Default true. */
   requestCollapsible?: boolean;
+  /** Disable all data inputs/buttons but keep navigation (tabs, collapsibles). */
+  disabled?: boolean;
 }
 
 type AuthType = "none" | "bearer" | "basic" | "apikey";
@@ -94,6 +97,7 @@ export function HttpStepForm({
   showResponse = true,
   showExtraction = true,
   requestCollapsible = true,
+  disabled = false,
 }: HttpStepFormProps) {
   const [endpoints, setEndpoints] = useState<ServiceEndpointResponse[]>([]);
   const [systems, setSystems] = useState<SysResponse[]>([]);
@@ -101,7 +105,7 @@ export function HttpStepForm({
   const [requestOpen, setRequestOpen] = useState(true);
   const [responseOpen, setResponseOpen] = useState(true);
 
-  /* load service endpoints */
+  /* load systems and environment endpoints */
   const loadEndpoints = useCallback(async () => {
     try {
       const [endpointItems, systemItems] = await Promise.all([
@@ -118,20 +122,18 @@ export function HttpStepForm({
     void loadEndpoints();
   }, [loadEndpoints]);
 
-  const serviceCodes = useMemo(() => {
+  const systemOptions = useMemo(() => {
     const seen = new Map<string, string>();
+    for (const sys of systems) {
+      seen.set(sys.sysCode, sys.sysName);
+    }
     for (const ep of endpoints) {
-      if (!seen.has(ep.sysCode)) {
-        const sysName =
-          systems.find((sys) => sys.sysCode === ep.sysCode)?.sysName ??
-          ep.sysCode;
-        seen.set(ep.sysCode, sysName);
-      }
+      if (!seen.has(ep.sysCode)) seen.set(ep.sysCode, ep.sysCode);
     }
     return Array.from(seen.entries()).map(([code, name]) => ({ code, name }));
   }, [endpoints, systems]);
 
-  const selectedEndpoint = endpoints.find((ep) => ep.sysCode === step.serviceCode);
+  const selectedEndpoints = endpoints.filter((ep) => ep.sysCode === step.sysCode);
   const method = step.method ?? "POST";
   const requestMapping = step.requestMapping || {};
 
@@ -241,7 +243,7 @@ export function HttpStepForm({
           className="space-y-2 pt-2"
         >
           {/* ── ADDRESS BAR ── */}
-          <div className="flex items-center gap-1.5 rounded-lg border bg-muted/20 p-1.5">
+          <div className={cn("flex items-center gap-1.5 rounded-lg border bg-muted/20 p-1.5", disabled && "pointer-events-none opacity-50")}>
             <Select
               value={method}
               onValueChange={(value) => onChange({ ...step, method: value as HttpMethod })}
@@ -259,17 +261,17 @@ export function HttpStepForm({
             </Select>
 
             <Select
-              value={step.serviceCode ?? "__none__"}
+              value={step.sysCode ?? "__none__"}
               onValueChange={(value) =>
-                onChange({ ...step, serviceCode: value === "__none__" ? "" : value })
+                onChange({ ...step, sysCode: value === "__none__" ? "" : value })
               }
             >
               <SelectTrigger className="h-8 w-[140px] text-xs shrink-0">
-                <SelectValue placeholder="选择服务" />
+                <SelectValue placeholder="选择系统" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__" className="text-xs">无服务前缀</SelectItem>
-                {serviceCodes.map((svc) => (
+                <SelectItem value="__none__" className="text-xs">未选择系统</SelectItem>
+                {systemOptions.map((svc) => (
                   <SelectItem key={svc.code} value={svc.code} className="text-xs">
                     {svc.name} ({svc.code})
                   </SelectItem>
@@ -281,17 +283,21 @@ export function HttpStepForm({
               value={step.url ?? ""}
               onChange={(e) => onChange({ ...step, url: e.target.value })}
               placeholder={
-                selectedEndpoint
-                  ? `/v1/resource (前缀: ${selectedEndpoint.baseUrl})`
+                selectedEndpoints[0]
+                  ? `/v1/resource (示例端点: ${selectedEndpoints[0].baseUrl})`
                   : "https://api.example.com/v1/resource"
               }
               className="h-8 flex-1 text-xs font-mono"
             />
           </div>
-          {selectedEndpoint && (
+          {selectedEndpoints.length > 0 && (
             <p className="text-[10px] text-muted-foreground pl-1">
-              当前环境前缀:{" "}
-              <span className="font-mono text-blue-600">{selectedEndpoint.baseUrl}</span>
+              已配置环境端点:{" "}
+              {selectedEndpoints.map((endpoint) => (
+                <span key={endpoint.id} className="mr-2 font-mono text-blue-600">
+                  {endpoint.envCode}: {endpoint.baseUrl}
+                </span>
+              ))}
             </p>
           )}
 
@@ -325,7 +331,7 @@ export function HttpStepForm({
             </TabsList>
 
             {/* ── Params ── */}
-            <TabsContent value="params" className="mt-2">
+            <TabsContent value="params" className={cn("mt-2", disabled && "pointer-events-none opacity-50")}>
               <FieldMapper
                 label="Query Params"
                 description="URL 问号后面的参数, 如 ?id=1&name=test"
@@ -342,7 +348,7 @@ export function HttpStepForm({
             </TabsContent>
 
             {/* ── Authorization ── */}
-            <TabsContent value="auth" className="mt-2">
+            <TabsContent value="auth" className={cn("mt-2", disabled && "pointer-events-none opacity-50")}>
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <span className="text-xs font-medium text-muted-foreground">认证类型</span>
@@ -456,7 +462,7 @@ export function HttpStepForm({
             </TabsContent>
 
             {/* ── Headers ── */}
-            <TabsContent value="headers" className="mt-2">
+            <TabsContent value="headers" className={cn("mt-2", disabled && "pointer-events-none opacity-50")}>
               <HeaderFieldMapper
                 label="请求头"
                 description="配置 HTTP Header, 输入时自动联想常见 Header"
@@ -473,7 +479,7 @@ export function HttpStepForm({
             </TabsContent>
 
             {/* ── Body ── */}
-            <TabsContent value="body" className="mt-2">
+            <TabsContent value="body" className={cn("mt-2", disabled && "pointer-events-none opacity-50")}>
               {method === "GET" ? (
                 <div className="rounded-md border border-dashed p-8 text-center text-xs text-muted-foreground">
                   GET 请求通常不包含 Body，如需发送请切换为 POST 方法
@@ -634,6 +640,7 @@ export function HttpStepForm({
             step={step}
             onChange={(updates) => onChange({ ...step, ...updates })}
             showExtraction={showExtraction}
+            disabled={disabled}
           />
         </CollapsibleContent>
       </Collapsible>
@@ -665,6 +672,7 @@ function FormDataEditor({
   const rows: FormDataRow[] = (requestMapping as any).formData ?? [
     { key: "", value: "", description: "", enabled: true },
   ];
+  const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
 
   const updateRows = (next: FormDataRow[]) => {
     onChange({
@@ -784,7 +792,7 @@ function FormDataEditor({
               <Button
                 variant="ghost"
                 size="icon-sm"
-                onClick={() => removeRow(idx)}
+                onClick={() => setPendingDeleteIdx(idx)}
                 className="text-muted-foreground hover:text-destructive h-6 w-6"
               >
                 <Trash2Icon className="size-3" />
@@ -799,6 +807,14 @@ function FormDataEditor({
           暂无表单字段，点击 + 添加
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteIdx !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteIdx(null); }}
+        onConfirm={() => { if (pendingDeleteIdx !== null) removeRow(pendingDeleteIdx); }}
+        title="删除字段"
+        description="确定删除该表单字段吗？"
+      />
     </div>
   );
 }

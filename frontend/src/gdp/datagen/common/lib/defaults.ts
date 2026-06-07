@@ -114,7 +114,7 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
   if (type === "HTTP") {
     base.method = "POST";
     base.url = "";
-    base.serviceCode = "";
+    base.sysCode = "";
     base.requestMapping = { headers: {}, query: {}, body: {} };
     base.responseHandling = {
       expectedContentType: "JSON",
@@ -137,7 +137,8 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
   }
 
   if (type === "SQL") {
-    base.datasource = "";
+    base.sysCode = "";
+    base.datasourceCode = "";
     base.sqlTemplateCode = "";
     base.operation = "UPDATE";
   }
@@ -170,7 +171,7 @@ export function createDefaultHttpSource(): HttpSourceConfig {
   return {
     sourceCode: "",
     sourceName: "",
-    serviceCode: "",
+    sysCode: "",
     path: "",
     method: "POST",
     requestMapping: { headers: {}, query: {}, body: {} },
@@ -206,6 +207,7 @@ export function createDefaultSqlSource(): SqlSourceConfig {
   return {
     sourceCode: "",
     sourceName: "",
+    sysCode: "",
     datasourceCode: "",
     operation: "SELECT",
     sqlText: "",

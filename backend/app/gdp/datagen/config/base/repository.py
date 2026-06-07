@@ -1,4 +1,4 @@
-"""Persistence repository for datagen base configuration."""
+"""造数基础配置持久化仓储。"""
 
 from __future__ import annotations
 
@@ -27,83 +27,135 @@ from deerflow.persistence.base import Base
 
 
 class DataFactorySystemRow(Base):
+    """系统配置表。
+
+    系统是接口配置、SQL 配置、服务端点和数据源的统一归属维度。
+    """
+
     __tablename__ = "df_system"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    sys_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    sys_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    remark: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    sys_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, comment="系统唯一编码。")
+    sys_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="系统名称。")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="配置状态。")
+    remark: Mapped[str | None] = mapped_column(Text, comment="系统备注说明。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近更新时间。")
 
 
 class DataFactoryEnvironmentRow(Base):
+    """环境配置表。
+
+    环境用于区分 dev、test、pre、prod 等运行上下文。
+    """
+
     __tablename__ = "df_environment"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    env_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
-    env_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    remark: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    env_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, comment="环境唯一编码。")
+    env_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="环境名称。")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="配置状态。")
+    remark: Mapped[str | None] = mapped_column(Text, comment="环境备注说明。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近更新时间。")
 
 
 class DataFactoryServiceEndpointRow(Base):
+    """HTTP 服务端点配置表。
+
+    保存某个系统在某个环境下的 HTTP Base URL。HTTP 接口配置运行时通过
+    ``env_code + sys_code`` 解析服务端点。
+    """
+
     __tablename__ = "df_service_endpoint"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    env_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    sys_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    base_url: Mapped[str] = mapped_column(String(1024), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    env_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="环境编码，关联 df_environment.env_code。")
+    sys_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="系统编码，关联 df_system.sys_code。")
+    base_url: Mapped[str] = mapped_column(String(1024), nullable=False, comment="系统在该环境下的 HTTP Base URL。")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="配置状态。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近更新时间。")
 
     __table_args__ = (UniqueConstraint("env_code", "sys_code", name="uq_df_service_endpoint"),)
 
 
 class DataFactoryDatasourceRow(Base):
+    """数据库数据源配置表。
+
+    保存某个系统在某个环境下的数据库连接信息。SQL 配置通过
+    ``sys_code + datasource_code`` 引用数据源，运行时再结合 ``env_code``
+    定位具体连接。
+    """
+
     __tablename__ = "df_datasource"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    env_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    sys_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    datasource_code: Mapped[str] = mapped_column(String(128), nullable=False)
-    datasource_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    db_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    host: Mapped[str] = mapped_column(String(256), nullable=False)
-    port: Mapped[int] = mapped_column(Integer, nullable=False)
-    database_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    username: Mapped[str | None] = mapped_column(String(512))
-    password: Mapped[str | None] = mapped_column(String(512))
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    env_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="环境编码，关联 df_environment.env_code。")
+    sys_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="系统编码，关联 df_system.sys_code。")
+    datasource_code: Mapped[str] = mapped_column(String(128), nullable=False, comment="数据源编码，同一环境和系统下唯一。")
+    datasource_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="数据源名称。")
+    db_type: Mapped[str] = mapped_column(String(64), nullable=False, comment="数据库类型。")
+    host: Mapped[str] = mapped_column(String(256), nullable=False, comment="数据库主机地址。")
+    port: Mapped[int] = mapped_column(Integer, nullable=False, comment="数据库端口。")
+    database_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="数据库名或服务名。")
+    username: Mapped[str | None] = mapped_column(String(512), comment="数据库用户名。")
+    password: Mapped[str | None] = mapped_column(String(512), comment="数据库密码或凭据密文。")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="配置状态。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近更新时间。")
 
     __table_args__ = (UniqueConstraint("env_code", "sys_code", "datasource_code", name="uq_df_datasource"),)
 
 
+class DataFactoryIdentifierReferenceRow(Base):
+    """系统内置标识引用配置表。
+
+    保存平台预置标识的语法说明、参数说明、适用位置和示例。用户不新增标识，
+    只维护启停、说明和展示内容。
+    """
+
+    __tablename__ = "df_identifier_reference"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    ref_code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, comment="标识编码，例如 TIME、MATCHER、TPN。")
+    ref_name: Mapped[str] = mapped_column(String(128), nullable=False, comment="标识名称。")
+    ref_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="标识引用类型。")
+    syntax: Mapped[str] = mapped_column(String(512), nullable=False, comment="标识语法。")
+    description: Mapped[str] = mapped_column(Text, nullable=False, comment="标识用途说明。")
+    usage_scope_json: Mapped[str] = mapped_column(Text, nullable=False, comment="可引用位置 JSON。")
+    parameters_json: Mapped[str] = mapped_column(Text, nullable=False, comment="参数说明 JSON。")
+    examples_json: Mapped[str] = mapped_column(Text, nullable=False, comment="示例 JSON。")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="配置状态。")
+    remark: Mapped[str | None] = mapped_column(Text, comment="备注说明。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近更新时间。")
+
+
 class DataFactoryConfigAuditRow(Base):
+    """配置审计日志表。
+
+    记录基础配置、HTTP 接口配置和 SQL 配置的创建、更新、删除等变更动作。
+    """
+
     __tablename__ = "df_config_audit"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    target_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    target_id: Mapped[str] = mapped_column(String(64), nullable=False)
-    action: Mapped[str] = mapped_column(String(64), nullable=False)
-    operator: Mapped[str | None] = mapped_column(String(128))
-    before_json: Mapped[str | None] = mapped_column(Text)
-    after_json: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    target_type: Mapped[str] = mapped_column(String(64), nullable=False, comment="变更对象类型。")
+    target_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="变更对象主键 ID。")
+    action: Mapped[str] = mapped_column(String(64), nullable=False, comment="变更动作。")
+    operator: Mapped[str | None] = mapped_column(String(128), comment="操作人标识。")
+    before_json: Mapped[str | None] = mapped_column(Text, comment="变更前快照 JSON。")
+    after_json: Mapped[str | None] = mapped_column(Text, comment="变更后快照 JSON。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="审计记录创建时间。")
 
 
 class BaseConfigNotFoundError(LookupError):
-    """Requested base configuration entity does not exist."""
+    """请求的基础配置实体不存在。"""
 
 
 class BaseConfigConflictError(RuntimeError):
-    """Base configuration entity violates a uniqueness constraint."""
+    """基础配置实体违反唯一性约束。"""
 
 
 def _new_id() -> str:
@@ -119,7 +171,7 @@ def _dumps(value: Any) -> str:
 
 
 class BaseConfigRepository:
-    """Repository for systems, environments, service endpoints, and datasources."""
+    """系统、环境、服务端点和数据源的持久化仓储。"""
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory

@@ -1,4 +1,4 @@
-"""SQL source persistence repository."""
+"""SQL 配置持久化仓储。"""
 
 from __future__ import annotations
 
@@ -19,30 +19,43 @@ from deerflow.persistence.base import Base
 
 
 class DataFactorySqlSourceRow(Base):
+    """SQL 配置持久化表。
+
+    该表保存可复用 SQL 定义、参数定义和安全策略。数据源本身不在这里保存连接
+    信息，而是通过 ``sys_code + datasource_code`` 关联基础配置里的数据源。
+    """
+
     __tablename__ = "df_sql_source"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    source_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
-    source_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    sys_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    datasource_code: Mapped[str] = mapped_column(String(128), nullable=False)
-    operation: Mapped[str] = mapped_column(String(32), nullable=False)
-    sql_text: Mapped[str] = mapped_column(Text, nullable=False)
-    parameters_json: Mapped[str] = mapped_column(Text, nullable=False)
-    safety_json: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_by: Mapped[str | None] = mapped_column(String(128))
-    updated_by: Mapped[str | None] = mapped_column(String(128))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 主键与业务编码
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    source_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, comment="SQL 配置唯一编码。")
+    source_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="SQL 配置名称。")
+
+    # 所属系统与数据源引用
+    sys_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="所属系统编码，关联 df_system.sys_code。")
+    datasource_code: Mapped[str] = mapped_column(String(128), nullable=False, comment="数据源编码，关联 df_datasource.datasource_code。")
+
+    # SQL 执行定义
+    operation: Mapped[str] = mapped_column(String(32), nullable=False, comment="SQL 操作类型。")
+    sql_text: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 文本。")
+    parameters_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 参数定义 JSON。")
+    safety_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 执行安全策略 JSON。")
+
+    # 状态与审计字段
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="配置状态。")
+    created_by: Mapped[str | None] = mapped_column(String(128), comment="创建人标识。")
+    updated_by: Mapped[str | None] = mapped_column(String(128), comment="最近更新人标识。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近更新时间。")
 
 
 class SqlSourceNotFoundError(LookupError):
-    """Requested SQL source does not exist."""
+    """请求的 SQL 配置不存在。"""
 
 
 class SqlSourceConflictError(RuntimeError):
-    """SQL source violates a uniqueness constraint."""
+    """SQL 配置违反唯一性约束。"""
 
 
 def _new_id() -> str:
@@ -64,7 +77,7 @@ def _loads(value: str | None, default: Any) -> Any:
 
 
 class SqlSourceRepository:
-    """Repository for reusable SQL source configurations."""
+    """可复用 SQL 配置持久化仓储。"""
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory

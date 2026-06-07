@@ -1,4 +1,4 @@
-"""HTTP source persistence repository."""
+"""HTTP 接口配置持久化仓储。"""
 
 from __future__ import annotations
 
@@ -19,37 +19,53 @@ from deerflow.persistence.base import Base
 
 
 class DataFactoryHttpSourceRow(Base):
+    """HTTP 接口配置持久化表。
+
+    该表保存可复用 HTTP 接口定义本身，不保存环境维度 Base URL。运行时通过
+    ``sys_code`` 找到所属系统，再结合调用入参里的环境编码解析服务端点前缀。
+    JSON 字段用于保存前端可视化配置，避免把复杂请求/响应结构拆成过多子表。
+    """
+
     __tablename__ = "df_http_source"
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    source_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
-    source_name: Mapped[str] = mapped_column(String(256), nullable=False)
-    sys_code: Mapped[str] = mapped_column(String(64), nullable=False)
-    path: Mapped[str] = mapped_column(String(1024), nullable=False)
-    method: Mapped[str] = mapped_column(String(16), nullable=False)
-    request_mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
-    body_schema_json: Mapped[str | None] = mapped_column(Text)
-    response_schema_json: Mapped[str | None] = mapped_column(Text)
-    response_headers_schema_json: Mapped[str | None] = mapped_column(Text)
-    response_cookies_schema_json: Mapped[str | None] = mapped_column(Text)
-    response_handling_json: Mapped[str | None] = mapped_column(Text)
-    error_mapping_json: Mapped[str | None] = mapped_column(Text)
-    output_mapping_json: Mapped[str] = mapped_column(Text, nullable=False)
-    output_meta_json: Mapped[str | None] = mapped_column(Text)
-    retry_policy_json: Mapped[str | None] = mapped_column(Text)
-    status: Mapped[str] = mapped_column(String(32), nullable=False)
-    created_by: Mapped[str | None] = mapped_column(String(128))
-    updated_by: Mapped[str | None] = mapped_column(String(128))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 主键与业务编码
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    source_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, comment="HTTP 接口配置唯一编码。")
+    source_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="HTTP 接口配置名称。")
+
+    # 所属系统与请求地址
+    sys_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="所属系统编码，关联 df_system.sys_code。")
+    path: Mapped[str] = mapped_column(String(1024), nullable=False, comment="接口相对路径，不包含环境 Base URL。")
+    method: Mapped[str] = mapped_column(String(16), nullable=False, comment="HTTP 请求方法。")
+
+    # 请求构造配置
+    request_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="请求映射配置 JSON。")
+    body_schema_json: Mapped[str | None] = mapped_column(Text, comment="请求 Body 字段结构 JSON。")
+
+    # 响应结构与结果提取配置
+    response_schema_json: Mapped[str | None] = mapped_column(Text, comment="响应 Body 字段结构 JSON。")
+    response_headers_schema_json: Mapped[str | None] = mapped_column(Text, comment="响应 Header 字段结构 JSON。")
+    response_cookies_schema_json: Mapped[str | None] = mapped_column(Text, comment="响应 Cookie 字段结构 JSON。")
+    response_handling_json: Mapped[str | None] = mapped_column(Text, comment="响应判定规则 JSON。")
+    error_mapping_json: Mapped[str | None] = mapped_column(Text, comment="错误信息映射规则 JSON。")
+    output_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="输出变量映射 JSON。")
+    output_meta_json: Mapped[str | None] = mapped_column(Text, comment="输出变量展示元信息 JSON。")
+    retry_policy_json: Mapped[str | None] = mapped_column(Text, comment="HTTP 重试策略 JSON。")
+
+    # 状态与审计字段
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="配置状态。")
+    created_by: Mapped[str | None] = mapped_column(String(128), comment="创建人标识。")
+    updated_by: Mapped[str | None] = mapped_column(String(128), comment="最近更新人标识。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="最近更新时间。")
 
 
 class HttpSourceNotFoundError(LookupError):
-    """Requested HTTP source does not exist."""
+    """请求的 HTTP 配置不存在。"""
 
 
 class HttpSourceConflictError(RuntimeError):
-    """HTTP source violates a uniqueness constraint."""
+    """HTTP 配置违反唯一性约束。"""
 
 
 def _new_id() -> str:
@@ -81,7 +97,7 @@ def _model_dump(value: Any) -> Any:
 
 
 class HttpSourceRepository:
-    """Repository for reusable HTTP source configurations."""
+    """可复用 HTTP 配置持久化仓储。"""
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory

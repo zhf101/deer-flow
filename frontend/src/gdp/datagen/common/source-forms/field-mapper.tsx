@@ -1,6 +1,7 @@
 "use client";
 
 import { InfoIcon, PlusIcon, Trash2Icon, VariableIcon } from "lucide-react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,7 @@ import type { SceneDefinition } from "../lib/types";
 import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
 
 import { VariableSelector } from "../editors/variable-selector";
+import { ConfirmDialog } from "../ui/confirm-dialog";
 
 interface FieldMapperProps {
   label: string;
@@ -48,6 +50,7 @@ export function FieldMapper({
 }: FieldMapperProps) {
   const fields = Object.entries(value);
   const hasDesc = descriptions != null && onDescriptionsChange != null;
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
 
   const updateField = (oldKey: string, newKey: string, newValue: any) => {
     const next = { ...value };
@@ -179,7 +182,7 @@ export function FieldMapper({
             <Button
               variant="ghost"
               size="icon-sm"
-              onClick={() => removeField(key)}
+              onClick={() => setPendingDeleteKey(key)}
               className="text-muted-foreground hover:text-destructive"
             >
               <Trash2Icon className="size-4" />
@@ -192,6 +195,14 @@ export function FieldMapper({
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteKey !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteKey(null); }}
+        onConfirm={() => { if (pendingDeleteKey !== null) removeField(pendingDeleteKey); }}
+        title="删除字段"
+        description={`确定删除字段 "${pendingDeleteKey}" 吗？`}
+      />
     </div>
   );
 }

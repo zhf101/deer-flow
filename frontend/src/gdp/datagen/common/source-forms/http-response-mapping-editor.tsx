@@ -59,6 +59,7 @@ import type {
   InputFieldDefinition,
   StepDefinition,
 } from "../lib/types";
+import { ConfirmDialog } from "../ui/confirm-dialog";
 
 /* ── themes ─────────────────────────────────────────────────────── */
 
@@ -76,6 +77,8 @@ interface HttpResponseMappingEditorProps {
   onChange: (updates: Partial<StepDefinition>) => void;
   /** Whether to show the extraction manager (Section 2). Default true. */
   showExtraction?: boolean;
+  /** Disable all data inputs/buttons but keep tab switching functional. */
+  disabled?: boolean;
 }
 
 type ResponseTab = "body" | "headers" | "cookies";
@@ -107,6 +110,7 @@ export function HttpResponseMappingEditor({
   step,
   onChange,
   showExtraction = true,
+  disabled = false,
 }: HttpResponseMappingEditorProps) {
   const { resolvedTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<ResponseTab>("body");
@@ -114,6 +118,7 @@ export function HttpResponseMappingEditor({
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [importFormat, setImportFormat] = useState<ImportFormat>("json");
   const [dialogInput, setDialogInput] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<{ type: "header" | "cookie" | "output" | "failure" | "success"; idx?: number; key?: string } | null>(null);
 
   const schema = useMemo(() => step.responseSchema ?? [], [step.responseSchema]);
   const headersSchema = useMemo(() => step.responseHeadersSchema ?? [], [step.responseHeadersSchema]);
@@ -320,7 +325,7 @@ export function HttpResponseMappingEditor({
           <div className="space-y-2">
             {/* Toolbar: view switcher + format + import */}
             <div className="flex items-center gap-2">
-              {/* View mode switch */}
+              {/* View mode switch - stays interactive in view mode */}
               <div className="flex items-center rounded-md border bg-muted/30 p-0.5">
                 <button
                   type="button"
@@ -349,6 +354,9 @@ export function HttpResponseMappingEditor({
                   预览
                 </button>
               </div>
+
+              {/* Content type selector + import - disabled in view mode */}
+              <div className={cn("flex items-center gap-2", disabled && "pointer-events-none opacity-50")}>
 
               {/* Content type selector */}
               <Select
@@ -396,11 +404,12 @@ export function HttpResponseMappingEditor({
                   贴入报文样例
                 </Button>
               </div>
+              </div>
             </div>
 
             {/* Tree view */}
             {bodyView === "tree" && (
-              <div className="rounded-lg border bg-card overflow-hidden">
+              <div className={cn("rounded-lg border bg-card overflow-hidden", disabled && "pointer-events-none opacity-50")}>
                 <div className="grid grid-cols-[32px_1fr_80px_150px_1fr] gap-2 px-3 py-1.5 bg-muted/30 text-[10px] font-bold text-muted-foreground uppercase border-b">
                   <div className="text-center">提取</div>
                   <div>Key</div>
@@ -467,7 +476,7 @@ export function HttpResponseMappingEditor({
 
         {/* ── HEADERS TAB ── */}
         {activeTab === "headers" && (
-          <div className="space-y-2">
+          <div className={cn("space-y-2", disabled && "pointer-events-none opacity-50")}>
             <div className="flex items-center justify-end gap-1.5">
               <Button
                 variant="outline"
@@ -559,23 +568,7 @@ export function HttpResponseMappingEditor({
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          onClick={() => {
-                            const next = headersSchema.filter((_, i) => i !== idx);
-                            // Clean up any extraction mapping for this header
-                            const nextMapping = { ...outputMapping };
-                            const nextMeta = { ...(step.outputMeta ?? {}) };
-                            Object.entries(nextMapping).forEach(([k, v]) => {
-                              if (v === headerPath) {
-                                delete nextMapping[k];
-                                delete nextMeta[k];
-                              }
-                            });
-                            onChange({
-                              responseHeadersSchema: next,
-                              outputMapping: nextMapping,
-                              outputMeta: nextMeta,
-                            });
-                          }}
+                          onClick={() => setPendingDelete({ type: "header", idx })}
                           className="text-muted-foreground hover:text-destructive h-6 w-6"
                         >
                           <Trash2Icon className="size-3" />
@@ -591,7 +584,7 @@ export function HttpResponseMappingEditor({
 
         {/* ── COOKIES TAB ── */}
         {activeTab === "cookies" && (
-          <div className="space-y-2">
+          <div className={cn("space-y-2", disabled && "pointer-events-none opacity-50")}>
             <div className="flex items-center justify-end">
               <Button
                 variant="ghost"
@@ -719,22 +712,7 @@ export function HttpResponseMappingEditor({
                         <Button
                           variant="ghost"
                           size="icon-sm"
-                          onClick={() => {
-                            const next = cookiesSchema.filter((_, i) => i !== idx);
-                            const nextMapping = { ...outputMapping };
-                            const nextMeta = { ...(step.outputMeta ?? {}) };
-                            Object.entries(nextMapping).forEach(([k, v]) => {
-                              if (v === cookiePath) {
-                                delete nextMapping[k];
-                                delete nextMeta[k];
-                              }
-                            });
-                            onChange({
-                              responseCookiesSchema: next,
-                              outputMapping: nextMapping,
-                              outputMeta: nextMeta,
-                            });
-                          }}
+                          onClick={() => setPendingDelete({ type: "cookie", idx })}
                           className="text-muted-foreground hover:text-destructive h-6 w-6"
                         >
                           <Trash2Icon className="size-3" />
@@ -761,7 +739,7 @@ export function HttpResponseMappingEditor({
         <p className="text-xs text-muted-foreground">
           从 Body / Headers / Cookies 中提取字段，定义下游步骤可引用的变量名。
         </p>
-        <div className="space-y-2">
+        <div className={cn("space-y-2", disabled && "pointer-events-none opacity-50")}>
           <div className="rounded-lg border bg-card overflow-hidden">
             <div className="grid grid-cols-[80px_1fr_1fr_1fr_48px] gap-3 px-3 py-2 bg-muted/40 text-[10px] font-bold text-muted-foreground uppercase border-b">
               <div>来源</div>
@@ -837,13 +815,7 @@ export function HttpResponseMappingEditor({
                         variant="ghost"
                         size="sm"
                         className="h-6 w-6 text-muted-foreground hover:text-destructive"
-                        onClick={() => {
-                          const next = { ...outputMapping };
-                          const nextMeta = { ...(step.outputMeta ?? {}) };
-                          delete next[varName];
-                          delete nextMeta[varName];
-                          onChange({ outputMapping: next, outputMeta: nextMeta });
-                        }}
+                        onClick={() => setPendingDelete({ type: "output", key: varName })}
                       >
                         <Trash2Icon className="size-3" />
                       </Button>
@@ -970,7 +942,7 @@ export function HttpResponseMappingEditor({
         <p className="text-xs text-muted-foreground">
           当 HTTP 状态码为 2xx 时，根据响应报文中的特定字段判定业务是否成功。例如：返回 code === &quot;0000&quot; 表示业务成功，code === &quot;9999&quot; 表示业务失败。
         </p>
-        <div className="space-y-4">
+        <div className={cn("space-y-4", disabled && "pointer-events-none opacity-50")}>
           {/* Failure Rules */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-1">
@@ -1028,10 +1000,7 @@ export function HttpResponseMappingEditor({
                       }}
                     />
                   )}
-                  <Button variant="ghost" size="sm" className="h-6 w-6" onClick={() => {
-                    const next = failureRules.filter((_, i) => i !== idx);
-                    onChange({ responseHandling: { ...responseHandling, businessFailure: { anyOf: next } } });
-                  }}>
+                  <Button variant="ghost" size="sm" className="h-6 w-6" onClick={() => setPendingDelete({ type: "failure", idx })}>
                     <Trash2Icon className="size-3" />
                   </Button>
                 </div>
@@ -1103,10 +1072,7 @@ export function HttpResponseMappingEditor({
                       }}
                     />
                   )}
-                  <Button variant="ghost" size="sm" className="h-6 w-6" onClick={() => {
-                    const next = successRules.filter((_, i) => i !== idx);
-                    onChange({ responseHandling: { ...responseHandling, businessSuccess: { allOf: next } } });
-                  }}>
+                  <Button variant="ghost" size="sm" className="h-6 w-6" onClick={() => setPendingDelete({ type: "success", idx })}>
                     <Trash2Icon className="size-3" />
                   </Button>
                 </div>
@@ -1134,7 +1100,7 @@ export function HttpResponseMappingEditor({
         <p className="text-xs text-muted-foreground">
           当请求未返回预期结果时（如 HTTP 状态码为 404、403、502 或网络不可达），定义异常处理方式和自动重试策略。
         </p>
-        <div className="space-y-4">
+        <div className={cn("space-y-4", disabled && "pointer-events-none opacity-50")}>
           {/* Error Mapping */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 px-1">
@@ -1333,6 +1299,55 @@ export function HttpResponseMappingEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => { if (!open) setPendingDelete(null); }}
+        onConfirm={() => {
+          if (!pendingDelete) return;
+          const { type, idx, key } = pendingDelete;
+          if (type === "header" && idx != null) {
+            const headerPath = `headers.${headersSchema[idx]?.name ?? idx}`;
+            const next = headersSchema.filter((_, i) => i !== idx);
+            const nextMapping = { ...outputMapping };
+            const nextMeta = { ...(step.outputMeta ?? {}) };
+            Object.entries(nextMapping).forEach(([k, v]) => {
+              if (v === headerPath) { delete nextMapping[k]; delete nextMeta[k]; }
+            });
+            onChange({ responseHeadersSchema: next, outputMapping: nextMapping, outputMeta: nextMeta });
+          } else if (type === "cookie" && idx != null) {
+            const cookiePath = `cookies.${cookiesSchema[idx]?.name ?? idx}`;
+            const next = cookiesSchema.filter((_, i) => i !== idx);
+            const nextMapping = { ...outputMapping };
+            const nextMeta = { ...(step.outputMeta ?? {}) };
+            Object.entries(nextMapping).forEach(([k, v]) => {
+              if (v === cookiePath) { delete nextMapping[k]; delete nextMeta[k]; }
+            });
+            onChange({ responseCookiesSchema: next, outputMapping: nextMapping, outputMeta: nextMeta });
+          } else if (type === "output" && key != null) {
+            const next = { ...outputMapping };
+            const nextMeta = { ...(step.outputMeta ?? {}) };
+            delete next[key]; delete nextMeta[key];
+            onChange({ outputMapping: next, outputMeta: nextMeta });
+          } else if (type === "failure" && idx != null) {
+            const next = failureRules.filter((_, i) => i !== idx);
+            onChange({ responseHandling: { ...responseHandling, businessFailure: { anyOf: next } } });
+          } else if (type === "success" && idx != null) {
+            const next = successRules.filter((_, i) => i !== idx);
+            onChange({ responseHandling: { ...responseHandling, businessSuccess: { allOf: next } } });
+          }
+        }}
+        title={
+          pendingDelete?.type === "output" ? "删除提取项" :
+          pendingDelete?.type === "header" || pendingDelete?.type === "cookie" ? "删除提取项" :
+          "删除规则"
+        }
+        description={
+          pendingDelete?.type === "failure" || pendingDelete?.type === "success"
+            ? "确定删除该业务规则吗？"
+            : "确定删除该提取项吗？"
+        }
+      />
     </div>
   );
 }

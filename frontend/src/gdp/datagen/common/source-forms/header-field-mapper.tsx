@@ -22,6 +22,7 @@ import type { SceneDefinition } from "../lib/types";
 import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
 
 import { VariableSelector } from "../editors/variable-selector";
+import { ConfirmDialog } from "../ui/confirm-dialog";
 
 /* ── common HTTP headers for autocomplete ──────────────────────── */
 const COMMON_HEADERS = [
@@ -197,6 +198,7 @@ function HeaderRow({
 }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [filter, setFilter] = useState("");
+  const [confirmPending, setConfirmPending] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const suggestions = useMemo(() => {
@@ -312,11 +314,19 @@ function HeaderRow({
       <Button
         variant="ghost"
         size="icon-sm"
-        onClick={onRemove}
+        onClick={() => setConfirmPending(true)}
         className="text-muted-foreground hover:text-destructive"
       >
         <Trash2Icon className="size-4" />
       </Button>
+
+      <ConfirmDialog
+        open={confirmPending}
+        onOpenChange={setConfirmPending}
+        onConfirm={onRemove}
+        title="删除请求头"
+        description={`确定删除请求头 "${k}" 吗？`}
+      />
     </div>
   );
 }

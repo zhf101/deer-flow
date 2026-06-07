@@ -8,6 +8,7 @@ import {
 import { DatasourcesTab } from "./datasources-tab";
 import { ServiceEndpointsTab } from "./endpoints-tab";
 import { EnvironmentsTab } from "./environments-tab";
+import { IdentifierReferencesTab } from "./identifier-references-tab";
 import { SystemsTab } from "./systems-tab";
 
 export function ConfigManagement() {
@@ -17,7 +18,7 @@ export function ConfigManagement() {
       <div className="mb-6">
         <h1 className="text-2xl font-bold tracking-tight">配置管理</h1>
         <p className="text-muted-foreground mt-1 text-sm">
-          管理环境、系统、服务端点和数据源配置
+          管理环境、系统、服务端点、数据源和标识引用配置
         </p>
       </div>
 
@@ -27,6 +28,7 @@ export function ConfigManagement() {
           <TabsTrigger value="systems">系统</TabsTrigger>
           <TabsTrigger value="endpoints">服务端点</TabsTrigger>
           <TabsTrigger value="datasources">数据源</TabsTrigger>
+          <TabsTrigger value="identifier-references">标识引用</TabsTrigger>
         </TabsList>
 
         <TabsContent value="environments">
@@ -40,6 +42,9 @@ export function ConfigManagement() {
         </TabsContent>
         <TabsContent value="datasources">
           <DatasourcesTab />
+        </TabsContent>
+        <TabsContent value="identifier-references">
+          <IdentifierReferencesTab />
         </TabsContent>
       </Tabs>
     </div>

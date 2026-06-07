@@ -33,6 +33,7 @@ import type {
   SysResponse,
 } from "../lib/types";
 import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
+import { ConfirmDialog } from "../ui/confirm-dialog";
 
 
 interface SqlStepFormProps {
@@ -43,10 +44,11 @@ interface SqlStepFormProps {
 }
 
 export function SqlStepForm({ scene, step, sqlTemplates, onChange }: SqlStepFormProps) {
-  const [useTemplate, setUseTemplate] = useState(!step.datasource && !!step.sqlTemplateCode);
+  const [useTemplate, setUseTemplate] = useState(!step.datasourceCode && !!step.sqlTemplateCode);
   const [rawSql, setRawSql] = useState("");
   const [datasources, setDatasources] = useState<DatasourceResponse[]>([]);
   const [systems, setSystems] = useState<SysResponse[]>([]);
+  const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
 
   const loadDatasources = useCallback(async () => {
     try {
@@ -66,17 +68,34 @@ export function SqlStepForm({ scene, step, sqlTemplates, onChange }: SqlStepForm
   }, [loadDatasources]);
 
   const datasourceOptions = useMemo(() => {
-    const seen = new Map<string, string>();
+    const selectedSysCode = step.sysCode ?? "";
+    const seen = new Map<string, { code: string; name: string; envCodes: string[] }>();
     for (const ds of datasources) {
-      if (!seen.has(ds.datasourceCode)) {
-        const sysName =
-          systems.find((sys) => sys.sysCode === ds.sysCode)?.sysName ??
-          ds.sysCode;
-        seen.set(
-          ds.datasourceCode,
-          `${ds.datasourceName} - ${sysName} (${ds.sysCode})`,
-        );
+      if (ds.sysCode !== selectedSysCode) continue;
+      const current = seen.get(ds.datasourceCode);
+      if (current) {
+        current.envCodes.push(ds.envCode);
+      } else {
+        seen.set(ds.datasourceCode, {
+          code: ds.datasourceCode,
+          name: ds.datasourceName,
+          envCodes: [ds.envCode],
+        });
       }
+    }
+    return Array.from(seen.values()).map((ds) => ({
+      ...ds,
+      envCodes: Array.from(new Set(ds.envCodes)).sort(),
+    }));
+  }, [datasources, step.sysCode]);
+
+  const systemOptions = useMemo(() => {
+    const seen = new Map<string, string>();
+    for (const sys of systems) {
+      seen.set(sys.sysCode, sys.sysName);
+    }
+    for (const ds of datasources) {
+      if (!seen.has(ds.sysCode)) seen.set(ds.sysCode, ds.sysCode);
     }
     return Array.from(seen.entries()).map(([code, name]) => ({ code, name }));
   }, [datasources, systems]);
@@ -159,29 +178,57 @@ export function SqlStepForm({ scene, step, sqlTemplates, onChange }: SqlStepForm
         </div>
 
         <div className="space-y-4">
-            <div className="space-y-2">
-                <span className="text-xs font-medium text-muted-foreground">数据源 (Datasource)</span>
-                <Select
-                    value={step.datasource ?? "__none__"}
-                    onValueChange={(value) =>
-                        onChange({
-                            ...step,
-                            datasource: value === "__none__" ? "" : value,
-                        })
-                    }
-                >
-                    <SelectTrigger className="h-8 text-xs">
-                        <SelectValue placeholder="选择数据源" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="__none__" className="text-xs">未选择</SelectItem>
-                        {datasourceOptions.map((ds) => (
-                            <SelectItem key={ds.code} value={ds.code} className="text-xs">
-                                {ds.name} ({ds.code})
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
+            <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-2">
+                    <span className="text-xs font-medium text-muted-foreground">所属系统</span>
+                    <Select
+                        value={step.sysCode ?? "__none__"}
+                        onValueChange={(value) =>
+                            onChange({
+                                ...step,
+                                sysCode: value === "__none__" ? "" : value,
+                                datasourceCode: "",
+                            })
+                        }
+                    >
+                        <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder="选择系统" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="__none__" className="text-xs">未选择系统</SelectItem>
+                            {systemOptions.map((sys) => (
+                                <SelectItem key={sys.code} value={sys.code} className="text-xs">
+                                    {sys.name} ({sys.code})
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <span className="text-xs font-medium text-muted-foreground">数据源</span>
+                    <Select
+                        value={step.datasourceCode ?? "__none__"}
+                        onValueChange={(value) =>
+                            onChange({
+                                ...step,
+                                datasourceCode: value === "__none__" ? "" : value,
+                            })
+                        }
+                    >
+                        <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder={step.sysCode ? "选择数据源" : "先选择系统"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="__none__" className="text-xs">未选择数据源</SelectItem>
+                            {datasourceOptions.map((ds) => (
+                                <SelectItem key={ds.code} value={ds.code} className="text-xs">
+                                    {ds.name} ({ds.code}) - {ds.envCodes.join(", ")}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
             </div>
 
             {useTemplate ? (
@@ -397,13 +444,7 @@ export function SqlStepForm({ scene, step, sqlTemplates, onChange }: SqlStepForm
                                     variant="ghost"
                                     size="sm"
                                     className="h-6 w-6 text-muted-foreground"
-                                    onClick={() => {
-                                        const next = { ...step.outputMapping };
-                                        const nextMeta = { ...(step.outputMeta ?? {}) };
-                                        delete next[varName];
-                                        delete nextMeta[varName];
-                                        onChange({ ...step, outputMapping: next, outputMeta: nextMeta });
-                                    }}
+                                    onClick={() => setPendingDeleteKey(varName)}
                                 >
                                     <Trash2Icon className="size-3" />
                                 </Button>
@@ -427,6 +468,21 @@ export function SqlStepForm({ scene, step, sqlTemplates, onChange }: SqlStepForm
              </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteKey !== null}
+        onOpenChange={(open) => { if (!open) setPendingDeleteKey(null); }}
+        onConfirm={() => {
+          if (!pendingDeleteKey) return;
+          const next = { ...step.outputMapping };
+          const nextMeta = { ...(step.outputMeta ?? {}) };
+          delete next[pendingDeleteKey];
+          delete nextMeta[pendingDeleteKey];
+          onChange({ ...step, outputMapping: next, outputMeta: nextMeta });
+        }}
+        title="删除提取项"
+        description={`确定删除提取项 "${pendingDeleteKey}" 吗？`}
+      />
     </div>
   );
 }
