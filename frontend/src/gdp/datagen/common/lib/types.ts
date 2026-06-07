@@ -351,6 +351,29 @@ export interface HttpSourceResponse extends HttpSourceConfig {
   updatedAt: string;
 }
 
+export interface ParsedCookie {
+  name: string;
+  value: string;
+  domain?: string | null;
+  path?: string | null;
+  expires?: string | null;
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite?: string | null;
+  raw: string;
+}
+
+export interface BusinessResult {
+  isSuccess: boolean;
+  reason: string;
+  matchedRules: string[];
+}
+
+export interface RetryInfo {
+  attempts: number;
+  lastError?: string | null;
+}
+
 export interface HttpSourceTestRequestInfo {
   url: string;
   method: string;
@@ -364,6 +387,7 @@ export interface HttpSourceTestResponseInfo {
   statusCode?: number | null;
   headers: Record<string, string>;
   body?: unknown;
+  cookies: ParsedCookie[];
   elapsedMs?: number | null;
 }
 
@@ -377,6 +401,9 @@ export interface HttpSourceTestResult {
   success: boolean;
   request: HttpSourceTestRequestInfo;
   response?: HttpSourceTestResponseInfo | null;
+  businessResult?: BusinessResult | null;
+  extractedOutputs: Record<string, unknown>;
+  retryInfo?: RetryInfo | null;
   error?: HttpSourceTestErrorInfo | null;
 }
 
@@ -429,6 +456,10 @@ export interface SqlSourceConfig {
   datasourceCode: string;
   operation: SqlOperation;
   sqlText: string;
+  normalizedSql: string;
+  tables: SqlSourceTableMeta[];
+  resultFields: SqlSourceFieldMeta[];
+  conditionFields: SqlSourceConditionMeta[];
   parameters: SqlSourceParameter[];
   safety: SqlTemplateSafety;
   status: ConfigStatus;

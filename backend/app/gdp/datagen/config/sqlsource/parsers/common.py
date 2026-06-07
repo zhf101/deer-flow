@@ -27,11 +27,24 @@ def parameter_names(sql_text: str) -> set[str]:
     支持 ``#{name}``、``${name}``、``:name`` 三种格式。
     """
 
-    names: set[str] = set()
+    return set(ordered_parameter_names(sql_text))
+
+
+def ordered_parameter_names(sql_text: str) -> list[str]:
+    """按 SQL 出现顺序提取参数名，并去除重复参数。"""
+
+    matches: list[tuple[int, str]] = []
     for match in PLACEHOLDER_RE.finditer(sql_text):
-        names.add(match.group(2).split(".")[-1])
+        matches.append((match.start(), match.group(2).split(".")[-1]))
     for match in NAMED_PARAM_RE.finditer(sql_text):
-        names.add(match.group(2))
+        matches.append((match.start(2), match.group(2)))
+
+    names: list[str] = []
+    seen: set[str] = set()
+    for _, name in sorted(matches, key=lambda item: item[0]):
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
     return names
 
 
@@ -67,3 +80,21 @@ def replace_parameters_with_question_marks(sql_text: str) -> str:
 
     sql_text = PLACEHOLDER_RE.sub("?", sql_text)
     return NAMED_PARAM_RE.sub(lambda match: f"{match.group(1)}?", sql_text)
+
+
+def replace_parameters_with_named(sql_text: str, aliases: dict[str, str] | None = None) -> str:
+    """将 MyBatis 占位符统一替换为 ``:name`` 命名参数。
+
+    该函数只负责输出可保存、可读、可绑定的 SQL 模板，不做 SQL 结构解析。
+    ``aliases`` 用于把 foreach 中的局部变量映射回真实集合参数名。
+    """
+
+    alias_map = aliases or {}
+
+    def replace_placeholder(match: re.Match[str]) -> str:
+        raw_name = match.group(2).strip()
+        root_name = raw_name.split(".", 1)[0]
+        param_name = alias_map.get(root_name) or raw_name.split(".")[-1]
+        return f":{param_name}"
+
+    return PLACEHOLDER_RE.sub(replace_placeholder, sql_text)

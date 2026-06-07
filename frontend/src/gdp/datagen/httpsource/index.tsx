@@ -63,6 +63,7 @@ import type {
   HttpSourceConfig,
   HttpSourceResponse,
   HttpSourceTestResult,
+  ParsedCookie,
   StepDefinition,
   SysResponse,
 } from "../common/lib/types";
@@ -873,12 +874,33 @@ function HttpSourceTestDialog({
   result: HttpSourceTestResult | null;
   onOpenChange: (open: boolean) => void;
 }) {
+  const [testTab, setTestTab] = useState("body");
+
+  if (!result) return null;
+
+  const statusCode = result.response?.statusCode;
+  const statusColor =
+    statusCode == null
+      ? "secondary"
+      : statusCode < 300
+        ? "default"
+        : statusCode < 400
+          ? "secondary"
+          : "destructive";
+
+  const bodyText = formatPreview(result.response?.body ?? null);
+  const bodySize = new Blob([bodyText]).size;
+  const sizeLabel =
+    bodySize > 1024
+      ? `${(bodySize / 1024).toFixed(1)} KB`
+      : `${bodySize} B`;
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl">
+      <DialogContent className="max-w-5xl max-h-[90vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base">
-            {result?.success ? (
+            {result.success ? (
               <CheckCircleIcon className="size-4 text-emerald-600" />
             ) : (
               <AlertTriangleIcon className="size-4 text-destructive" />
@@ -890,14 +912,150 @@ function HttpSourceTestDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <ScrollArea className="max-h-[72vh] pr-3">
-          {result ? (
-            <div className="space-y-4">
-              <section className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{result.request.method}</Badge>
-                  <span className="break-all font-mono text-xs">{result.request.url}</span>
-                </div>
+        {/* 请求摘要栏 */}
+        <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-3 py-2">
+          <Badge variant="outline" className="text-xs font-bold">
+            {result.request.method}
+          </Badge>
+          <span className="break-all font-mono text-[11px] text-muted-foreground flex-1">
+            {result.request.url}
+          </span>
+          {statusCode != null && (
+            <Badge variant={statusColor} className="text-xs">
+              {statusCode}
+            </Badge>
+          )}
+          {result.response?.elapsedMs != null && (
+            <span className="text-[11px] text-muted-foreground">
+              {result.response.elapsedMs} ms
+            </span>
+          )}
+          {result.response?.body != null && (
+            <span className="text-[11px] text-muted-foreground">{sizeLabel}</span>
+          )}
+        </div>
+
+        {/* 业务结果横幅 */}
+        {result.businessResult && (
+          <div
+            className={`rounded-md border px-3 py-2 text-xs ${
+              result.businessResult.isSuccess
+                ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "border-red-300 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+            }`}
+          >
+            <div className="font-semibold">
+              {result.businessResult.isSuccess ? "业务成功" : "业务失败"}
+            </div>
+            <div className="mt-0.5 text-[11px] opacity-80">{result.businessResult.reason}</div>
+          </div>
+        )}
+        {!result.businessResult && result.success && (
+          <div className="rounded-md border border-muted bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
+            未配置业务判定规则，仅检查 HTTP 请求是否成功
+          </div>
+        )}
+
+        {/* 重试信息 */}
+        {result.retryInfo && result.retryInfo.attempts > 1 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            共执行 {result.retryInfo.attempts} 次
+            {result.retryInfo.lastError && `，最后错误: ${result.retryInfo.lastError}`}
+          </div>
+        )}
+
+        {/* Tab 页 */}
+        <ScrollArea className="flex-1 pr-3">
+          <Tabs value={testTab} onValueChange={setTestTab} className="space-y-3">
+            <TabsList variant="line" className="w-full border-b border-border/40">
+              <TabsTrigger value="body" className="text-xs">
+                Body
+              </TabsTrigger>
+              <TabsTrigger value="headers" className="text-xs">
+                Headers
+                {result.response && Object.keys(result.response.headers).length > 0 && (
+                  <span className="ml-1 rounded-full bg-muted px-1.5 text-[9px] font-bold">
+                    {Object.keys(result.response.headers).length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="cookies" className="text-xs">
+                Cookies
+                {result.response && result.response.cookies.length > 0 && (
+                  <span className="ml-1 rounded-full bg-muted px-1.5 text-[9px] font-bold">
+                    {result.response.cookies.length}
+                  </span>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="request" className="text-xs">
+                请求详情
+              </TabsTrigger>
+              {(result.extractedOutputs && Object.keys(result.extractedOutputs).length > 0) && (
+                <TabsTrigger value="outputs" className="text-xs">
+                  输出变量
+                  <span className="ml-1 rounded-full bg-blue-100 px-1.5 text-[9px] font-bold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
+                    {Object.keys(result.extractedOutputs).length}
+                  </span>
+                </TabsTrigger>
+              )}
+              {result.error && (
+                <TabsTrigger value="error" className="text-xs text-destructive">
+                  异常
+                </TabsTrigger>
+              )}
+            </TabsList>
+
+            {/* ── Body Tab ── */}
+            <TabsContent value="body">
+              <pre className="max-h-[50vh] overflow-auto rounded-md border bg-muted/40 p-3 text-[11px] leading-relaxed">
+                {bodyText}
+              </pre>
+            </TabsContent>
+
+            {/* ── Headers Tab ── */}
+            <TabsContent value="headers">
+              <div className="rounded-md border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/40">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground w-[35%]">
+                        Name
+                      </th>
+                      <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                        Value
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {result.response && Object.keys(result.response.headers).length > 0 ? (
+                      Object.entries(result.response.headers).map(([key, val]) => (
+                        <tr key={key} className="border-t">
+                          <td className="px-3 py-1.5 font-mono text-[11px] font-medium">{key}</td>
+                          <td className="px-3 py-1.5 font-mono text-[11px] text-muted-foreground break-all">
+                            {val}
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={2} className="px-3 py-6 text-center text-muted-foreground">
+                          无响应头
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </TabsContent>
+
+            {/* ── Cookies Tab ── */}
+            <TabsContent value="cookies">
+              <CookieTable cookies={result.response?.cookies ?? []} />
+            </TabsContent>
+
+            {/* ── Request Details Tab ── */}
+            <TabsContent value="request">
+              <div className="space-y-3">
                 <div className="grid gap-3 md:grid-cols-2">
                   <PreviewBlock title="请求 Headers" value={result.request.headers} />
                   <PreviewBlock title="请求 Params" value={result.request.query} />
@@ -906,30 +1064,72 @@ function HttpSourceTestDialog({
                   title={`请求报文 (${result.request.bodyType})`}
                   value={result.request.body ?? null}
                 />
-              </section>
+              </div>
+            </TabsContent>
 
-              <section className="space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold">响应报文</span>
-                  {result.response?.statusCode != null && (
-                    <Badge variant={result.success ? "default" : "secondary"}>
-                      HTTP {result.response.statusCode}
-                    </Badge>
-                  )}
-                  {result.response?.elapsedMs != null && (
-                    <span className="text-xs text-muted-foreground">
-                      {result.response.elapsedMs} ms
+            {/* ── Output Variables Tab ── */}
+            {result.extractedOutputs && Object.keys(result.extractedOutputs).length > 0 && (
+              <TabsContent value="outputs">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      输出变量 (outputMapping)
                     </span>
-                  )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 text-[11px]"
+                      onClick={() => {
+                        navigator.clipboard.writeText(
+                          JSON.stringify(result.extractedOutputs, null, 2)
+                        );
+                        toast.success("已复制到剪贴板");
+                      }}
+                    >
+                      <CopyIcon className="mr-1 size-3" />
+                      复制全部
+                    </Button>
+                  </div>
+                  <div className="rounded-md border">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/40">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground w-[30%]">
+                            变量名
+                          </th>
+                          <th className="px-3 py-2 text-left font-medium text-muted-foreground">
+                            值
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {Object.entries(result.extractedOutputs).map(([name, value]) => (
+                          <tr key={name} className="border-t">
+                            <td className="px-3 py-1.5 font-mono text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                              {name}
+                            </td>
+                            <td className="px-3 py-1.5 font-mono text-[11px] text-muted-foreground break-all">
+                              {value === null ? (
+                                <span className="italic text-muted-foreground/60">未提取到</span>
+                              ) : typeof value === "object" ? (
+                                JSON.stringify(value)
+                              ) : (
+                                String(value)
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <PreviewBlock title="响应 Headers" value={result.response?.headers ?? {}} />
-                  <PreviewBlock title="响应 Body" value={result.response?.body ?? null} />
-                </div>
-              </section>
+              </TabsContent>
+            )}
 
-              {result.error && (
-                <section className="space-y-2">
+            {/* ── Error Tab ── */}
+            {result.error && (
+              <TabsContent value="error">
+                <div className="space-y-2">
                   <div className="flex items-center gap-2 text-destructive">
                     <AlertTriangleIcon className="size-4" />
                     <span className="text-sm font-semibold">
@@ -937,17 +1137,74 @@ function HttpSourceTestDialog({
                     </span>
                   </div>
                   <PreviewBlock title="异常详情" value={result.error.detail || result.error} />
-                </section>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">暂无测试结果</p>
-          )}
+                </div>
+              </TabsContent>
+            )}
+          </Tabs>
         </ScrollArea>
       </DialogContent>
     </Dialog>
   );
 }
+
+/* ── Cookie Table ── */
+
+function CookieTable({ cookies }: { cookies: ParsedCookie[] }) {
+  if (cookies.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed p-8 text-center text-xs text-muted-foreground">
+        响应中无 Cookie
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-md border overflow-x-auto">
+      <table className="w-full text-xs whitespace-nowrap">
+        <thead className="bg-muted/40">
+          <tr>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Name</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Value</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Domain</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Path</th>
+            <th className="px-3 py-2 text-left font-medium text-muted-foreground">Expires</th>
+            <th className="px-3 py-2 text-center font-medium text-muted-foreground">HttpOnly</th>
+            <th className="px-3 py-2 text-center font-medium text-muted-foreground">Secure</th>
+          </tr>
+        </thead>
+        <tbody>
+          {cookies.map((cookie, idx) => (
+            <tr key={`${cookie.name}-${idx}`} className="border-t">
+              <td className="px-3 py-1.5 font-mono text-[11px] font-medium">{cookie.name}</td>
+              <td className="px-3 py-1.5 font-mono text-[11px] text-muted-foreground max-w-[200px] truncate">
+                {cookie.value}
+              </td>
+              <td className="px-3 py-1.5 text-[11px] text-muted-foreground">{cookie.domain || "-"}</td>
+              <td className="px-3 py-1.5 text-[11px] text-muted-foreground">{cookie.path || "/"}</td>
+              <td className="px-3 py-1.5 text-[11px] text-muted-foreground">{cookie.expires || "-"}</td>
+              <td className="px-3 py-1.5 text-center text-[11px]">
+                {cookie.httpOnly ? (
+                  <Badge variant="outline" className="text-[9px] px-1">Yes</Badge>
+                ) : (
+                  <span className="text-muted-foreground/50">-</span>
+                )}
+              </td>
+              <td className="px-3 py-1.5 text-center text-[11px]">
+                {cookie.secure ? (
+                  <Badge variant="outline" className="text-[9px] px-1">Yes</Badge>
+                ) : (
+                  <span className="text-muted-foreground/50">-</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/* ── Preview helpers ── */
 
 function PreviewBlock({ title, value }: { title: string; value: unknown }) {
   return (

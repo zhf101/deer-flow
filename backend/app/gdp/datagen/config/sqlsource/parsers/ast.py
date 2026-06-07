@@ -13,8 +13,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
-
 
 # ── 基类 ────────────────────────────────────────────────────────────────
 
@@ -146,7 +144,10 @@ class RenderResult:
         sql: 渲染后的 SQL 文本（可能仍包含 ``#{}`` 占位符）。
         referenced_params: 渲染后 SQL 中引用到的参数名集合，
             用于判断哪些参数实际被使用。
+        parameter_aliases: 动态 SQL 局部变量到真实参数名的映射，例如 foreach
+            中的 item → ids。
     """
 
     sql: str
     referenced_params: frozenset[str] = frozenset()
+    parameter_aliases: dict[str, str] = field(default_factory=dict)

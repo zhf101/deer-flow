@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
 from typing import Any
 
 from app.gdp.datagen.config.sqlsource.parsers.ast import (
@@ -22,6 +21,7 @@ from app.gdp.datagen.config.sqlsource.parsers.ast import (
     IfNode,
     MapperNode,
     MyBatisNode,
+    OtherwiseNode,
     RenderResult,
     SetNode,
     StatementNode,
@@ -29,7 +29,6 @@ from app.gdp.datagen.config.sqlsource.parsers.ast import (
     TrimNode,
     WhenNode,
     WhereNode,
-    OtherwiseNode,
 )
 from app.gdp.datagen.config.sqlsource.parsers.ognl import evaluate_ognl
 
@@ -57,7 +56,7 @@ def render(
     ctx = _RenderContext(values=values or {}, local_to_collection={}, all_branches=all_branches)
     sql = _render_node(node, ctx)
     params = _collect_referenced_params(sql, ctx)
-    return RenderResult(sql=sql.strip(), referenced_params=frozenset(params))
+    return RenderResult(sql=sql.strip(), referenced_params=frozenset(params), parameter_aliases=dict(ctx._foreach_mappings))
 
 
 # ── 渲染上下文 ──────────────────────────────────────────────────────────
@@ -125,7 +124,8 @@ def _render_node(node: MyBatisNode, ctx: _RenderContext) -> str:
 
 
 def _render_children(children: list[MyBatisNode], ctx: _RenderContext) -> str:
-    return "".join(_render_node(child, ctx) for child in children)
+    parts = [_render_node(child, ctx).strip() for child in children]
+    return " ".join(part for part in parts if part)
 
 
 # ── 动态标签渲染器 ───────────────────────────────────────────────────────

@@ -15,7 +15,8 @@ from app.gdp.datagen.config.sqlsource.parsers.common import (
     detect_operation,
     merge_parameters,
     normalize_sql,
-    parameter_names,
+    ordered_parameter_names,
+    replace_parameters_with_named,
     replace_parameters_with_question_marks,
 )
 
@@ -27,9 +28,12 @@ class PlainSqlAnalysisProvider(SqlAnalysisProvider):
         return True
 
     def parse(self, context: SqlParseContext) -> SqlSourceParseResponse:
-        normalized_sql = normalize_sql(context.sql_text)
+        normalized_sql = normalize_sql(replace_parameters_with_named(context.sql_text))
         executable_sql = normalize_sql(replace_parameters_with_question_marks(context.sql_text))
-        params = merge_parameters(parameter_names(context.sql_text), context.parameters)
+        names = ordered_parameter_names(normalized_sql)
+        if not names and "?" in executable_sql:
+            names = [param.name for param in context.parameters]
+        params = merge_parameters(names, context.parameters)
 
         tables: list[SqlSourceTableMeta] = []
         result_fields: list[SqlSourceFieldMeta] = []
@@ -38,7 +42,7 @@ class PlainSqlAnalysisProvider(SqlAnalysisProvider):
             expression = parse_one(executable_sql)
             tables = _extract_tables(expression)
             result_fields = _extract_result_fields(expression)
-            condition_fields = _extract_condition_fields(expression, list(parameter_names(context.sql_text)))
+            condition_fields = _extract_condition_fields(expression, names)
         except Exception:
             pass
 

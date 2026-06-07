@@ -63,6 +63,8 @@ def _eval_node(node: ast.AST, values: dict[str, Any]) -> Any:
             left = right
         return True
     if isinstance(node, ast.Name):
+        if node.id not in values:
+            raise ValueError(f"OGNL 变量未提供: {node.id}")
         return values.get(node.id)
     if isinstance(node, ast.Attribute):
         owner = _eval_node(node.value, values)

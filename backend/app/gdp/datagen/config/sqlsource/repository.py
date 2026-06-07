@@ -39,6 +39,10 @@ class DataFactorySqlSourceRow(Base):
     # SQL 执行定义
     operation: Mapped[str] = mapped_column(String(32), nullable=False, comment="SQL 操作类型。")
     sql_text: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 文本。")
+    normalized_sql: Mapped[str] = mapped_column(Text, nullable=False, comment="解析后的规范 SQL，保留命名参数占位符。")
+    tables_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 操作表元数据 JSON。")
+    result_fields_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 查询结果字段元数据 JSON。")
+    condition_fields_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 条件字段元数据 JSON。")
     parameters_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 参数定义 JSON。")
     safety_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 执行安全策略 JSON。")
 
@@ -116,6 +120,10 @@ class SqlSourceRepository:
                     datasource_code=config.datasourceCode,
                     operation=config.operation.value,
                     sql_text=config.sqlText,
+                    normalized_sql=config.normalizedSql or config.sqlText,
+                    tables_json=_dumps([item.model_dump(mode="json") for item in config.tables]),
+                    result_fields_json=_dumps([item.model_dump(mode="json") for item in config.resultFields]),
+                    condition_fields_json=_dumps([item.model_dump(mode="json") for item in config.conditionFields]),
                     parameters_json=_dumps([p.model_dump(mode="json") for p in config.parameters]),
                     safety_json=_dumps(config.safety.model_dump(mode="json")),
                     status=config.status.value,
@@ -132,6 +140,10 @@ class SqlSourceRepository:
                 row.datasource_code = config.datasourceCode
                 row.operation = config.operation.value
                 row.sql_text = config.sqlText
+                row.normalized_sql = config.normalizedSql or config.sqlText
+                row.tables_json = _dumps([item.model_dump(mode="json") for item in config.tables])
+                row.result_fields_json = _dumps([item.model_dump(mode="json") for item in config.resultFields])
+                row.condition_fields_json = _dumps([item.model_dump(mode="json") for item in config.conditionFields])
                 row.parameters_json = _dumps([p.model_dump(mode="json") for p in config.parameters])
                 row.safety_json = _dumps(config.safety.model_dump(mode="json"))
                 row.status = config.status.value
@@ -203,6 +215,10 @@ class SqlSourceRepository:
             datasourceCode=row.datasource_code,
             operation=row.operation,
             sqlText=row.sql_text,
+            normalizedSql=row.normalized_sql,
+            tables=_loads(row.tables_json, []),
+            resultFields=_loads(row.result_fields_json, []),
+            conditionFields=_loads(row.condition_fields_json, []),
             parameters=_loads(row.parameters_json, []),
             safety=_loads(row.safety_json, {}),
             status=row.status,

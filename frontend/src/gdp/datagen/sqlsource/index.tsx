@@ -621,7 +621,10 @@ function SqlSourceEditor({
       onChange({
         ...config,
         operation: next.operation,
-        sqlText: next.normalizedSql || config.sqlText,
+        normalizedSql: next.normalizedSql,
+        tables: next.tables,
+        resultFields: next.resultFields,
+        conditionFields: next.conditionFields,
         parameters: next.parameters,
       });
       toast.success("SQL 已解析");
@@ -633,7 +636,17 @@ function SqlSourceEditor({
   };
 
   const updateAnalysis = (updates: Partial<SqlAnalysis>) => {
-    setAnalysis((current) => ({ ...current, ...updates }));
+    const next = { ...analysis, ...updates };
+    setAnalysis(next);
+    onChange({
+      ...config,
+      normalizedSql: next.normalizedSql,
+      operation: next.operation,
+      tables: next.tables,
+      resultFields: next.resultFields,
+      conditionFields: next.conditionFields,
+      parameters: next.parameters,
+    });
   };
 
   const updateParameter = (
@@ -645,7 +658,6 @@ function SqlSourceEditor({
     if (!current) return;
     next[index] = { ...current, ...updates };
     updateAnalysis({ parameters: next });
-    onChange({ ...config, parameters: next });
   };
 
   return (
@@ -1126,18 +1138,22 @@ function EditableMetaTable<T>({
 function sanitizeSqlSourceConfig(config: SqlSourceConfig): SqlSourceConfig {
   return {
     ...config,
-    parameters: config.parameters,
+    normalizedSql: config.normalizedSql || config.sqlText,
+    tables: config.tables ?? [],
+    resultFields: config.resultFields ?? [],
+    conditionFields: config.conditionFields ?? [],
+    parameters: config.parameters ?? [],
   };
 }
 
 function createInitialAnalysis(config: SqlSourceConfig): SqlAnalysis {
   return {
-    normalizedSql: config.sqlText,
+    normalizedSql: config.normalizedSql || config.sqlText,
     operation: config.operation,
-    tables: [],
-    resultFields: [],
-    conditionFields: [],
-    parameters: config.parameters,
+    tables: config.tables ?? [],
+    resultFields: config.resultFields ?? [],
+    conditionFields: config.conditionFields ?? [],
+    parameters: config.parameters ?? [],
   };
 }
 

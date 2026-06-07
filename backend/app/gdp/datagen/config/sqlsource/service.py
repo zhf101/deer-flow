@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from app.gdp.datagen.config.base.repository import BaseConfigNotFoundError, BaseConfigRepository
 from app.gdp.datagen.config.common.models import ConfigStatus
 from app.gdp.datagen.config.sqlsource.models import DisableResponse, SqlSourceConfig, SqlSourceResponse
+from app.gdp.datagen.config.sqlsource.parser import parse_sql_source
 from app.gdp.datagen.config.sqlsource.repository import (
     SqlSourceConflictError,
     SqlSourceNotFoundError,
@@ -38,7 +39,8 @@ class SqlSourceService:
     async def upsert_sql_source(self, config: SqlSourceConfig, *, operator: str | None = None) -> SqlSourceResponse:
         await self._validate_enabled_system(config.sysCode)
         await self._validate_enabled_datasource(config.sysCode, config.datasourceCode)
-        return await self._guard(lambda: self._repo.upsert_sql_source(config, operator=operator))
+        prepared = self._ensure_analysis_metadata(config)
+        return await self._guard(lambda: self._repo.upsert_sql_source(prepared, operator=operator))
 
     async def disable_sql_source(self, source_code: str, *, operator: str | None = None) -> DisableResponse:
         await self._guard(lambda: self._repo.disable_sql_source(source_code, operator=operator))
@@ -72,3 +74,28 @@ class SqlSourceService:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except SqlSourceConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @staticmethod
+    def _ensure_analysis_metadata(config: SqlSourceConfig) -> SqlSourceConfig:
+        """保存前补齐 SQL 解析元数据。
+
+        前端可能尚未点击“解析 SQL”，此时后端使用同一解析器补齐规范 SQL、
+        操作表、查询字段、条件字段和参数定义。已有的操作表、字段说明优先
+        保留，只补齐缺失的部分，避免覆盖用户手工维护的说明。
+        """
+
+        missing_metadata = not config.tables or not config.resultFields or not config.conditionFields
+        if config.normalizedSql and not missing_metadata:
+            return config
+
+        parsed = parse_sql_source(config.sqlText, config.parameters)
+        return config.model_copy(
+            update={
+                "normalizedSql": config.normalizedSql or parsed.normalizedSql,
+                "operation": parsed.operation,
+                "tables": config.tables or parsed.tables,
+                "resultFields": config.resultFields or parsed.resultFields,
+                "conditionFields": config.conditionFields or parsed.conditionFields,
+                "parameters": parsed.parameters,
+            }
+        )

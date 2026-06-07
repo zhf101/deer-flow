@@ -119,6 +119,35 @@ class DisableResponse(BaseModel):
     success: bool = Field(default=True, description="操作是否成功。")
 
 
+class ParsedCookie(BaseModel):
+    """从 Set-Cookie 响应头解析出的单个 Cookie。"""
+
+    name: str = Field(..., description="Cookie 名称。")
+    value: str = Field(..., description="Cookie 值。")
+    domain: str | None = Field(default=None, description="Cookie 所属域名。")
+    path: str | None = Field(default="/", description="Cookie 路径。")
+    expires: str | None = Field(default=None, description="过期时间字符串。")
+    httpOnly: bool = Field(default=False, description="是否仅 HTTP 可访问。")
+    secure: bool = Field(default=False, description="是否仅 HTTPS 传输。")
+    sameSite: str | None = Field(default=None, description="SameSite 策略：Strict / Lax / None。")
+    raw: str = Field(default="", description="原始 Set-Cookie 头内容。")
+
+
+class BusinessResult(BaseModel):
+    """业务条件求值结果。"""
+
+    isSuccess: bool = Field(..., description="业务逻辑是否判定为成功。")
+    reason: str = Field(default="", description="判定原因说明。")
+    matchedRules: list[str] = Field(default_factory=list, description="命中的规则描述列表。")
+
+
+class RetryInfo(BaseModel):
+    """重试执行信息。"""
+
+    attempts: int = Field(default=1, description="实际执行次数，包含首次请求。")
+    lastError: str | None = Field(default=None, description="最后一次失败的错误信息。")
+
+
 class HttpSourceTestRequest(BaseModel):
     """HTTP 接口配置测试请求。
 
@@ -148,6 +177,7 @@ class HttpSourceTestResponseInfo(BaseModel):
     statusCode: int | None = Field(default=None, description="HTTP 响应状态码。异常时为空。")
     headers: dict[str, str] = Field(default_factory=dict, description="响应头。")
     body: Any = Field(default=None, description="响应报文。")
+    cookies: list[ParsedCookie] = Field(default_factory=list, description="从响应解析出的 Cookie 列表。")
     elapsedMs: float | None = Field(default=None, description="请求耗时，单位毫秒。")
 
 
@@ -165,4 +195,7 @@ class HttpSourceTestResponse(BaseModel):
     success: bool = Field(..., description="请求是否成功发出并收到响应。")
     request: HttpSourceTestRequestInfo = Field(..., description="实际请求信息。")
     response: HttpSourceTestResponseInfo | None = Field(default=None, description="响应信息。")
+    businessResult: BusinessResult | None = Field(default=None, description="业务条件求值结果。")
+    extractedOutputs: dict[str, Any] = Field(default_factory=dict, description="按 outputMapping 提取的输出变量。")
+    retryInfo: RetryInfo | None = Field(default=None, description="重试执行信息。")
     error: HttpSourceTestErrorInfo | None = Field(default=None, description="异常信息。")

@@ -111,6 +111,16 @@ async def test_sql_source_accepts_enabled_datasource_for_system(datagen_client: 
     body = response.json()
     assert body["sysCode"] == "ORDER"
     assert body["datasourceCode"] == "tradeDb"
+    assert body["normalizedSql"] == "select * from orders where id = :orderId"
+    assert [table["tableName"] for table in body["tables"]] == ["orders"]
+    assert body["resultFields"]
+    assert body["conditionFields"][0]["fieldName"] == "id"
+    assert body["conditionFields"][0]["paramName"] == "orderId"
+
+    saved = (await datagen_client.get("/api/v1/datagen/sql-sources/queryOrder")).json()
+    assert saved["tables"] == body["tables"]
+    assert saved["resultFields"] == body["resultFields"]
+    assert saved["conditionFields"] == body["conditionFields"]
 
 
 async def _create_system(client: AsyncClient, sys_code: str) -> None:

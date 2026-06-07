@@ -156,6 +156,22 @@ class SqlSourceConfig(BaseModel):
         min_length=1,
         description="SQL 文本。支持命名参数、MyBatis 风格参数和可执行 SQL 片段。",
     )
+    normalizedSql: str = Field(
+        default="",
+        description="解析后用于运行时执行的规范 SQL。占位符统一保留命名参数形式，例如 :userId。",
+    )
+    tables: list[SqlSourceTableMeta] = Field(
+        default_factory=list,
+        description="SQL 涉及的数据表元数据。保存后用于页面直接回显操作表说明。",
+    )
+    resultFields: list[SqlSourceFieldMeta] = Field(
+        default_factory=list,
+        description="SELECT 查询结果字段元数据。保存后用于页面直接回显查询结果字段说明。",
+    )
+    conditionFields: list[SqlSourceConditionMeta] = Field(
+        default_factory=list,
+        description="WHERE、JOIN ON、UPDATE 条件等位置涉及的条件字段元数据。",
+    )
     parameters: list[SqlSourceParameter] = Field(
         default_factory=list,
         description="SQL 参数定义列表，用于约束编排步骤中的参数映射。",
