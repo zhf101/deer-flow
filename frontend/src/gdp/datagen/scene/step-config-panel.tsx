@@ -32,7 +32,9 @@ import type {
 import { HttpStepForm } from "../common/source-forms/http-step-form";
 import { SqlStepForm } from "../common/source-forms/sql-step-form";
 
+import { AssertStepForm } from "./assert-step-form";
 import { StepTestDialog } from "./step-test-dialog";
+import { TransformStepForm } from "./transform-step-form";
 
 interface StepConfigPanelProps {
   scene: SceneDefinition;
@@ -70,12 +72,6 @@ export function StepConfigPanel({
       </div>
     );
   }
-
-  // 检测旧数据是否使用了引用模式（后端当前不支持，显示警告）
-  const hasLegacyRef =
-    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- boolean OR, not string fallback
-    (step.type === "HTTP" && step.httpSourceCode) ||
-    (step.type === "SQL" && step.sqlSourceCode);
 
   // 可选依赖步骤：必须属于当前场景且不能是当前步骤
   const availableSteps = steps.filter(s => s.stepId !== step.stepId);
@@ -226,13 +222,9 @@ export function StepConfigPanel({
                         if (!s) return null;
                         const urlOrSql =
                           s.type === "HTTP"
-                            ? s.httpSourceCode
-                              ? `ref: ${s.httpSourceCode}`
-                              : s.url ?? ""
+                            ? s.path ?? ""
                             : s.type === "SQL"
-                              ? s.sqlSourceCode
-                                ? `ref: ${s.sqlSourceCode}`
-                                : s.sqlTemplateCode ?? ""
+                              ? s.sqlText ?? s.normalizedSql ?? ""
                               : "";
                         return (
                           <tr key={id} className="border-b last:border-b-0">
@@ -277,29 +269,6 @@ export function StepConfigPanel({
 
       {/* 3. 详细逻辑配置 */}
       <div>
-        {/* 旧数据引用模式警告 */}
-        {hasLegacyRef && !readOnly && (
-          <div className="mb-3 p-3 rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 text-[10px] text-amber-700">
-            <div className="font-bold mb-1">⚠ 模板引用不被后端支持</div>
-            <div>当前节点使用了模板引用模式（{step.type === "HTTP" ? `httpSourceCode: ${step.httpSourceCode}` : `sqlSourceCode: ${step.sqlSourceCode}`}），后端发布校验会拒绝此配置。请切换为内联配置后重新保存。</div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="mt-2 h-6 text-[9px]"
-              onClick={() => {
-                if (step.type === "HTTP") {
-                  onChange({ ...step, httpSourceCode: null, httpParamMapping: {} });
-                } else {
-                  onChange({ ...step, sqlSourceCode: null, sqlParamMapping: {} });
-                }
-              }}
-            >
-              清除引用，转为内联配置
-            </Button>
-          </div>
-        )}
-
-        {/* 内联模式：直接配置 */}
         {step.type === "HTTP" ? (
           <HttpStepForm scene={scene} step={step} onChange={onChange} />
         ) : null}
@@ -310,6 +279,12 @@ export function StepConfigPanel({
             sqlTemplates={sqlTemplates}
             onChange={onChange}
           />
+        ) : null}
+        {step.type === "ASSERT" ? (
+          <AssertStepForm step={step} onChange={onChange} />
+        ) : null}
+        {step.type === "TRANSFORM" ? (
+          <TransformStepForm step={step} onChange={onChange} />
         ) : null}
       </div>
 

@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from app.gdp.datagen.config.common.models import (
     ErrorMapping,
@@ -43,7 +43,7 @@ class BatchConfig(BaseModel):
 class AssertionDefinition(BaseModel):
     """步骤级断言。"""
 
-    expression: str = Field(..., min_length=1, description="断言表达式。")
+    expression: str = Field(default="", description="断言表达式。草稿阶段允许为空，发布前必须填写。")
     message: str | None = Field(default=None, description="断言失败提示。")
 
 
@@ -64,13 +64,14 @@ class StepTemplateRef(BaseModel):
     drifted: bool = Field(default=False, description="当前快照是否已偏离导入时模板。")
 
 
-class StepDefinition(BaseModel):
-    """场景步骤数据传输对象。
+class BaseStepDefinition(BaseModel):
+    """场景编排步骤公共数据。
 
-    DTO 面向前端编辑保持扁平结构；repository 层会拆到
-    ``df_scene_step``、``df_scene_step_http_config``、
-    ``df_scene_step_sql_config`` 三类物理表。
+    保存所有步骤类型共同具备的身份、展示、依赖、启停、画布位置和输出映射信息。
+    具体执行配置由 HTTP、SQL、断言、转换等子模型分别声明。
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     stepId: str = Field(..., min_length=1, max_length=128, description="步骤唯一 ID。")
     stepName: str | None = Field(default=None, max_length=256, description="步骤名称。")
@@ -80,22 +81,24 @@ class StepDefinition(BaseModel):
     description: str | None = Field(default=None, description="步骤说明。")
     position: Position | None = Field(default=None, description="画布坐标。")
 
-    # 来源信息。自定义节点为空。
     templateRef: StepTemplateRef | None = Field(default=None, description="模板来源快照信息。")
-    httpSourceCode: str | None = Field(default=None, max_length=128, description="来源 HTTP 模板编码，软引用。")
-    sqlSourceCode: str | None = Field(default=None, max_length=128, description="来源 SQL 模板编码，软引用。")
+    outputMapping: dict[str, str] = Field(default_factory=dict, description="步骤输出映射。")
+    outputMeta: dict[str, dict[str, str | None]] | None = Field(default=None, description="输出变量元数据。")
 
-    # HTTP 快照字段。
+
+class HttpStepDefinition(BaseStepDefinition):
+    """HTTP 请求步骤配置。
+
+    描述场景运行时发起一次 HTTP GET/POST 请求所需的请求构造、超时、响应解析、
+    错误映射和重试策略。草稿阶段允许系统编码和路径暂未填写。
+    """
+
+    type: Literal[StepType.HTTP] = Field(StepType.HTTP, description="固定为 HTTP，表示该步骤按 HTTP 请求执行。")
     sourceName: str | None = Field(default=None, max_length=256, description="步骤快照名称。")
-    sysCode: str | None = Field(default=None, max_length=64, description="所属系统编码。")
-    method: HttpMethod | None = Field(default=None, description="HTTP 方法。")
-    path: str | None = Field(default=None, max_length=1024, description="HTTP 相对路径。")
+    sysCode: str | None = Field(default=None, max_length=64, description="所属系统编码。草稿阶段可为空，发布、测试或执行前必须填写。")
+    method: HttpMethod = Field(default=HttpMethod.POST, description="HTTP 方法。datagen 场景内仅允许 GET 或 POST。")
+    path: str | None = Field(default=None, max_length=1024, description="HTTP 相对路径。草稿阶段可为空，发布、测试或执行前必须填写。")
     timeoutConfig: HttpTimeoutConfig = Field(default_factory=HttpTimeoutConfig, description="HTTP 请求分阶段超时配置。运行时分别控制连接、读取、写入和连接池等待超时。")
-    url: str | None = Field(
-        default=None,
-        max_length=1024,
-        description="path 的别名，仅兼容旧前端入参；响应中与 path 同值，新增代码应使用 path。",
-    )
     requestMapping: dict[str, Any] = Field(default_factory=dict, description="HTTP 请求构造配置。")
     httpParamMapping: dict[str, Any] = Field(default_factory=dict, description="HTTP 参数映射。")
     bodySchema: list[InputFieldDefinition] | None = Field(default=None, description="HTTP 请求体结构。")
@@ -107,10 +110,20 @@ class StepDefinition(BaseModel):
     businessErrorMapping: ErrorMapping | None = Field(default=None, description="业务失败错误映射。")
     retryPolicy: RetryPolicy | None = Field(default=None, description="HTTP 重试策略。")
 
-    # SQL 快照字段。
-    datasourceCode: str | None = Field(default=None, max_length=128, description="数据源编码。")
-    operation: SqlOperation | None = Field(default=None, description="SQL 操作类型。")
-    sqlText: str | None = Field(default=None, description="用户原始 SQL。")
+
+class SqlStepDefinition(BaseStepDefinition):
+    """SQL 执行步骤配置。
+
+    描述场景运行时执行一段 SQL 所需的系统、数据源、SQL 文本、参数映射、
+    字段元数据和安全策略。草稿阶段允许运行必填项暂未填写。
+    """
+
+    type: Literal[StepType.SQL] = Field(StepType.SQL, description="固定为 SQL，表示该步骤按 SQL 执行。")
+    sourceName: str | None = Field(default=None, max_length=256, description="步骤快照名称。")
+    sysCode: str | None = Field(default=None, max_length=64, description="所属系统编码。草稿阶段可为空，发布、测试或执行前必须填写。")
+    datasourceCode: str | None = Field(default=None, max_length=128, description="数据源编码。草稿阶段可为空，发布、测试或执行前必须填写。")
+    operation: SqlOperation | None = Field(default=None, description="SQL 操作类型。草稿阶段可为空，发布、测试或执行前必须填写。")
+    sqlText: str | None = Field(default=None, description="用户原始 SQL。草稿阶段可为空，发布、测试或执行前必须填写。")
     normalizedSql: str | None = Field(default=None, description="解析后的标准 SQL。")
     tables: list[dict[str, Any]] = Field(default_factory=list, description="SQL 表元数据。")
     resultFields: list[dict[str, Any]] = Field(default_factory=list, description="SQL 结果字段元数据。")
@@ -118,13 +131,43 @@ class StepDefinition(BaseModel):
     parameters: list[dict[str, Any]] = Field(default_factory=list, description="SQL 参数定义。")
     safety: SqlSourceSafety = Field(default_factory=SqlSourceSafety, description="SQL 安全策略。")
     paramMapping: dict[str, Any] = Field(default_factory=dict, description="SQL 参数映射。")
-    sqlParamMapping: dict[str, Any] = Field(default_factory=dict, description="兼容字段，保存时并入 paramMapping。")
 
-    # 公共输出和扩展步骤字段。
-    outputMapping: dict[str, str] = Field(default_factory=dict, description="步骤输出映射。")
-    outputMeta: dict[str, dict[str, str | None]] | None = Field(default=None, description="输出变量元数据。")
+
+class AssertStepDefinition(BaseStepDefinition):
+    """断言步骤配置。
+
+    用于在编排流程中显式校验变量、上游步骤输出或表达式结果。
+    """
+
+    type: Literal[StepType.ASSERT] = Field(StepType.ASSERT, description="固定为 ASSERT，表示该步骤按断言逻辑执行。")
     assertions: list[AssertionDefinition] = Field(default_factory=list, description="步骤断言。")
+
+
+class TransformStepDefinition(BaseStepDefinition):
+    """变量转换步骤配置。
+
+    用于在编排流程中生成或改写变量。
+    """
+
+    type: Literal[StepType.TRANSFORM] = Field(StepType.TRANSFORM, description="固定为 TRANSFORM，表示该步骤按变量转换逻辑执行。")
     assignments: dict[str, str] = Field(default_factory=dict, description="变量赋值。")
+
+
+StepDefinition = Annotated[
+    HttpStepDefinition | SqlStepDefinition | AssertStepDefinition | TransformStepDefinition,
+    Field(discriminator="type"),
+]
+StepDefinitionAdapter = TypeAdapter(StepDefinition)
+
+
+def parse_step_definition_payload(payload: dict[str, Any]) -> StepDefinition:
+    """将步骤 payload 解析为具体步骤子模型。
+
+    该函数只接收已经反序列化后的 Python 字典，例如 repository 从 ORM 行和
+    JSON 字段组装出来的数据。FastAPI 接收前端 JSON 时会自动处理多态模型。
+    """
+
+    return StepDefinitionAdapter.validate_python(payload)
 
 
 class SceneDefinition(BaseModel):

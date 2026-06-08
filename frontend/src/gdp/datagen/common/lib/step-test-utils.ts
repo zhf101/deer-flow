@@ -8,24 +8,23 @@
  */
 
 import type {
+  HttpStepDefinition,
   HttpSourceConfig,
   InputFieldDefinition,
   SceneDefinition,
   StepDefinition,
 } from "./types";
-import { createDefaultHttpTimeoutConfig } from "./defaults";
 
 /** 将内联 HTTP StepDefinition 转换为 testHttpSource 所需的配置 */
-export function stepToHttpTestConfig(step: StepDefinition): HttpSourceConfig {
+export function stepToHttpTestConfig(step: HttpStepDefinition): HttpSourceConfig {
   return {
     sourceCode: step.stepId,
     sourceName: step.stepName ?? step.stepId,
     sysCode: step.sysCode ?? "",
-    // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty string path should fall through to url
-    path: step.path || step.url || "",
-    method: step.method ?? "POST",
-    timeoutConfig: step.timeoutConfig ?? createDefaultHttpTimeoutConfig(),
-    requestMapping: step.requestMapping ?? {},
+    path: step.path ?? "",
+    method: step.method,
+    timeoutConfig: step.timeoutConfig,
+    requestMapping: step.requestMapping,
     bodySchema: step.bodySchema ?? null,
     responseSchema: step.responseSchema ?? null,
     responseHeadersSchema: step.responseHeadersSchema ?? null,

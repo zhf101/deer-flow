@@ -14,14 +14,19 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.gdp.datagen.config.base.repository import DataFactoryConfigAuditRow
-from app.gdp.datagen.config.common.models import SceneStatus, StepType, VersionStatus
+from app.gdp.datagen.config.common.models import SceneStatus, VersionStatus
 from app.gdp.datagen.config.scene.models import (
+    AssertStepDefinition,
+    HttpStepDefinition,
     SceneDefinition,
     SceneSummary,
     SceneVersion,
+    SqlStepDefinition,
     StepDefinition,
     StepTemplateRef,
+    TransformStepDefinition,
     ValidationResult,
+    parse_step_definition_payload,
 )
 from deerflow.persistence.base import Base
 
@@ -91,8 +96,6 @@ class DataFactorySceneStepRow(Base):
     description: Mapped[str | None] = mapped_column(Text, comment="步骤说明。")
     output_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="输出映射 JSON。")
     output_meta_json: Mapped[str | None] = mapped_column(Text, comment="输出变量元数据 JSON。")
-    assertions_json: Mapped[str] = mapped_column(Text, nullable=False, comment="断言 JSON。")
-    assignments_json: Mapped[str] = mapped_column(Text, nullable=False, comment="变量赋值 JSON。")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="更新时间。")
 
@@ -174,6 +177,42 @@ class DataFactorySceneStepSqlConfigRow(Base):
     param_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="参数映射 JSON。")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DataFactorySceneStepAssertConfigRow(Base):
+    """场景断言步骤配置表。"""
+
+    __tablename__ = "df_scene_step_assert_config"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="场景主表 ID。")
+    scene_version_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="场景版本 ID。")
+    scene_step_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="步骤公共信息 ID。")
+    scene_code: Mapped[str] = mapped_column(String(128), nullable=False, comment="场景编码。")
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="版本号。")
+    step_id: Mapped[str] = mapped_column(String(128), nullable=False, comment="步骤业务 ID。")
+    config_hash: Mapped[str] = mapped_column(String(128), nullable=False, comment="当前配置 hash。")
+    assertions_json: Mapped[str] = mapped_column(Text, nullable=False, comment="断言配置 JSON。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="更新时间。")
+
+
+class DataFactorySceneStepTransformConfigRow(Base):
+    """场景变量转换步骤配置表。"""
+
+    __tablename__ = "df_scene_step_transform_config"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
+    scene_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="场景主表 ID。")
+    scene_version_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="场景版本 ID。")
+    scene_step_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="步骤公共信息 ID。")
+    scene_code: Mapped[str] = mapped_column(String(128), nullable=False, comment="场景编码。")
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="版本号。")
+    step_id: Mapped[str] = mapped_column(String(128), nullable=False, comment="步骤业务 ID。")
+    config_hash: Mapped[str] = mapped_column(String(128), nullable=False, comment="当前配置 hash。")
+    assignments_json: Mapped[str] = mapped_column(Text, nullable=False, comment="变量赋值配置 JSON。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="更新时间。")
 
 
 class SceneNotFoundError(LookupError):
@@ -443,6 +482,8 @@ class SceneRepository:
     async def _delete_version_steps(self, session: AsyncSession, scene_version_id: str) -> None:
         await session.execute(delete(DataFactorySceneStepHttpConfigRow).where(DataFactorySceneStepHttpConfigRow.scene_version_id == scene_version_id))
         await session.execute(delete(DataFactorySceneStepSqlConfigRow).where(DataFactorySceneStepSqlConfigRow.scene_version_id == scene_version_id))
+        await session.execute(delete(DataFactorySceneStepAssertConfigRow).where(DataFactorySceneStepAssertConfigRow.scene_version_id == scene_version_id))
+        await session.execute(delete(DataFactorySceneStepTransformConfigRow).where(DataFactorySceneStepTransformConfigRow.scene_version_id == scene_version_id))
         await session.execute(delete(DataFactorySceneStepRow).where(DataFactorySceneStepRow.scene_version_id == scene_version_id))
 
     def _add_steps(
@@ -454,7 +495,6 @@ class SceneRepository:
         now: datetime,
     ) -> None:
         for index, step in enumerate(steps):
-            _ensure_custom_step_only(step)
             step_row = DataFactorySceneStepRow(
                 id=_new_id(),
                 scene_id=scene_row.id,
@@ -471,23 +511,25 @@ class SceneRepository:
                 description=step.description,
                 output_mapping_json=_dumps(step.outputMapping),
                 output_meta_json=_dumps(step.outputMeta) if step.outputMeta else None,
-                assertions_json=_dumps(_model_dump(step.assertions)),
-                assignments_json=_dumps(step.assignments),
                 created_at=now,
                 updated_at=now,
             )
             session.add(step_row)
-            if step.type == StepType.HTTP:
+            if isinstance(step, HttpStepDefinition):
                 session.add(self._http_config_row(scene_row, version_row, step_row, step, now))
-            elif step.type == StepType.SQL:
+            elif isinstance(step, SqlStepDefinition):
                 session.add(self._sql_config_row(scene_row, version_row, step_row, step, now))
+            elif isinstance(step, AssertStepDefinition):
+                session.add(self._assert_config_row(scene_row, version_row, step_row, step, now))
+            elif isinstance(step, TransformStepDefinition):
+                session.add(self._transform_config_row(scene_row, version_row, step_row, step, now))
 
     def _http_config_row(
         self,
         scene_row: DataFactorySceneRow,
         version_row: DataFactorySceneVersionRow,
         step_row: DataFactorySceneStepRow,
-        step: StepDefinition,
+        step: HttpStepDefinition,
         now: datetime,
     ) -> DataFactorySceneStepHttpConfigRow:
         payload = _http_hash_payload(step)
@@ -500,17 +542,17 @@ class SceneRepository:
             scene_code=scene_row.scene_code,
             version_no=version_row.version_no,
             step_id=step.stepId,
-            source_code=None,
-            source_name_at_snapshot=None,
-            source_updated_at_snapshot=None,
-            source_hash_snapshot=None,
+            source_code=step.templateRef.sourceCode if step.templateRef else None,
+            source_name_at_snapshot=step.templateRef.sourceNameAtSnapshot if step.templateRef else None,
+            source_updated_at_snapshot=step.templateRef.sourceUpdatedAtSnapshot if step.templateRef else None,
+            source_hash_snapshot=step.templateRef.sourceHashSnapshot if step.templateRef else None,
             config_hash=config_hash,
             snapshot_at=now,
-            drifted=False,
+            drifted=step.templateRef.drifted if step.templateRef else False,
             source_name=step.sourceName or step.stepName,
             sys_code=step.sysCode,
-            path=step.path or step.url,
-            method=step.method.value if step.method else None,
+            path=step.path,
+            method=step.method.value,
             timeout_config_json=_dumps(_model_dump(step.timeoutConfig)),
             request_mapping_json=_dumps(step.requestMapping),
             http_param_mapping_json=_dumps(step.httpParamMapping),
@@ -531,10 +573,10 @@ class SceneRepository:
         scene_row: DataFactorySceneRow,
         version_row: DataFactorySceneVersionRow,
         step_row: DataFactorySceneStepRow,
-        step: StepDefinition,
+        step: SqlStepDefinition,
         now: datetime,
     ) -> DataFactorySceneStepSqlConfigRow:
-        param_mapping = step.paramMapping or step.sqlParamMapping
+        param_mapping = step.paramMapping
         payload = _sql_hash_payload(step, param_mapping)
         config_hash = _hash_payload(payload)
         return DataFactorySceneStepSqlConfigRow(
@@ -545,13 +587,13 @@ class SceneRepository:
             scene_code=scene_row.scene_code,
             version_no=version_row.version_no,
             step_id=step.stepId,
-            source_code=None,
-            source_name_at_snapshot=None,
-            source_updated_at_snapshot=None,
-            source_hash_snapshot=None,
+            source_code=step.templateRef.sourceCode if step.templateRef else None,
+            source_name_at_snapshot=step.templateRef.sourceNameAtSnapshot if step.templateRef else None,
+            source_updated_at_snapshot=step.templateRef.sourceUpdatedAtSnapshot if step.templateRef else None,
+            source_hash_snapshot=step.templateRef.sourceHashSnapshot if step.templateRef else None,
             config_hash=config_hash,
             snapshot_at=now,
-            drifted=False,
+            drifted=step.templateRef.drifted if step.templateRef else False,
             source_name=step.sourceName or step.stepName,
             sys_code=step.sysCode,
             datasource_code=step.datasourceCode,
@@ -564,6 +606,52 @@ class SceneRepository:
             parameters_json=_dumps(step.parameters),
             safety_json=_dumps(_model_dump(step.safety)),
             param_mapping_json=_dumps(param_mapping),
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _assert_config_row(
+        self,
+        scene_row: DataFactorySceneRow,
+        version_row: DataFactorySceneVersionRow,
+        step_row: DataFactorySceneStepRow,
+        step: AssertStepDefinition,
+        now: datetime,
+    ) -> DataFactorySceneStepAssertConfigRow:
+        payload = _assert_hash_payload(step)
+        return DataFactorySceneStepAssertConfigRow(
+            id=_new_id(),
+            scene_id=scene_row.id,
+            scene_version_id=version_row.id,
+            scene_step_id=step_row.id,
+            scene_code=scene_row.scene_code,
+            version_no=version_row.version_no,
+            step_id=step.stepId,
+            config_hash=_hash_payload(payload),
+            assertions_json=_dumps(_model_dump(step.assertions)),
+            created_at=now,
+            updated_at=now,
+        )
+
+    def _transform_config_row(
+        self,
+        scene_row: DataFactorySceneRow,
+        version_row: DataFactorySceneVersionRow,
+        step_row: DataFactorySceneStepRow,
+        step: TransformStepDefinition,
+        now: datetime,
+    ) -> DataFactorySceneStepTransformConfigRow:
+        payload = _transform_hash_payload(step)
+        return DataFactorySceneStepTransformConfigRow(
+            id=_new_id(),
+            scene_id=scene_row.id,
+            scene_version_id=version_row.id,
+            scene_step_id=step_row.id,
+            scene_code=scene_row.scene_code,
+            version_no=version_row.version_no,
+            step_id=step.stepId,
+            config_hash=_hash_payload(payload),
+            assignments_json=_dumps(step.assignments),
             created_at=now,
             updated_at=now,
         )
@@ -618,13 +706,23 @@ class SceneRepository:
             row.scene_step_id: row
             for row in (await session.execute(select(DataFactorySceneStepSqlConfigRow).where(DataFactorySceneStepSqlConfigRow.scene_version_id == scene_version_id))).scalars().all()
         }
-        return [self._to_step(row, http_rows.get(row.id), sql_rows.get(row.id)) for row in step_rows]
+        assert_rows = {
+            row.scene_step_id: row
+            for row in (await session.execute(select(DataFactorySceneStepAssertConfigRow).where(DataFactorySceneStepAssertConfigRow.scene_version_id == scene_version_id))).scalars().all()
+        }
+        transform_rows = {
+            row.scene_step_id: row
+            for row in (await session.execute(select(DataFactorySceneStepTransformConfigRow).where(DataFactorySceneStepTransformConfigRow.scene_version_id == scene_version_id))).scalars().all()
+        }
+        return [self._to_step(row, http_rows.get(row.id), sql_rows.get(row.id), assert_rows.get(row.id), transform_rows.get(row.id)) for row in step_rows]
 
     @staticmethod
     def _to_step(
         step_row: DataFactorySceneStepRow,
         http_row: DataFactorySceneStepHttpConfigRow | None,
         sql_row: DataFactorySceneStepSqlConfigRow | None,
+        assert_row: DataFactorySceneStepAssertConfigRow | None,
+        transform_row: DataFactorySceneStepTransformConfigRow | None,
     ) -> StepDefinition:
         base: dict[str, Any] = {
             "stepId": step_row.step_id,
@@ -636,19 +734,15 @@ class SceneRepository:
             "position": _loads(step_row.position_json, None),
             "outputMapping": _loads(step_row.output_mapping_json, {}),
             "outputMeta": _loads(step_row.output_meta_json, None),
-            "assertions": _loads(step_row.assertions_json, []),
-            "assignments": _loads(step_row.assignments_json, {}),
         }
         if http_row:
             base.update(
                 {
                     "templateRef": _row_template_ref(http_row, "HTTP_SOURCE"),
-                    "httpSourceCode": http_row.source_code,
                     "sourceName": http_row.source_name,
                     "sysCode": http_row.sys_code,
                     "method": http_row.method,
                     "path": http_row.path,
-                    "url": http_row.path,
                     "timeoutConfig": _loads(http_row.timeout_config_json, {}),
                     "requestMapping": _loads(http_row.request_mapping_json, {}),
                     "httpParamMapping": _loads(http_row.http_param_mapping_json, {}),
@@ -667,7 +761,6 @@ class SceneRepository:
             base.update(
                 {
                     "templateRef": _row_template_ref(sql_row, "SQL_SOURCE"),
-                    "sqlSourceCode": sql_row.source_code,
                     "sourceName": sql_row.source_name,
                     "sysCode": sql_row.sys_code,
                     "datasourceCode": sql_row.datasource_code,
@@ -680,10 +773,13 @@ class SceneRepository:
                     "parameters": _loads(sql_row.parameters_json, []),
                     "safety": _loads(sql_row.safety_json, {}),
                     "paramMapping": param_mapping,
-                    "sqlParamMapping": param_mapping,
                 }
             )
-        return StepDefinition(**base)
+        if assert_row:
+            base.update({"assertions": _loads(assert_row.assertions_json, [])})
+        if transform_row:
+            base.update({"assignments": _loads(transform_row.assignments_json, {})})
+        return parse_step_definition_payload(base)
 
     @staticmethod
     def _to_summary(row: DataFactorySceneRow) -> SceneSummary:
@@ -718,11 +814,11 @@ class SceneRepository:
         )
 
 
-def _http_hash_payload(step: StepDefinition) -> dict[str, Any]:
+def _http_hash_payload(step: HttpStepDefinition) -> dict[str, Any]:
     return {
         "sourceName": step.sourceName or step.stepName,
         "sysCode": step.sysCode,
-        "path": step.path or step.url,
+        "path": step.path,
         "method": step.method,
         "timeoutConfig": step.timeoutConfig,
         "requestMapping": step.requestMapping,
@@ -740,12 +836,7 @@ def _http_hash_payload(step: StepDefinition) -> dict[str, Any]:
     }
 
 
-def _ensure_custom_step_only(step: StepDefinition) -> None:
-    if step.templateRef is not None or step.httpSourceCode or step.sqlSourceCode:
-        raise SceneConflictError("template references are not supported in custom scene step persistence")
-
-
-def _sql_hash_payload(step: StepDefinition, param_mapping: dict[str, Any]) -> dict[str, Any]:
+def _sql_hash_payload(step: SqlStepDefinition, param_mapping: dict[str, Any]) -> dict[str, Any]:
     return {
         "sourceName": step.sourceName or step.stepName,
         "sysCode": step.sysCode,
@@ -759,6 +850,22 @@ def _sql_hash_payload(step: StepDefinition, param_mapping: dict[str, Any]) -> di
         "parameters": step.parameters,
         "safety": step.safety,
         "paramMapping": param_mapping,
+        "outputMapping": step.outputMapping,
+        "outputMeta": step.outputMeta,
+    }
+
+
+def _assert_hash_payload(step: AssertStepDefinition) -> dict[str, Any]:
+    return {
+        "assertions": step.assertions,
+        "outputMapping": step.outputMapping,
+        "outputMeta": step.outputMeta,
+    }
+
+
+def _transform_hash_payload(step: TransformStepDefinition) -> dict[str, Any]:
+    return {
+        "assignments": step.assignments,
         "outputMapping": step.outputMapping,
         "outputMeta": step.outputMeta,
     }

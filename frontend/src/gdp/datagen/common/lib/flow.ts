@@ -1,6 +1,7 @@
 import type { Edge, Node } from "@xyflow/react";
 
 import { stepLabel } from "./defaults";
+import { isHttpStep, isSqlStep } from "./types";
 import type { StepDefinition } from "./types";
 
 export interface StepNodeData extends Record<string, unknown> {
@@ -8,7 +9,7 @@ export interface StepNodeData extends Record<string, unknown> {
   type: string;
   enabled: boolean;
   order: number;
-  url?: string;
+  path?: string;
   sql?: string;
   outputCount: number;
   hasErrors: boolean;
@@ -16,26 +17,23 @@ export interface StepNodeData extends Record<string, unknown> {
 
 export function stepsToNodes(steps: StepDefinition[]): Node<StepNodeData>[] {
   return steps.map((step, index) => {
-    const isHttp = step.type === 'HTTP';
     const outputCount = Object.keys(step.outputMapping ?? {}).length;
-    // 简单判断：HTTP 缺 path 或 SQL 缺 normalizedSql 视为有错误
-    const hasErrors = isHttp
-      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty string path/url should fall through
-      ? !(step.path || step.url) || !step.sysCode
-      : !step.normalizedSql || !step.datasourceCode || !step.sysCode;
+    const hasErrors = isHttpStep(step)
+      ? !step.path || !step.sysCode
+      : isSqlStep(step)
+        ? !step.normalizedSql || !step.datasourceCode || !step.sysCode
+        : false;
     return {
       id: step.stepId,
-      type: isHttp ? "httpStep" : step.type === 'SQL' ? "sqlStep" : "default",
+      type: isHttpStep(step) ? "httpStep" : isSqlStep(step) ? "sqlStep" : "default",
       position: step.position ?? { x: 120 + index * 140, y: 120 },
       data: {
         label: step.stepName ?? stepLabel(step.type),
         type: step.type,
         enabled: step.enabled,
         order: index + 1,
-        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty strings should fall through
-        url: step.url || step.path || undefined,
-        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty strings should fall through
-        sql: step.sqlText || step.normalizedSql || step.sqlTemplateCode || undefined,
+        path: isHttpStep(step) ? step.path || undefined : undefined,
+        sql: isSqlStep(step) ? step.sqlText || step.normalizedSql || undefined : undefined,
         outputCount,
         hasErrors,
       },

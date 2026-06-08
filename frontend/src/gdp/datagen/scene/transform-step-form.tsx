@@ -1,13 +1,13 @@
 "use client";
 
 import { JsonEditor } from "../common/editors/json-editor";
-import type { StepDefinition } from "../common/lib/types";
+import type { TransformStepDefinition } from "../common/lib/types";
 import { stringifyConfigValue } from "../common/lib/validation";
 
 
 interface TransformStepFormProps {
-  step: StepDefinition;
-  onChange: (step: StepDefinition) => void;
+  step: TransformStepDefinition;
+  onChange: (step: TransformStepDefinition) => void;
 }
 
 export function TransformStepForm({ step, onChange }: TransformStepFormProps) {

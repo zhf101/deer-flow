@@ -25,7 +25,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import { flattenSchema } from "../lib/schema-utils";
-import type { StepDefinition } from "../lib/types";
+import type { HttpStepDefinition } from "../lib/types";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 
 /* ── 表达式辅助函数（与 http-response-mapping-editor 共享） ── */
@@ -86,8 +86,8 @@ export function isSameMapping(a: string, b: string) {
 /* ── 组件 ── */
 
 interface HttpOutputExtractionEditorProps {
-  step: StepDefinition;
-  onChange: (updates: Partial<StepDefinition>) => void;
+  step: HttpStepDefinition;
+  onChange: (updates: Partial<HttpStepDefinition>) => void;
   disabled?: boolean;
   showHeader?: boolean;
 }

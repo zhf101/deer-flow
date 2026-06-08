@@ -5,15 +5,15 @@ import { PlusIcon, Trash2Icon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
-import type { StepDefinition } from "../common/lib/types";
+import type { AssertStepDefinition } from "../common/lib/types";
 
 interface AssertStepFormProps {
-  step: StepDefinition;
-  onChange: (step: StepDefinition) => void;
+  step: AssertStepDefinition;
+  onChange: (step: AssertStepDefinition) => void;
 }
 
 export function AssertStepForm({ step, onChange }: AssertStepFormProps) {
-  const assertions = step.assertions ?? [];
+  const assertions = step.assertions;
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">

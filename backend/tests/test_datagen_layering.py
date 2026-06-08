@@ -1,4 +1,4 @@
-"""Datagen backend layering and dependency-chain tests."""
+"""造数后端分层和依赖边界测试。"""
 
 from __future__ import annotations
 
@@ -8,42 +8,46 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException
 
-import app.gdp.models as legacy_models
-import app.gdp.persistence.model as legacy_persistence_models
-from app.gdp.datagen.common import models as common_models
-from app.gdp.datagen.baseconfig.models import (
+from app.gdp.datagen.config.base.models import (
     DatasourceConfig,
     EnvironmentConfig,
     ServiceEndpointConfig,
+    SysConfig,
 )
-from app.gdp.datagen.baseconfig.repository import BaseConfigRepository
-from app.gdp.datagen.baseconfig.service import BaseConfigService
-from app.gdp.datagen.httpsource.models import HttpSourceConfig
-from app.gdp.datagen.httpsource.repository import HttpSourceRepository
-from app.gdp.datagen.httpsource.service import HttpSourceService
-from app.gdp.datagen.runtime.resources import DatagenRuntimeResourceLoader
-from app.gdp.datagen.scene.models import BatchConfig, SceneDefinition
-from app.gdp.datagen.scene.repository import SceneRepository
-from app.gdp.datagen.sqlsource.models import SqlSourceConfig
-from app.gdp.datagen.sqlsource.repository import SqlSourceRepository
-from app.gdp.datagen.sqlsource.service import SqlSourceService
-from app.gdp.datagen.task.models import TaskDefinition, TaskStepDefinition
-from app.gdp.datagen.task.repository import TaskRepository
-from app.gdp.datagen.task.service import TaskService
-from app.gdp.datagen.common.models import (
-    ConfigStatus,
-    HttpMethod,
-    InputFieldDefinition,
-    InputFieldType,
-    SceneStatus,
-    SqlOperation,
+from app.gdp.datagen.config.base.repository import (
+    BaseConfigRepository,
+    DataFactoryConfigAuditRow,
+    DataFactoryDatasourceRow,
+    DataFactoryEnvironmentRow,
+    DataFactoryIdentifierReferenceRow,
+    DataFactoryServiceEndpointRow,
+    DataFactorySystemRow,
 )
-from app.gdp.persistence import models as grouped_persistence_models
+from app.gdp.datagen.config.base.service import BaseConfigService
+from app.gdp.datagen.config.common import models as common_models
+from app.gdp.datagen.config.common.models import ConfigStatus, HttpMethod, SqlOperation
+from app.gdp.datagen.config.httpsource.models import HttpSourceConfig, HttpSourceTestRequest
+from app.gdp.datagen.config.httpsource.repository import DataFactoryHttpSourceRow, HttpSourceRepository
+from app.gdp.datagen.config.httpsource.service import HttpSourceService
+from app.gdp.datagen.config.scene.repository import (
+    DataFactorySceneRow,
+    DataFactorySceneStepAssertConfigRow,
+    DataFactorySceneStepHttpConfigRow,
+    DataFactorySceneStepRow,
+    DataFactorySceneStepSqlConfigRow,
+    DataFactorySceneStepTransformConfigRow,
+    DataFactorySceneVersionRow,
+    SceneRepository,
+)
+from app.gdp.datagen.config.sqlsource.models import SqlSourceConfig
+from app.gdp.datagen.config.sqlsource.repository import DataFactorySqlSourceRow, SqlSourceRepository
+from app.gdp.datagen.config.sqlsource.service import SqlSourceService
+from deerflow.persistence import models as grouped_persistence_models
 from deerflow.persistence.base import Base
 from deerflow.persistence.engine import close_engine, get_session_factory, init_engine
 
-
-DATAGEN_ROOT = Path(__file__).resolve().parents[1] / "app" / "gdp" / "datagen"
+DATAGEN_CONFIG_ROOT = Path(__file__).resolve().parents[1] / "app" / "gdp" / "datagen" / "config"
+DATAGEN_RUNTIME_ROOT = Path(__file__).resolve().parents[1] / "app" / "gdp" / "datagen" / "runtime"
 
 FORBIDDEN_LAYER_IMPORTS = {
     "common": {"base", "httpsource", "sqlsource", "scene", "task"},
@@ -52,6 +56,24 @@ FORBIDDEN_LAYER_IMPORTS = {
     "sqlsource": {"httpsource", "scene", "task"},
     "scene": {"task"},
     "task": set(),
+}
+
+CURRENT_ROW_CLASSES = {
+    "DataFactoryConfigAuditRow": DataFactoryConfigAuditRow,
+    "DataFactoryDatasourceRow": DataFactoryDatasourceRow,
+    "DataFactoryEnvironmentRow": DataFactoryEnvironmentRow,
+    "DataFactoryHttpSourceRow": DataFactoryHttpSourceRow,
+    "DataFactoryIdentifierReferenceRow": DataFactoryIdentifierReferenceRow,
+    "DataFactorySceneRow": DataFactorySceneRow,
+    "DataFactorySceneStepAssertConfigRow": DataFactorySceneStepAssertConfigRow,
+    "DataFactorySceneStepHttpConfigRow": DataFactorySceneStepHttpConfigRow,
+    "DataFactorySceneStepRow": DataFactorySceneStepRow,
+    "DataFactorySceneStepSqlConfigRow": DataFactorySceneStepSqlConfigRow,
+    "DataFactorySceneStepTransformConfigRow": DataFactorySceneStepTransformConfigRow,
+    "DataFactorySceneVersionRow": DataFactorySceneVersionRow,
+    "DataFactoryServiceEndpointRow": DataFactoryServiceEndpointRow,
+    "DataFactorySqlSourceRow": DataFactorySqlSourceRow,
+    "DataFactorySystemRow": DataFactorySystemRow,
 }
 
 
@@ -66,55 +88,47 @@ async def datagen_services(tmp_path):
         http_repo = HttpSourceRepository(session_factory)
         sql_repo = SqlSourceRepository(session_factory)
         scene_repo = SceneRepository(session_factory)
-        task_repo = TaskRepository(session_factory)
         yield {
             "base": BaseConfigService(base_repo),
+            "base_repo": base_repo,
             "http": HttpSourceService(http_repo, base_repo),
             "sql": SqlSourceService(sql_repo, base_repo),
             "scene_repo": scene_repo,
-            "task": TaskService(task_repo, scene_repo),
-            "runtime_loader": DatagenRuntimeResourceLoader(session_factory),
         }
     finally:
         await close_engine()
 
 
-def test_datagen_modules_import_common_models_directly():
+def test_datagen_config_modules_do_not_import_removed_legacy_modules():
+    forbidden_imports = {
+        "app.gdp.models",
+        "app.gdp.persistence.model",
+        "app.gdp.persistence.models",
+        "app.gdp.datagen.baseconfig",
+        "app.gdp.datagen.httpsource",
+        "app.gdp.datagen.scene",
+        "app.gdp.datagen.sqlsource",
+        "app.gdp.datagen.task",
+    }
     offenders = []
-    for path in DATAGEN_ROOT.rglob("*.py"):
-        if path.name == "__init__.py":
-            continue
+    for path in DATAGEN_CONFIG_ROOT.rglob("*.py"):
         imported_modules = _imported_modules(path)
-        if "app.gdp.models" in imported_modules:
-            offenders.append(str(path.relative_to(DATAGEN_ROOT)))
+        legacy_imports = sorted(imported_modules & forbidden_imports)
+        if legacy_imports:
+            offenders.append(f"{path.relative_to(DATAGEN_CONFIG_ROOT)} imports {', '.join(legacy_imports)}")
 
     assert offenders == []
 
 
-def test_legacy_models_reexport_common_datagen_models():
-    assert legacy_models.ConfigStatus is common_models.ConfigStatus
-    assert legacy_models.SceneStatus is common_models.SceneStatus
-    assert legacy_models.InputFieldDefinition is common_models.InputFieldDefinition
-    assert legacy_models.HttpMethod is common_models.HttpMethod
-    assert legacy_models.SqlOperation is common_models.SqlOperation
+def test_common_models_are_current_datagen_contract_source():
+    assert common_models.ConfigStatus is ConfigStatus
+    assert common_models.HttpMethod is HttpMethod
+    assert common_models.SqlOperation is SqlOperation
 
 
-def test_legacy_persistence_model_reexports_grouped_rows():
-    row_names = [
-        "DataFactoryConfigAuditRow",
-        "DataFactoryDatasourceRow",
-        "DataFactoryEnvironmentRow",
-        "DataFactoryHttpSourceRow",
-        "DataFactorySceneRow",
-        "DataFactorySceneVersionRow",
-        "DataFactoryServiceEndpointRow",
-        "DataFactorySqlSourceRow",
-        "DataFactorySqlTemplateRow",
-        "DataFactoryTaskRow",
-        "DataFactoryTaskVersionRow",
-    ]
-    for row_name in row_names:
-        assert getattr(legacy_persistence_models, row_name) is getattr(grouped_persistence_models, row_name)
+def test_grouped_persistence_models_reexport_current_datagen_rows():
+    for row_name, row_class in CURRENT_ROW_CLASSES.items():
+        assert getattr(grouped_persistence_models, row_name) is row_class
 
 
 def test_grouped_persistence_models_register_datagen_tables():
@@ -123,23 +137,28 @@ def test_grouped_persistence_models_register_datagen_tables():
         "df_datasource",
         "df_environment",
         "df_http_source",
+        "df_identifier_reference",
         "df_scene",
+        "df_scene_step",
+        "df_scene_step_assert_config",
+        "df_scene_step_http_config",
+        "df_scene_step_sql_config",
+        "df_scene_step_transform_config",
         "df_scene_version",
         "df_service_endpoint",
-        "df_sql_template",
-        "df_task",
-        "df_task_version",
+        "df_sql_source",
+        "df_system",
     }
 
     assert table_names.issubset(Base.metadata.tables)
 
 
-def test_datagen_feature_imports_do_not_reference_upper_layers():
+def test_datagen_config_layers_do_not_reference_upper_layers():
     violations = []
 
-    for path in DATAGEN_ROOT.rglob("*.py"):
-        relative = path.relative_to(DATAGEN_ROOT)
-        if relative.parts[0] == "dependencies.py":
+    for path in DATAGEN_CONFIG_ROOT.rglob("*.py"):
+        relative = path.relative_to(DATAGEN_CONFIG_ROOT)
+        if path.name == "__init__.py":
             continue
         layer = relative.parts[0]
         forbidden_layers = FORBIDDEN_LAYER_IMPORTS.get(layer)
@@ -147,7 +166,7 @@ def test_datagen_feature_imports_do_not_reference_upper_layers():
             continue
 
         for imported_module in _imported_modules(path):
-            imported_layer = _datagen_layer(imported_module)
+            imported_layer = _datagen_config_layer(imported_module)
             if imported_layer in forbidden_layers:
                 violations.append(
                     f"{relative}: {layer} imports upper layer {imported_layer} via {imported_module}"
@@ -158,61 +177,88 @@ def test_datagen_feature_imports_do_not_reference_upper_layers():
 
 def test_datagen_sqlsource_uses_source_naming_not_template_naming():
     offenders = []
-    sqlsource_root = DATAGEN_ROOT / "sqlsource"
+    sqlsource_root = DATAGEN_CONFIG_ROOT / "sqlsource"
     for path in sqlsource_root.rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if isinstance(node, ast.Name) and "SqlTemplate" in node.id:
-                offenders.append(f"{path.relative_to(DATAGEN_ROOT)}: {node.id}")
+                offenders.append(f"{path.relative_to(DATAGEN_CONFIG_ROOT)}: {node.id}")
             elif isinstance(node, ast.alias) and "SqlTemplate" in node.name:
-                offenders.append(f"{path.relative_to(DATAGEN_ROOT)}: {node.name}")
+                offenders.append(f"{path.relative_to(DATAGEN_CONFIG_ROOT)}: {node.name}")
 
     assert offenders == []
 
 
-def test_datagen_runtime_does_not_import_feature_services_or_apis():
+def test_datagen_runtime_does_not_import_config_services_or_apis():
     violations = []
-    runtime_root = DATAGEN_ROOT / "runtime"
     forbidden_suffixes = (".api", ".service")
 
-    for path in runtime_root.rglob("*.py"):
+    for path in DATAGEN_RUNTIME_ROOT.rglob("*.py"):
         for imported_module in _imported_modules(path):
-            if imported_module.startswith("app.gdp.datagen.") and imported_module.endswith(forbidden_suffixes):
-                violations.append(f"{path.relative_to(DATAGEN_ROOT)} imports {imported_module}")
+            if imported_module.startswith("app.gdp.datagen.config.") and imported_module.endswith(forbidden_suffixes):
+                violations.append(f"{path.relative_to(DATAGEN_RUNTIME_ROOT)} imports {imported_module}")
 
     assert violations == []
 
 
 @pytest.mark.anyio
-async def test_http_source_requires_enabled_service_endpoint(datagen_services):
+async def test_http_source_requires_enabled_system(datagen_services):
     http = datagen_services["http"]
 
     with pytest.raises(HTTPException) as exc:
         await http.upsert_http_source(_http_source("order"))
 
     assert exc.value.status_code == 422
-    assert "enabled service endpoint" in str(exc.value.detail)
+    assert "enabled system" in str(exc.value.detail)
 
 
 @pytest.mark.anyio
-async def test_http_source_accepts_enabled_service_endpoint(datagen_services):
+async def test_http_source_accepts_enabled_system(datagen_services):
     base = datagen_services["base"]
     http = datagen_services["http"]
 
-    await _create_env(base)
-    await base.create_service_endpoint(_endpoint("order", status=ConfigStatus.ENABLED))
+    await _create_system(base, "order")
 
     saved = await http.upsert_http_source(_http_source("order"))
 
-    assert saved.serviceCode == "order"
+    assert saved.sysCode == "order"
+
+
+@pytest.mark.anyio
+async def test_http_source_test_requires_enabled_service_endpoint(datagen_services):
+    base = datagen_services["base"]
+    http = datagen_services["http"]
+
+    await _create_system(base, "order")
+
+    with pytest.raises(HTTPException) as exc:
+        await http.test_http_source(HttpSourceTestRequest(envCode="DEV", config=_http_source("order")))
+
+    assert exc.value.status_code == 422
+    assert "服务端点" in str(exc.value.detail)
+
+
+@pytest.mark.anyio
+async def test_sql_source_requires_enabled_system(datagen_services):
+    sql = datagen_services["sql"]
+
+    with pytest.raises(HTTPException) as exc:
+        await sql.upsert_sql_source(_sql_source("trade", "tradeDb"))
+
+    assert exc.value.status_code == 422
+    assert "enabled system" in str(exc.value.detail)
 
 
 @pytest.mark.anyio
 async def test_sql_source_requires_enabled_datasource(datagen_services):
+    base = datagen_services["base"]
     sql = datagen_services["sql"]
 
+    await _create_env(base)
+    await _create_system(base, "trade")
+
     with pytest.raises(HTTPException) as exc:
-        await sql.upsert_sql_source(_sql_source("tradeDb"))
+        await sql.upsert_sql_source(_sql_source("trade", "tradeDb"))
 
     assert exc.value.status_code == 422
     assert "enabled datasource" in str(exc.value.detail)
@@ -224,52 +270,30 @@ async def test_sql_source_accepts_enabled_datasource(datagen_services):
     sql = datagen_services["sql"]
 
     await _create_env(base)
-    await base.create_datasource(_datasource("tradeDb", status=ConfigStatus.ENABLED))
+    await _create_system(base, "trade")
+    await base.create_datasource(_datasource("trade", "tradeDb", status=ConfigStatus.ENABLED))
 
-    saved = await sql.upsert_sql_source(_sql_source("tradeDb"))
+    saved = await sql.upsert_sql_source(_sql_source("trade", "tradeDb"))
 
+    assert saved.sysCode == "trade"
     assert saved.datasourceCode == "tradeDb"
 
 
 @pytest.mark.anyio
-async def test_task_publish_requires_published_scene(datagen_services):
-    scene_repo = datagen_services["scene_repo"]
-    task = datagen_services["task"]
-
-    await scene_repo.create_scene(_scene("createUser"))
-    await task.create_task(_task("seedUsers", "createUser"))
-
-    with pytest.raises(HTTPException) as exc:
-        await task.publish_task("seedUsers")
-
-    assert exc.value.status_code == 422
-    assert "scene must be published" in str(exc.value.detail)
-
-
-@pytest.mark.anyio
-async def test_runtime_resource_loader_resolves_base_config_by_env(datagen_services):
+async def test_base_config_resolves_endpoint_and_datasource(datagen_services):
     base = datagen_services["base"]
-    http = datagen_services["http"]
-    sql = datagen_services["sql"]
-    loader = datagen_services["runtime_loader"]
+    base_repo = datagen_services["base_repo"]
 
-    await base.upsert_environment(EnvironmentConfig(envCode="DEV", envName="Development"))
-    await base.upsert_environment(EnvironmentConfig(envCode="SIT", envName="System Integration"))
-    await base.create_service_endpoint(_endpoint("order", env_code="DEV", base_url="https://dev.example.test"))
-    await base.create_service_endpoint(_endpoint("order", env_code="SIT", base_url="https://sit.example.test"))
-    await base.create_datasource(_datasource("tradeDb", env_code="DEV", database_name="dev_trade"))
-    await base.create_datasource(_datasource("tradeDb", env_code="SIT", database_name="sit_trade"))
-    await http.upsert_http_source(_http_source("order"))
-    await sql.upsert_sql_source(_sql_source("tradeDb"))
+    await _create_env(base)
+    await _create_system(base, "trade")
+    await base.create_service_endpoint(_endpoint("trade", base_url="https://sit.example.test"))
+    await base.create_datasource(_datasource("trade", "tradeDb", database_name="sit_trade"))
 
-    resources = await loader.load("SIT")
+    endpoint = await base_repo.get_enabled_service_endpoint(env_code="DEV", sys_code="trade")
+    datasource = await base_repo.get_enabled_datasource(env_code="DEV", sys_code="trade", datasource_code="tradeDb")
 
-    assert resources.serviceEndpoints == {"order": "https://sit.example.test"}
-    assert resources.datasources["tradeDb"]["databaseName"] == "sit_trade"
-    assert resources.datasource_url("tradeDb") == "mysql+aiomysql://127.0.0.1:3306/sit_trade"
-    assert resources.httpSources["createUserApi"]["serviceCode"] == "order"
-    assert resources.sqlSources["queryUserSql"].datasourceCode == "tradeDb"
-    assert resources.sqlSources["queryUserSql"].sqlText == "select * from users where id = :userId"
+    assert endpoint.baseUrl == "https://sit.example.test"
+    assert datasource.databaseName == "sit_trade"
 
 
 async def _create_env(base: BaseConfigService) -> None:
@@ -278,8 +302,14 @@ async def _create_env(base: BaseConfigService) -> None:
     )
 
 
+async def _create_system(base: BaseConfigService, sys_code: str) -> None:
+    await base.upsert_system(
+        SysConfig(sysCode=sys_code, sysName=f"{sys_code} system", status=ConfigStatus.ENABLED)
+    )
+
+
 def _endpoint(
-    service_code: str,
+    sys_code: str,
     *,
     status: ConfigStatus = ConfigStatus.ENABLED,
     env_code: str = "DEV",
@@ -287,14 +317,14 @@ def _endpoint(
 ) -> ServiceEndpointConfig:
     return ServiceEndpointConfig(
         envCode=env_code,
-        serviceCode=service_code,
-        serviceName=f"{service_code} service",
+        sysCode=sys_code,
         baseUrl=base_url,
         status=status,
     )
 
 
 def _datasource(
+    sys_code: str,
     datasource_code: str,
     *,
     status: ConfigStatus = ConfigStatus.ENABLED,
@@ -303,6 +333,7 @@ def _datasource(
 ) -> DatasourceConfig:
     return DatasourceConfig(
         envCode=env_code,
+        sysCode=sys_code,
         datasourceCode=datasource_code,
         datasourceName=f"{datasource_code} datasource",
         dbType="MySQL",
@@ -313,11 +344,11 @@ def _datasource(
     )
 
 
-def _http_source(service_code: str) -> HttpSourceConfig:
+def _http_source(sys_code: str) -> HttpSourceConfig:
     return HttpSourceConfig(
         sourceCode="createUserApi",
         sourceName="Create user API",
-        serviceCode=service_code,
+        sysCode=sys_code,
         path="/users",
         method=HttpMethod.POST,
         requestMapping={},
@@ -326,56 +357,16 @@ def _http_source(service_code: str) -> HttpSourceConfig:
     )
 
 
-def _sql_source(datasource_code: str) -> SqlSourceConfig:
+def _sql_source(sys_code: str, datasource_code: str) -> SqlSourceConfig:
     return SqlSourceConfig(
         sourceCode="queryUserSql",
         sourceName="Query user SQL",
+        sysCode=sys_code,
         datasourceCode=datasource_code,
         operation=SqlOperation.SELECT,
         sqlText="select * from users where id = :userId",
         parameters=[],
         status=ConfigStatus.ENABLED,
-    )
-
-
-def _scene(scene_code: str) -> SceneDefinition:
-    return SceneDefinition(
-        sceneCode=scene_code,
-        sceneName="Create user",
-        inputSchema=[_env_field()],
-        steps=[],
-        resultMapping={},
-        batchConfig=BatchConfig(),
-        status=SceneStatus.DRAFT,
-    )
-
-
-def _task(task_code: str, scene_code: str) -> TaskDefinition:
-    return TaskDefinition(
-        taskCode=task_code,
-        taskName="Seed users",
-        inputSchema=[_env_field()],
-        steps=[
-            TaskStepDefinition(
-                stepId="runCreateUser",
-                sceneCode=scene_code,
-                dependsOn=[],
-                inputMapping={},
-                outputMapping={},
-            )
-        ],
-        resultMapping={},
-        status=SceneStatus.DRAFT,
-    )
-
-
-def _env_field() -> InputFieldDefinition:
-    return InputFieldDefinition(
-        name="env",
-        label="Environment",
-        type=InputFieldType.STRING,
-        required=True,
-        batchEnabled=False,
     )
 
 
@@ -390,8 +381,8 @@ def _imported_modules(path: Path) -> set[str]:
     return modules
 
 
-def _datagen_layer(module_name: str) -> str | None:
-    prefix = "app.gdp.datagen."
+def _datagen_config_layer(module_name: str) -> str | None:
+    prefix = "app.gdp.datagen.config."
     if not module_name.startswith(prefix):
         return None
     return module_name.removeprefix(prefix).split(".", 1)[0]

@@ -23,7 +23,8 @@ import {
   publishScene,
   updateScene,
 } from "../common/lib/api";
-import { createDefaultScene, createDefaultStep } from "../common/lib/defaults";
+import { createDefaultHttpTimeoutConfig, createDefaultScene, createDefaultStep } from "../common/lib/defaults";
+import { toStrictScenePayload } from "../common/lib/step-payload";
 import { validateSceneForPublish } from "../common/lib/step-validation";
 import type {
   HttpSourceResponse,
@@ -119,9 +120,10 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
     
     setSaving(true);
     try {
+      const payload = toStrictScenePayload(scene);
       const version = persistedSceneCode
-        ? await updateScene(persistedSceneCode, scene)
-        : await createScene(scene);
+        ? await updateScene(persistedSceneCode, payload)
+        : await createScene(payload);
       const next = normalizeScene(version.definition);
       setScene(next);
       setPersistedSceneCode(version.sceneCode);
@@ -307,28 +309,77 @@ function normalizeScene(scene: SceneDefinition): SceneDefinition {
     resultSchema: scene.resultSchema ?? [],
     resultMapping: normalizeResultMapping(scene.resultMapping),
     errorPolicy: scene.errorPolicy ?? "STOP_ON_ERROR",
-    steps: (scene.steps ?? []).map((step) => ({
-      ...step,
+    steps: (scene.steps ?? []).map(normalizeStep),
+  };
+}
+
+function normalizeStep(step: StepDefinition): StepDefinition {
+  const base = {
+    stepId: step.stepId,
+    stepName: step.stepName ?? null,
+    type: step.type,
+    enabled: step.enabled ?? true,
+    dependsOn: step.dependsOn ?? [],
+    description: step.description ?? null,
+    position: step.position ?? null,
+    templateRef: step.templateRef ?? null,
+    outputMapping: step.outputMapping ?? {},
+    outputMeta: step.outputMeta ?? null,
+  };
+
+  if (step.type === "HTTP") {
+    return {
+      ...base,
+      type: "HTTP",
+      sourceName: step.sourceName ?? null,
+      sysCode: step.sysCode ?? "",
+      method: step.method ?? "POST",
+      path: step.path ?? "",
+      timeoutConfig: step.timeoutConfig ?? createDefaultHttpTimeoutConfig(),
       requestMapping: step.requestMapping ?? {},
-      outputMapping: step.outputMapping ?? {},
-      paramMapping: step.paramMapping ?? {},
-      sqlParamMapping: step.sqlParamMapping ?? {},
       httpParamMapping: step.httpParamMapping ?? {},
-      assertions: step.assertions ?? [],
-      assignments: step.assignments ?? {},
-      dependsOn: step.dependsOn ?? [],
-      enabled: step.enabled ?? true,
-      // HTTP 快照字段兼容
-      path: step.path ?? step.url ?? null,
-      // SQL 快照字段兼容
-      sqlText: step.sqlText ?? null,
-      normalizedSql: step.normalizedSql ?? null,
+      bodySchema: step.bodySchema ?? null,
+      responseSchema: step.responseSchema ?? null,
+      responseHeadersSchema: step.responseHeadersSchema ?? null,
+      responseCookiesSchema: step.responseCookiesSchema ?? null,
+      responseHandling: step.responseHandling ?? null,
+      errorMapping: step.errorMapping ?? null,
+      businessErrorMapping: step.businessErrorMapping ?? null,
+      retryPolicy: step.retryPolicy ?? null,
+    };
+  }
+
+  if (step.type === "SQL") {
+    return {
+      ...base,
+      type: "SQL",
+      sourceName: step.sourceName ?? null,
+      sysCode: step.sysCode ?? "",
+      datasourceCode: step.datasourceCode ?? "",
+      operation: step.operation ?? "UPDATE",
+      sqlText: step.sqlText ?? "",
+      normalizedSql: step.normalizedSql ?? "",
       tables: step.tables ?? [],
       resultFields: step.resultFields ?? [],
       conditionFields: step.conditionFields ?? [],
       parameters: step.parameters ?? [],
       safety: step.safety ?? { requireWhere: true, maxAffectedRows: null },
-    })),
+      paramMapping: step.paramMapping ?? {},
+    };
+  }
+
+  if (step.type === "ASSERT") {
+    return {
+      ...base,
+      type: "ASSERT",
+      assertions: step.assertions ?? [],
+    };
+  }
+
+  return {
+    ...base,
+    type: "TRANSFORM",
+    assignments: step.assignments ?? {},
   };
 }
 

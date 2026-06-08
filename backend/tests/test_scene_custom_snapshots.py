@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.gdp.datagen.config.common.models import HttpMethod, InputFieldDefinition, InputFieldType, SceneStatus, SqlOperation
-from app.gdp.datagen.config.scene.models import BatchConfig, SceneDefinition, StepDefinition, ValidationResult
+from app.gdp.datagen.config.scene.models import BatchConfig, HttpStepDefinition, SceneDefinition, SqlStepDefinition, ValidationResult
 from app.gdp.datagen.config.scene.repository import (
     DataFactorySceneStepHttpConfigRow,
     DataFactorySceneStepSqlConfigRow,
     DataFactorySceneVersionRow,
     SceneRepository,
 )
-from app.gdp.datagen.config.scene.service import SceneService
 from app.gdp.datagen.config.scene.validation import validate_scene_publish
 from deerflow.persistence.engine import close_engine, get_session_factory, init_engine
 
@@ -37,16 +35,13 @@ async def test_custom_http_and_sql_steps_are_saved_as_scene_snapshots(scene_repo
     assert saved.versionStatus == "DRAFT"
     assert len(saved.definition.steps) == 2
     assert saved.definition.steps[0].templateRef is None
-    assert saved.definition.steps[0].httpSourceCode is None
     assert saved.definition.steps[1].templateRef is None
-    assert saved.definition.steps[1].sqlSourceCode is None
 
     loaded = await scene_repo.get_scene("customScene")
     http_step = loaded.definition.steps[0]
     sql_step = loaded.definition.steps[1]
 
     assert http_step.path == "/orders"
-    assert http_step.url == "/orders"
     assert http_step.requestMapping["headers"]["Trace-Id"] == "${system.uuid}"
     assert sql_step.normalizedSql == "select * from orders where id = :orderId"
     assert sql_step.paramMapping == {"orderId": "${steps.create_order.outputs.orderNo}"}
@@ -122,25 +117,11 @@ async def test_error_policy_is_stored_as_plain_string(scene_repo: SceneRepositor
     assert loaded.definition.errorPolicy == "CONTINUE_ON_ERROR"
 
 
-@pytest.mark.anyio
-async def test_scene_service_rejects_template_references_for_custom_only_phase(scene_repo: SceneRepository):
-    scene = _scene("templateRejected")
-    scene.steps[0].httpSourceCode = "http_template"
-    service = SceneService(scene_repo)
-
-    with pytest.raises(HTTPException) as exc:
-        await service.create_scene(scene)
-
-    assert exc.value.status_code == 422
-    assert "不支持 HTTP 模板引用" in str(exc.value.detail)
-
-
 def test_sql_parameter_without_required_defaults_to_optional():
     scene = _scene("optionalParamScene")
     sql_step = scene.steps[1]
     sql_step.parameters = [{"name": "optionalFilter", "type": "string"}]
     sql_step.paramMapping = {}
-    sql_step.sqlParamMapping = {}
 
     result = validate_scene_publish(scene)
 
@@ -155,7 +136,6 @@ def test_publish_rejects_update_or_delete_without_where_when_required():
     sql_step.normalizedSql = "DELETE FROM orders"
     sql_step.parameters = []
     sql_step.paramMapping = {}
-    sql_step.sqlParamMapping = {}
 
     result = validate_scene_publish(scene)
 
@@ -188,7 +168,7 @@ def test_publish_rejects_missing_step_output_name():
 
 def test_publish_rejects_references_to_disabled_steps():
     scene = _scene("disabledReferenceScene")
-    disabled_step = StepDefinition(
+    disabled_step = HttpStepDefinition(
         stepId="disabled_login",
         stepName="禁用登录",
         type="HTTP",
@@ -222,7 +202,7 @@ def _scene(scene_code: str) -> SceneDefinition:
             )
         ],
         steps=[
-            StepDefinition(
+            HttpStepDefinition(
                 stepId="create_order",
                 stepName="创建订单",
                 type="HTTP",
@@ -243,7 +223,7 @@ def _scene(scene_code: str) -> SceneDefinition:
                 },
                 outputMapping={"orderNo": "${RES_BODY(data.orderNo)}"},
             ),
-            StepDefinition(
+            SqlStepDefinition(
                 stepId="query_order",
                 stepName="查询订单",
                 type="SQL",

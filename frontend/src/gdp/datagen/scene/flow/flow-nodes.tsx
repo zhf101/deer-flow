@@ -10,19 +10,18 @@ import type { StepNodeData } from "../../common/lib/flow";
 
 export function HttpStepNode({ data, selected }: NodeProps) {
   const d = data as unknown as StepNodeData;
-  // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty string should fall through
-  const rawUrl = d.url || "未配置URL";
+  const rawPath = d.path || "未配置URL";
   const isDisabled = d.enabled === false;
   const outputCount = d.outputCount ?? 0;
   const hasErrors = d.hasErrors ?? false;
-  let displayUrl = rawUrl;
+  let displayUrl = rawPath;
   try {
     displayUrl = displayUrl.replace(/^(?:https?:\/\/[^/]+|\$\{[^}]+})/, "");
   } catch {
     // regex shouldn't throw, but guard defensively
   }
   if (!displayUrl) {
-    displayUrl = rawUrl;
+    displayUrl = rawPath;
   }
   const truncatedUrl = displayUrl.length > 25 ? "..." + displayUrl.substring(displayUrl.length - 22) : displayUrl;
 

@@ -70,10 +70,10 @@ import type {
   HttpSourceConfig,
   HttpSourceResponse,
   HttpSourceTestResult,
+  HttpStepDefinition,
   InputFieldDefinition,
   ParsedCookie,
   ServiceEndpointResponse,
-  StepDefinition,
   SysResponse,
 } from "../common/lib/types";
 import { HttpResponseMappingEditor } from "../common/source-forms/http-response-mapping-editor";
@@ -82,19 +82,21 @@ import { ConfirmDialog } from "../common/ui/confirm-dialog";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 
-/* ── 适配器：HttpSourceConfig → StepDefinition ── */
+/* ── 适配器：HttpSourceConfig → HttpStepDefinition ── */
 
-function configToFakeStep(config: HttpSourceConfig): StepDefinition {
+function configToHttpStep(config: HttpSourceConfig): HttpStepDefinition {
   return {
     stepId: config.sourceCode || "__httpsource__",
     stepName: config.sourceName,
     type: "HTTP",
     enabled: true,
     dependsOn: [],
+    description: "",
+    position: null,
+    templateRef: null,
     httpParamMapping: {},
-    sqlParamMapping: {},
     method: config.method,
-    url: config.path,
+    path: config.path,
     sysCode: config.sysCode,
     requestMapping: config.requestMapping,
     timeoutConfig: config.timeoutConfig ?? createDefaultHttpTimeoutConfig(),
@@ -108,9 +110,6 @@ function configToFakeStep(config: HttpSourceConfig): StepDefinition {
     outputMapping: config.outputMapping,
     outputMeta: config.outputMeta,
     retryPolicy: config.retryPolicy,
-    paramMapping: {},
-    assertions: [],
-    assignments: {},
   };
 }
 
@@ -692,8 +691,8 @@ function HttpSourceEditor({
   onCancel: () => void;
 }) {
   const readOnly = mode === "view";
-  /* 根据 HttpSourceConfig 构造一个临时 StepDefinition */
-  const fakeStep = configToFakeStep(config);
+  /* 根据 HttpSourceConfig 构造一个临时 HTTP 步骤 */
+  const httpStep = configToHttpStep(config);
   const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
   const [testEnvCode, setTestEnvCode] = useState("");
   const [testing, setTesting] = useState(false);
@@ -721,13 +720,13 @@ function HttpSourceEditor({
 
   /* ── 请求面板变更处理函数 ── */
   const handleRequestChange = useCallback(
-    (updatedStep: StepDefinition) => {
+    (updatedStep: HttpStepDefinition) => {
       onChange({
         ...config,
-        method: updatedStep.method ?? config.method,
+        method: updatedStep.method,
         sysCode: updatedStep.sysCode ?? config.sysCode,
-        path: updatedStep.url ?? config.path,
-        timeoutConfig: updatedStep.timeoutConfig ?? config.timeoutConfig,
+        path: updatedStep.path ?? config.path,
+        timeoutConfig: updatedStep.timeoutConfig,
         requestMapping: updatedStep.requestMapping,
       });
     },
@@ -736,7 +735,7 @@ function HttpSourceEditor({
 
   /* ── 响应面板变更处理函数 ── */
   const handleResponseChange = useCallback(
-    (updates: Partial<StepDefinition>) => {
+    (updates: Partial<HttpStepDefinition>) => {
       const next = { ...config };
       if (updates.responseSchema !== undefined)
         next.responseSchema = updates.responseSchema;
@@ -975,7 +974,7 @@ function HttpSourceEditor({
             <TabsContent value="request">
               <div className="rounded-lg border bg-card p-4">
                 <HttpStepForm
-                  step={fakeStep}
+                  step={httpStep}
                   onChange={readOnly ? () => undefined : handleRequestChange}
                   showResponse={false}
                   requestCollapsible={false}
@@ -988,7 +987,7 @@ function HttpSourceEditor({
             <TabsContent value="response">
               <div className="rounded-lg border bg-card p-4">
                 <HttpResponseMappingEditor
-                  step={fakeStep}
+                  step={httpStep}
                   onChange={readOnly ? () => undefined : handleResponseChange}
                   disabled={readOnly}
                 />

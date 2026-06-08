@@ -42,13 +42,13 @@ import { cn } from "@/lib/utils";
 
 import { VariableSelector } from "../editors/variable-selector";
 import { listServiceEndpoints, listSystems } from "../lib/api";
-import { createDefaultHttpTimeoutConfig, HTTP_METHODS } from "../lib/defaults";
+import { HTTP_METHODS } from "../lib/defaults";
 import type {
+  HttpStepDefinition,
   HttpMethod,
   HttpTimeoutConfig,
   SceneDefinition,
   ServiceEndpointResponse,
-  StepDefinition,
   SysResponse,
 } from "../lib/types";
 import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
@@ -64,8 +64,8 @@ import { HttpResponseMappingEditor } from "./http-response-mapping-editor";
 
 interface HttpStepFormProps {
   scene?: SceneDefinition;
-  step: StepDefinition;
-  onChange: (step: StepDefinition) => void;
+  step: HttpStepDefinition;
+  onChange: (step: HttpStepDefinition) => void;
   /** 是否显示响应配置区域。默认 true。 */
   showResponse?: boolean;
   /** 是否在响应区域内显示抽取管理器。默认 true。 */
@@ -157,9 +157,9 @@ export function HttpStepForm({
   }, [endpoints, systems]);
 
   const selectedEndpoints = endpoints.filter((ep) => ep.sysCode === step.sysCode);
-  const method = step.method ?? "POST";
-  const requestMapping = (step.requestMapping ?? {}) as HttpRequestMapping;
-  const timeoutConfig = step.timeoutConfig ?? createDefaultHttpTimeoutConfig();
+  const method = step.method;
+  const requestMapping = step.requestMapping as HttpRequestMapping;
+  const timeoutConfig = step.timeoutConfig;
 
   const updateTimeoutConfig = (key: TimeoutConfigKey, rawValue: string) => {
     const nextValue = Number(rawValue);
@@ -268,7 +268,7 @@ export function HttpStepForm({
             )}
             请求配置
             <span className="ml-auto text-[10px] font-normal text-muted-foreground">
-              {method} {step.url ? (step.url.length > 50 ? step.url.slice(0, 50) + "..." : step.url) : "未配置 URL"}
+              {method} {step.path ? (step.path.length > 50 ? step.path.slice(0, 50) + "..." : step.path) : "未配置 URL"}
             </span>
           </CollapsibleTrigger>
         ) : null}
@@ -315,8 +315,8 @@ export function HttpStepForm({
             </Select>
 
             <Input
-              value={step.url ?? ""}
-              onChange={(e) => onChange({ ...step, url: e.target.value })}
+              value={step.path ?? ""}
+              onChange={(e) => onChange({ ...step, path: e.target.value })}
               placeholder={
                 selectedEndpoints[0]
                   ? `/v1/resource (示例端点: ${selectedEndpoints[0].baseUrl})`
@@ -724,10 +724,10 @@ function FormDataEditor({
   onChange,
 }: {
   scene?: SceneDefinition;
-  step: StepDefinition;
-  onChange: (step: StepDefinition) => void;
+  step: HttpStepDefinition;
+  onChange: (step: HttpStepDefinition) => void;
 }) {
-  const requestMapping = (step.requestMapping ?? {}) as HttpRequestMapping;
+  const requestMapping = step.requestMapping as HttpRequestMapping;
   const rows: FormDataRow[] = requestMapping.formData ?? [
     { key: "", value: "", description: "", enabled: true },
   ];

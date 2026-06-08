@@ -30,12 +30,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
-import type { SqlSourceFieldMeta, StepDefinition } from "../lib/types";
+import type { SqlSourceFieldMeta, SqlStepDefinition } from "../lib/types";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 
 interface SqlOutputExtractionEditorProps {
-  step: StepDefinition;
-  onChange: (step: StepDefinition) => void;
+  step: SqlStepDefinition;
+  onChange: (step: SqlStepDefinition) => void;
   disabled?: boolean;
   showHeader?: boolean;
   /** SQL 解析后的结果字段，用于快速添加 */

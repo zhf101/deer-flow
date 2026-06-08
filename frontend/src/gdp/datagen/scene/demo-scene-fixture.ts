@@ -56,8 +56,15 @@ export function buildDemoSceneDefinition(
         enabled: true,
         dependsOn: [],
         description: "调用认证服务登录接口，获取访问令牌供后续步骤使用",
+        sysCode: "auth",
         method: "POST",
-        url: "${env.services.auth.baseUrl}/api/v1/login",
+        path: "/api/v1/login",
+        timeoutConfig: {
+          connectTimeoutSeconds: 10,
+          readTimeoutSeconds: 10,
+          writeTimeoutSeconds: 10,
+          poolTimeoutSeconds: 10,
+        },
         requestMapping: {
           headers: { "Content-Type": "application/json" },
           body: { userId: "${input.userId}", grantType: "password" },
@@ -80,10 +87,6 @@ export function buildDemoSceneDefinition(
             batchEnabled: false,
           },
         ],
-        bodyMapping: {
-          userId: "${input.userId}",
-          grantType: "password",
-        },
         responseSchema: [
           {
             name: "code",
@@ -151,11 +154,7 @@ export function buildDemoSceneDefinition(
           },
           expiresIn: { label: "过期时间", remark: "单位秒，默认7200" },
         },
-        paramMapping: {},
         httpParamMapping: {},
-        sqlParamMapping: {},
-        assertions: [],
-        assignments: {},
       },
       {
         stepId: "check_inventory",
@@ -167,7 +166,10 @@ export function buildDemoSceneDefinition(
         operation: "SELECT",
         sysCode: "trade",
         datasourceCode: "tradeDb",
-        sqlTemplateCode: "",
+        sqlText:
+          "SELECT stock_num, status FROM product_inventory WHERE product_id = :productId",
+        normalizedSql:
+          "SELECT stock_num, status FROM product_inventory WHERE product_id = :productId",
         paramMapping: {
           productId: "${input.productId}",
         },
@@ -182,11 +184,6 @@ export function buildDemoSceneDefinition(
             remark: "ON_SALE=在售, OFF_SHELF=已下架",
           },
         },
-        requestMapping: {},
-        httpParamMapping: {},
-        sqlParamMapping: {},
-        assertions: [],
-        assignments: {},
       },
       {
         stepId: "create_order",
@@ -195,8 +192,15 @@ export function buildDemoSceneDefinition(
         enabled: true,
         dependsOn: ["user_login", "check_inventory"],
         description: "携带登录Token调用交易中台创建订单",
+        sysCode: "trade",
         method: "POST",
-        url: "${env.services.trade.baseUrl}/api/v2/orders/create",
+        path: "/api/v2/orders/create",
+        timeoutConfig: {
+          connectTimeoutSeconds: 10,
+          readTimeoutSeconds: 10,
+          writeTimeoutSeconds: 10,
+          poolTimeoutSeconds: 10,
+        },
         requestMapping: {
           headers: {
             "Content-Type": "application/json",
@@ -276,13 +280,6 @@ export function buildDemoSceneDefinition(
             ],
           },
         ],
-        bodyMapping: {
-          requestNo: "${system.uuid}",
-          timestamp: "${system.now}",
-          "buyer.id": "${input.userId}",
-          "items.productId": "${input.productId}",
-          "items.quantity": "${input.buyCount}",
-        },
         responseSchema: [
           {
             name: "success",
@@ -372,11 +369,7 @@ export function buildDemoSceneDefinition(
           payAmount: { label: "应付金额", remark: "单位元，精确到分" },
           orderStatus: { label: "订单状态", remark: "PENDING=待付款" },
         },
-        paramMapping: {},
         httpParamMapping: {},
-        sqlParamMapping: {},
-        assertions: [],
-        assignments: {},
       },
       {
         stepId: "record_order_log",
@@ -388,7 +381,10 @@ export function buildDemoSceneDefinition(
         operation: "INSERT",
         sysCode: "trade",
         datasourceCode: "tradeDb",
-        sqlTemplateCode: "",
+        sqlText:
+          "INSERT INTO order_audit_log (order_no, user_id, product_id, pay_amount, created_at) VALUES (:orderNo, :userId, :productId, :payAmount, CURRENT_TIMESTAMP)",
+        normalizedSql:
+          "INSERT INTO order_audit_log (order_no, user_id, product_id, pay_amount, created_at) VALUES (:orderNo, :userId, :productId, :payAmount, CURRENT_TIMESTAMP)",
         paramMapping: {
           orderNo: "${steps.create_order.outputs.orderNo}",
           userId: "${input.userId}",
@@ -404,11 +400,6 @@ export function buildDemoSceneDefinition(
             remark: "自增ID，用于确认日志写入成功",
           },
         },
-        requestMapping: {},
-        httpParamMapping: {},
-        sqlParamMapping: {},
-        assertions: [],
-        assignments: {},
       },
     ],
     resultSchema: [

@@ -102,81 +102,85 @@ export function createConditionRule(): ConditionRule {
 
 export function createDefaultStep(type: StepType, index: number): StepDefinition {
   const stepId = `${type.toLowerCase().replace("_", "")}${index + 1}`;
-  const base: StepDefinition = {
+  const base = {
     stepId,
     stepName: stepLabel(type),
-    type,
     enabled: true,
     dependsOn: [],
     description: "",
     position: { x: 120 + index * 120, y: 120 + index * 36 },
-    httpSourceCode: null,
-    httpParamMapping: {},
-    sqlSourceCode: null,
-    sqlParamMapping: {},
-    requestMapping: {},
     outputMapping: {},
-    paramMapping: {},
-    assertions: [],
-    assignments: {},
+    outputMeta: null,
   };
 
   if (type === "HTTP") {
-    base.method = "POST";
-    base.url = "";
-    base.path = "";
-    base.sysCode = "";
-    base.timeoutConfig = createDefaultHttpTimeoutConfig();
-    base.requestMapping = { headers: {}, query: {}, body: {} };
-    base.responseHandling = {
-      expectedContentType: "JSON",
-      statusCode: { success: [200] },
-      businessSuccess: { allOf: [createConditionRule()] },
-      businessFailure: { anyOf: [] },
-    };
-    base.errorMapping = {
-      messageTemplate: "",
-      fields: {},
-      fallbackMessage: "",
-      exposeRawResponse: false,
-    };
-    base.businessErrorMapping = {
-      messageTemplate: "",
-      fields: {},
-      fallbackMessage: "",
-      exposeRawResponse: false,
-    };
-    base.retryPolicy = {
-      enabled: false,
-      maxAttempts: 1,
-      intervalMs: 1000,
-      retryOn: [],
+    return {
+      ...base,
+      type: "HTTP",
+      method: "POST",
+      path: "",
+      sysCode: "",
+      timeoutConfig: createDefaultHttpTimeoutConfig(),
+      requestMapping: { headers: {}, query: {}, body: {} },
+      httpParamMapping: {},
+      responseHandling: {
+        expectedContentType: "JSON",
+        statusCode: { success: [200] },
+        businessSuccess: { allOf: [createConditionRule()] },
+        businessFailure: { anyOf: [] },
+      },
+      errorMapping: {
+        messageTemplate: "",
+        fields: {},
+        fallbackMessage: "",
+        exposeRawResponse: false,
+      },
+      businessErrorMapping: {
+        messageTemplate: "",
+        fields: {},
+        fallbackMessage: "",
+        exposeRawResponse: false,
+      },
+      retryPolicy: {
+        enabled: false,
+        maxAttempts: 1,
+        intervalMs: 1000,
+        retryOn: [],
+      },
     };
   }
 
   if (type === "SQL") {
-    base.sysCode = "";
-    base.datasourceCode = "";
-    base.sqlTemplateCode = null;
-    base.operation = "UPDATE";
-    base.sqlText = "";
-    base.normalizedSql = "";
-    base.tables = [];
-    base.resultFields = [];
-    base.conditionFields = [];
-    base.parameters = [];
-    base.safety = { requireWhere: true, maxAffectedRows: null };
+    return {
+      ...base,
+      type: "SQL",
+      sysCode: "",
+      datasourceCode: "",
+      operation: "UPDATE",
+      sqlText: "",
+      normalizedSql: "",
+      tables: [],
+      resultFields: [],
+      conditionFields: [],
+      parameters: [],
+      safety: { requireWhere: true, maxAffectedRows: null },
+      paramMapping: {},
+    };
   }
 
   if (type === "ASSERT") {
-    base.assertions = [{ expression: "", message: "" }];
+    return {
+      ...base,
+      type: "ASSERT",
+      assertions: [{ expression: "", message: "" }],
+    };
   }
 
-  if (type === "TRANSFORM") {
-    base.assignments = { "vars.value": "" };
-  }
-
-  return base;
+  return {
+    ...base,
+    type: "TRANSFORM",
+    assignments: { "vars.value": "" },
+  };
 }
 
 export function stepLabel(type: StepType): string {

@@ -55,13 +55,13 @@ import {
 } from "../common/lib/step-test-utils";
 import type {
   EnvironmentResponse,
+  HttpStepDefinition,
   HttpSourceTestResult,
   SceneDefinition,
-  StepDefinition,
 } from "../common/lib/types";
 
 interface StepTestDialogProps {
-  step: StepDefinition;
+  step: HttpStepDefinition;
   scene: SceneDefinition;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -141,8 +141,7 @@ export function StepTestDialog({
             测试步骤：{step.stepName || step.stepId}
           </DialogTitle>
           <DialogDescription>
-            {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty path should fall through to url */}
-            {step.method} {step.path || step.url}
+            {step.method} {step.path}
           </DialogDescription>
         </DialogHeader>
 

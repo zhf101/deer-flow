@@ -12,6 +12,7 @@
     )
 """
 
+from app.gdp.datagen.config.sqlsource.parsers.ai import AiSqlAnalysisProvider
 from app.gdp.datagen.config.sqlsource.parsers.ast import (
     ChooseNode,
     ForeachNode,
@@ -28,7 +29,6 @@ from app.gdp.datagen.config.sqlsource.parsers.ast import (
     WhereNode,
 )
 from app.gdp.datagen.config.sqlsource.parsers.base import SqlAnalysisProvider, SqlParseContext
-from app.gdp.datagen.config.sqlsource.parsers.ai import AiSqlAnalysisProvider
 from app.gdp.datagen.config.sqlsource.parsers.mybatis_parser import parse_mybatis_xml
 from app.gdp.datagen.config.sqlsource.parsers.mybatis_renderer import render as render_mybatis_ast
 

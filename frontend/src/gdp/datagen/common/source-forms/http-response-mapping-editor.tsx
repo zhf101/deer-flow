@@ -54,8 +54,8 @@ import {
 } from "../lib/schema-utils";
 import type {
   ConditionOperator,
+  HttpStepDefinition,
   InputFieldDefinition,
-  StepDefinition,
 } from "../lib/types";
 import { formatUnknownValue, isRecord } from "../lib/value-utils";
 import { ConfirmDialog } from "../ui/confirm-dialog";
@@ -79,8 +79,8 @@ const lightTheme = basicLightInit({
 /* ── 类型 ── */
 
 interface HttpResponseMappingEditorProps {
-  step: StepDefinition;
-  onChange: (updates: Partial<StepDefinition>) => void;
+  step: HttpStepDefinition;
+  onChange: (updates: Partial<HttpStepDefinition>) => void;
   /** 禁用所有数据输入和按钮，但保留标签切换功能。 */
   disabled?: boolean;
 }

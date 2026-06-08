@@ -123,19 +123,20 @@ export function StepListView({
                                 {step.type === 'HTTP' ? (
                                     <>
                                         <GlobeIcon className="size-3 shrink-0" />
-                                        {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty url should show placeholder */}
-                                        <span className="font-mono text-[11px] truncate">{step.url || '未配置 URL'}</span>
-                                        {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty method should default to POST */}
-                                        <span className="opacity-40 ml-1 font-bold">[{step.method || 'POST'}]</span>
+                                        <span className="font-mono text-[11px] truncate">{step.path || '未配置 URL'}</span>
+                                        <span className="opacity-40 ml-1 font-bold">[{step.method}]</span>
                                     </>
-                                ) : (
+                                ) : step.type === 'SQL' ? (
                                     <>
                                         <DatabaseIcon className="size-3 shrink-0" />
                                         <span className="font-mono text-[11px] truncate">
-                                            {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty strings should fall through */}
-                                            {step.sqlText || step.normalizedSql || step.sqlTemplateCode || '未配置 SQL'}
+                                            {step.sqlText || step.normalizedSql || '未配置 SQL'}
                                         </span>
                                     </>
+                                ) : (
+                                    <span className="font-mono text-[11px] truncate">
+                                      {step.type === "ASSERT" ? `${step.assertions.length} 条断言` : `${Object.keys(step.assignments).length} 个赋值`}
+                                    </span>
                                 )}
                             </div>
                             {step.description && !step.description.startsWith('Raw SQL:') && (

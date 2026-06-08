@@ -58,9 +58,9 @@ import type {
   SqlSourceConditionMeta,
   SqlSourceFieldMeta,
   SqlOperation,
+  SqlStepDefinition,
   SqlSourceParameter,
   SqlSourceTableMeta,
-  StepDefinition,
   SysResponse,
 } from "../lib/types";
 import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
@@ -70,9 +70,9 @@ import { SqlOutputExtractionSection } from "./sql-output-extraction-editor";
 
 interface SqlStepFormProps {
   scene: SceneDefinition;
-  step: StepDefinition;
+  step: SqlStepDefinition;
   sqlTemplates?: unknown[];
-  onChange: (step: StepDefinition) => void;
+  onChange: (step: SqlStepDefinition) => void;
 }
 
 type ParseStatus = "idle" | "parsing" | "success" | "error" | "stale";
@@ -185,8 +185,6 @@ export function SqlStepForm({ scene, step, onChange }: SqlStepFormProps) {
         parameters: parsed.parameters,
         safety: step.safety ?? { requireWhere: true, maxAffectedRows: null },
         paramMapping: nextParamMapping,
-        sqlTemplateCode: null,
-        // 不再写入 description: "Raw SQL: ..."
       });
 
       setParseStatus("success");

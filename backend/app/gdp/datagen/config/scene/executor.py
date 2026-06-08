@@ -9,13 +9,14 @@ from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
-from app.gdp.datagen.config.common.models import InputFieldType, StepType
+from app.gdp.datagen.config.common.models import InputFieldType
 from app.gdp.datagen.config.scene.expression import resolve_mapping
 from app.gdp.datagen.config.scene.models import (
     SceneDefinition,
     SceneExecutionResult,
     SceneRunRequest,
     SceneVersion,
+    SqlStepDefinition,
     StepDefinition,
     StepExecutionResult,
 )
@@ -148,7 +149,7 @@ class SceneExecutor:
         started_at = _now()
         started = perf_counter()
         try:
-            if step.type != StepType.SQL:
+            if not isinstance(step, SqlStepDefinition):
                 raise SceneExecutionError(f"{step.type.value} step execution is not implemented yet")
             sql_result = await self._execute_sql_step(step, env_code, context)
             error = sql_result.error.message if sql_result.error else None
@@ -183,7 +184,7 @@ class SceneExecutor:
 
     async def _execute_sql_step(
         self,
-        step: StepDefinition,
+        step: SqlStepDefinition,
         env_code: str,
         context: dict[str, Any],
     ):
@@ -200,7 +201,7 @@ class SceneExecutor:
         logger.info("  SQL 文本: %s", sql_text)
 
         definitions = [SqlSourceParameter.model_validate(item) for item in step.parameters]
-        raw_parameters = resolve_mapping(step.paramMapping or step.sqlParamMapping, context)
+        raw_parameters = resolve_mapping(step.paramMapping, context)
         logger.info("  参数映射原始值: %s", json.dumps(raw_parameters, ensure_ascii=False, default=str) if raw_parameters else "无")
         parameters = bind_source_parameters(
             sql_text=sql_text,

@@ -8,8 +8,17 @@ from typing import Any
 
 from sqlglot import parse_one
 
-from app.gdp.datagen.config.common.models import SqlOperation, StepType
-from app.gdp.datagen.config.scene.models import SceneDefinition, StepDefinition, ValidationIssue, ValidationResult
+from app.gdp.datagen.config.common.models import SqlOperation
+from app.gdp.datagen.config.scene.models import (
+    AssertStepDefinition,
+    HttpStepDefinition,
+    SceneDefinition,
+    SqlStepDefinition,
+    StepDefinition,
+    TransformStepDefinition,
+    ValidationIssue,
+    ValidationResult,
+)
 from app.gdp.datagen.config.sqlsource.parsers.common import normalize_sql, replace_parameters_with_question_marks
 
 _STEP_OUTPUT_REF_RE = re.compile(r"\$\{steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)(?:[.\[].*?)?\}")
@@ -26,7 +35,6 @@ def validate_scene_draft(scene: SceneDefinition) -> ValidationResult:
     _validate_input_schema(scene, issues)
     _validate_step_ids(scene.steps, issues)
     _validate_dependencies(scene.steps, issues)
-    _validate_no_template_references(scene.steps, issues)
     return ValidationResult(valid=not _has_errors(issues), issues=issues)
 
 
@@ -41,10 +49,14 @@ def validate_scene_publish(scene: SceneDefinition) -> ValidationResult:
         field = f"steps[{index}]"
         if not step.enabled:
             continue
-        if step.type == StepType.HTTP:
+        if isinstance(step, HttpStepDefinition):
             _validate_http_step(field, step, issues)
-        elif step.type == StepType.SQL:
+        elif isinstance(step, SqlStepDefinition):
             _validate_sql_step(field, step, issues)
+        elif isinstance(step, AssertStepDefinition):
+            _validate_assert_step(field, step, issues)
+        elif isinstance(step, TransformStepDefinition):
+            _validate_transform_step(field, step, issues)
         _validate_step_variable_refs(field, step, steps_by_id, issues)
 
     _validate_result_mapping(scene.resultMapping, steps_by_id, issues)
@@ -117,37 +129,29 @@ def _validate_dependencies(steps: list[StepDefinition], issues: list[ValidationI
         issues.append(ValidationIssue(field="steps", message="步骤依赖存在环。"))
 
 
-def _validate_no_template_references(steps: list[StepDefinition], issues: list[ValidationIssue]) -> None:
-    for index, step in enumerate(steps):
-        if step.templateRef is not None:
-            issues.append(ValidationIssue(field=f"steps[{index}].templateRef", message="当前后端仅支持场景内自定义步骤，不支持模板来源引用。"))
-        if step.httpSourceCode:
-            issues.append(ValidationIssue(field=f"steps[{index}].httpSourceCode", message="当前后端仅支持场景内自定义 HTTP 步骤，不支持 HTTP 模板引用。"))
-        if step.sqlSourceCode:
-            issues.append(ValidationIssue(field=f"steps[{index}].sqlSourceCode", message="当前后端仅支持场景内自定义 SQL 步骤，不支持 SQL 模板引用。"))
-
-
-def _validate_http_step(field: str, step: StepDefinition, issues: list[ValidationIssue]) -> None:
+def _validate_http_step(field: str, step: HttpStepDefinition, issues: list[ValidationIssue]) -> None:
     if not step.sysCode:
         issues.append(ValidationIssue(field=f"{field}.sysCode", message="HTTP 步骤必须配置系统编码。"))
-    if step.method is None:
+    if not step.method:
         issues.append(ValidationIssue(field=f"{field}.method", message="HTTP 步骤必须配置请求方法。"))
-    if not _step_path(step):
+    if not step.path:
         issues.append(ValidationIssue(field=f"{field}.path", message="HTTP 步骤必须配置请求路径。"))
 
 
-def _validate_sql_step(field: str, step: StepDefinition, issues: list[ValidationIssue]) -> None:
+def _validate_sql_step(field: str, step: SqlStepDefinition, issues: list[ValidationIssue]) -> None:
     if not step.sysCode:
         issues.append(ValidationIssue(field=f"{field}.sysCode", message="SQL 步骤必须配置系统编码。"))
     if not step.datasourceCode:
         issues.append(ValidationIssue(field=f"{field}.datasourceCode", message="SQL 步骤必须配置数据源编码。"))
     if step.operation is None:
         issues.append(ValidationIssue(field=f"{field}.operation", message="SQL 步骤必须配置操作类型。"))
+    if not step.sqlText:
+        issues.append(ValidationIssue(field=f"{field}.sqlText", message="SQL 步骤必须配置 SQL 文本。"))
     if not step.normalizedSql:
         issues.append(ValidationIssue(field=f"{field}.normalizedSql", message="SQL 步骤发布前必须先解析生成标准 SQL。"))
     _validate_sql_safety(field, step, issues)
 
-    mapping = step.paramMapping or step.sqlParamMapping
+    mapping = step.paramMapping
     for param in step.parameters:
         if not _param_required(param):
             continue
@@ -159,6 +163,20 @@ def _validate_sql_step(field: str, step: StepDefinition, issues: list[Validation
             issues.append(ValidationIssue(field=f"{field}.paramMapping.{name}", message=f"SQL 必填参数未映射：{name}。"))
 
 
+def _validate_assert_step(field: str, step: AssertStepDefinition, issues: list[ValidationIssue]) -> None:
+    if not step.assertions:
+        issues.append(ValidationIssue(field=f"{field}.assertions", message="断言步骤必须至少配置一条断言。"))
+        return
+    for index, assertion in enumerate(step.assertions):
+        if not assertion.expression.strip():
+            issues.append(ValidationIssue(field=f"{field}.assertions[{index}].expression", message="断言表达式不能为空。"))
+
+
+def _validate_transform_step(field: str, step: TransformStepDefinition, issues: list[ValidationIssue]) -> None:
+    if not step.assignments:
+        issues.append(ValidationIssue(field=f"{field}.assignments", message="转换步骤必须至少配置一个变量赋值。"))
+
+
 def _validate_step_variable_refs(
     field: str,
     step: StepDefinition,
@@ -166,15 +184,15 @@ def _validate_step_variable_refs(
     issues: list[ValidationIssue],
 ) -> None:
     allowed = _dependency_closure(step, steps_by_id)
-    values: list[Any] = [
-        step.requestMapping,
-        step.httpParamMapping,
-        step.paramMapping,
-        step.sqlParamMapping,
-        step.outputMapping,
-        step.assertions,
-        step.assignments,
-    ]
+    values: list[Any] = [step.outputMapping]
+    if isinstance(step, HttpStepDefinition):
+        values.extend([step.requestMapping, step.httpParamMapping])
+    elif isinstance(step, SqlStepDefinition):
+        values.append(step.paramMapping)
+    elif isinstance(step, AssertStepDefinition):
+        values.append(step.assertions)
+    elif isinstance(step, TransformStepDefinition):
+        values.append(step.assignments)
     for ref_step_id, output_name in _extract_step_output_refs(values):
         _validate_output_ref(field, ref_step_id, output_name, steps_by_id, issues, allowed_step_ids=allowed)
 
@@ -240,7 +258,7 @@ def _validate_output_ref(
         issues.append(ValidationIssue(field=field, message=f"变量引用的步骤输出不存在：{ref_step_id}.{output_name}。"))
 
 
-def _validate_sql_safety(field: str, step: StepDefinition, issues: list[ValidationIssue]) -> None:
+def _validate_sql_safety(field: str, step: SqlStepDefinition, issues: list[ValidationIssue]) -> None:
     if step.operation not in {SqlOperation.UPDATE, SqlOperation.DELETE}:
         return
     if not step.safety.requireWhere:
@@ -265,10 +283,6 @@ def _param_required(param: dict[str, Any]) -> bool:
     if required is None:
         return False
     return bool(required)
-
-
-def _step_path(step: StepDefinition) -> str | None:
-    return step.path or step.url
 
 
 def _has_errors(issues: list[ValidationIssue]) -> bool:

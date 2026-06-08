@@ -116,7 +116,7 @@ export interface StepTemplateRef {
   drifted: boolean;
 }
 
-export interface StepDefinition {
+export interface BaseStepDefinition {
   stepId: string;
   stepName?: string | null;
   type: StepType;
@@ -124,23 +124,21 @@ export interface StepDefinition {
   dependsOn: string[];
   description?: string | null;
   position?: Position | null;
-
-  // 来源快照信息。自定义节点为空。
   templateRef?: StepTemplateRef | null;
-  httpSourceCode?: string | null;
-  sqlSourceCode?: string | null;
+  outputMapping: Record<string, string>;
+  outputMeta?: Record<string, { label?: string; remark?: string }> | null;
+}
 
-  // HTTP 快照字段
+export interface HttpStepDefinition extends BaseStepDefinition {
+  type: "HTTP";
   sourceName?: string | null;
-  method?: HttpMethod | null;
   sysCode?: string | null;
+  method: HttpMethod;
   path?: string | null;
-  url?: string | null;
-  timeoutConfig?: HttpTimeoutConfig;
+  timeoutConfig: HttpTimeoutConfig;
   requestMapping: Record<string, unknown>;
   httpParamMapping: Record<string, unknown>;
   bodySchema?: InputFieldDefinition[] | null;
-  bodyMapping?: Record<string, unknown> | null;
   responseSchema?: InputFieldDefinition[] | null;
   responseHeadersSchema?: InputFieldDefinition[] | null;
   responseCookiesSchema?: InputFieldDefinition[] | null;
@@ -148,8 +146,12 @@ export interface StepDefinition {
   errorMapping?: ErrorMapping | null;
   businessErrorMapping?: ErrorMapping | null;
   retryPolicy?: RetryPolicy | null;
+}
 
-  // SQL 快照字段
+export interface SqlStepDefinition extends BaseStepDefinition {
+  type: "SQL";
+  sourceName?: string | null;
+  sysCode?: string | null;
   datasourceCode?: string | null;
   operation?: SqlOperation | null;
   sqlText?: string | null;
@@ -160,16 +162,38 @@ export interface StepDefinition {
   parameters?: SqlSourceParameter[];
   safety?: SqlTemplateSafety;
   paramMapping: Record<string, unknown>;
-  sqlParamMapping: Record<string, unknown>;
+}
 
-  // 公共输出和扩展步骤字段
-  outputMapping: Record<string, string>;
-  outputMeta?: Record<string, { label?: string; remark?: string }> | null;
+export interface AssertStepDefinition extends BaseStepDefinition {
+  type: "ASSERT";
   assertions: AssertionDefinition[];
-  assignments: Record<string, string>;
+}
 
-  // 兼容字段（旧数据可能使用）
-  sqlTemplateCode?: string | null;
+export interface TransformStepDefinition extends BaseStepDefinition {
+  type: "TRANSFORM";
+  assignments: Record<string, string>;
+}
+
+export type StepDefinition =
+  | HttpStepDefinition
+  | SqlStepDefinition
+  | AssertStepDefinition
+  | TransformStepDefinition;
+
+export function isHttpStep(step: StepDefinition): step is HttpStepDefinition {
+  return step.type === "HTTP";
+}
+
+export function isSqlStep(step: StepDefinition): step is SqlStepDefinition {
+  return step.type === "SQL";
+}
+
+export function isAssertStep(step: StepDefinition): step is AssertStepDefinition {
+  return step.type === "ASSERT";
+}
+
+export function isTransformStep(step: StepDefinition): step is TransformStepDefinition {
+  return step.type === "TRANSFORM";
 }
 
 export interface BatchConfig {

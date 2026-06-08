@@ -12,6 +12,7 @@ import type {
   StepDefinition,
   ValidationIssue,
 } from "./types";
+import { isAssertStep, isHttpStep, isSqlStep, isTransformStep } from "./types";
 
 // ── 变量引用提取 ────────────────────────────────────────────────────────
 
@@ -69,20 +70,20 @@ export function validateStepForPublish(
   const stepsById = new Map(scene.steps.map((s) => [s.stepId, s]));
 
   // HTTP 步骤校验
-  if (step.type === "HTTP") {
+  if (isHttpStep(step)) {
     if (!step.sysCode) {
       issues.push({ field: `${field}.sysCode`, message: "HTTP 步骤必须配置系统编码。", level: "ERROR" });
     }
     if (!step.method) {
       issues.push({ field: `${field}.method`, message: "HTTP 步骤必须配置请求方法。", level: "ERROR" });
     }
-    if (!step.path && !step.url) {
+    if (!step.path) {
       issues.push({ field: `${field}.path`, message: "HTTP 步骤必须配置请求路径。", level: "ERROR" });
     }
   }
 
   // SQL 步骤校验
-  if (step.type === "SQL") {
+  if (isSqlStep(step)) {
     if (!step.sysCode) {
       issues.push({ field: `${field}.sysCode`, message: "SQL 步骤必须配置系统编码。", level: "ERROR" });
     }
@@ -91,6 +92,9 @@ export function validateStepForPublish(
     }
     if (!step.operation) {
       issues.push({ field: `${field}.operation`, message: "SQL 步骤必须配置操作类型。", level: "ERROR" });
+    }
+    if (!step.sqlText) {
+      issues.push({ field: `${field}.sqlText`, message: "SQL 步骤必须配置 SQL 文本。", level: "ERROR" });
     }
     if (!step.normalizedSql) {
       issues.push({ field: `${field}.normalizedSql`, message: "SQL 步骤发布前必须先解析生成标准 SQL。", level: "ERROR" });
@@ -113,7 +117,7 @@ export function validateStepForPublish(
 
     // 必填参数映射检查
     if (step.normalizedSql && step.parameters) {
-      const mapping = step.paramMapping || step.sqlParamMapping || {};
+      const mapping = step.paramMapping || {};
       for (const param of step.parameters) {
         if (!param.required) continue;
         if (!param.name) continue;
@@ -129,28 +133,33 @@ export function validateStepForPublish(
     }
   }
 
-  // 模板引用检查（后端当前拒绝）
-  if (step.templateRef) {
-    issues.push({ field: `${field}.templateRef`, message: "当前后端不支持模板来源引用。", level: "ERROR" });
+  if (isAssertStep(step)) {
+    if (step.assertions.length === 0) {
+      issues.push({ field: `${field}.assertions`, message: "断言步骤必须至少配置一条断言。", level: "ERROR" });
+    }
+    step.assertions.forEach((assertion, index) => {
+      if (!assertion.expression.trim()) {
+        issues.push({ field: `${field}.assertions[${index}].expression`, message: "断言表达式不能为空。", level: "ERROR" });
+      }
+    });
   }
-  if (step.httpSourceCode) {
-    issues.push({ field: `${field}.httpSourceCode`, message: "当前后端不支持 HTTP 模板引用。", level: "ERROR" });
-  }
-  if (step.sqlSourceCode) {
-    issues.push({ field: `${field}.sqlSourceCode`, message: "当前后端不支持 SQL 模板引用。", level: "ERROR" });
+
+  if (isTransformStep(step) && Object.keys(step.assignments).length === 0) {
+    issues.push({ field: `${field}.assignments`, message: "转换步骤必须至少配置一个变量赋值。", level: "ERROR" });
   }
 
   // 变量引用校验
   const allowed = dependencyClosure(step, stepsById);
-  const allValues = [
-    step.requestMapping,
-    step.httpParamMapping,
-    step.paramMapping,
-    step.sqlParamMapping,
-    step.outputMapping,
-    step.assertions,
-    step.assignments,
-  ];
+  const allValues: unknown[] = [step.outputMapping];
+  if (isHttpStep(step)) {
+    allValues.push(step.requestMapping, step.httpParamMapping);
+  } else if (isSqlStep(step)) {
+    allValues.push(step.paramMapping);
+  } else if (isAssertStep(step)) {
+    allValues.push(step.assertions);
+  } else if (isTransformStep(step)) {
+    allValues.push(step.assignments);
+  }
 
   for (const [refStepId, outputName] of allValues.flatMap(extractStepOutputRefs)) {
     const refStep = stepsById.get(refStepId);
@@ -252,12 +261,11 @@ export function computeStepConfigStatus(
   const outputCount = Object.keys(step.outputMapping ?? {}).length;
 
   // 统计此步骤引用的变量数
-  const allValues = [
-    step.requestMapping,
-    step.httpParamMapping,
-    step.paramMapping,
-    step.sqlParamMapping,
-    step.assignments,
+  const allValues: unknown[] = [
+    isHttpStep(step) ? step.requestMapping : null,
+    isHttpStep(step) ? step.httpParamMapping : null,
+    isSqlStep(step) ? step.paramMapping : null,
+    isTransformStep(step) ? step.assignments : null,
   ];
   const usedVars = new Set<string>();
   for (const [refStepId, outputName] of allValues.flatMap(extractStepOutputRefs)) {
