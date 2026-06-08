@@ -1,13 +1,19 @@
 "use client";
 
 import {
-  ClipboardCopyIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -21,8 +27,6 @@ import { cn } from "@/lib/utils";
 import { flattenSchema } from "../lib/schema-utils";
 import type { StepDefinition } from "../lib/types";
 import { ConfirmDialog } from "../ui/confirm-dialog";
-
-import { CollapsibleConfigSection } from "./collapsible-config-section";
 
 /* ── 表达式辅助函数（与 http-response-mapping-editor 共享） ── */
 
@@ -94,28 +98,36 @@ export function HttpOutputExtractionSection({
   disabled = false,
 }: Omit<HttpOutputExtractionEditorProps, "showHeader">) {
   const count = Object.keys(step.outputMapping ?? {}).length;
+  const [open, setOpen] = useState(true);
 
   return (
-    <CollapsibleConfigSection
-      title="提取响应数据到变量"
-      description="从 Body / Headers / Cookies 中提取字段，定义下游步骤可引用的变量名。"
-      icon={<ClipboardCopyIcon className="size-4" />}
-      badge={
-        count > 0 ? (
-          <span className="rounded-full bg-muted px-1.5 text-[9px] font-bold text-muted-foreground">
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 border-b text-sm font-bold text-blue-600 hover:text-blue-700 transition-colors">
+        {open ? (
+          <ChevronDownIcon className="size-4" />
+        ) : (
+          <ChevronRightIcon className="size-4" />
+        )}
+        提取响应数据到变量
+        {count > 0 && (
+          <span className="ml-1 rounded-full bg-muted px-1.5 text-[9px] font-bold text-muted-foreground">
             {count}
           </span>
-        ) : null
-      }
-      accentClassName="text-blue-600 hover:text-blue-700"
-    >
-      <HttpOutputExtractionEditor
-        step={step}
-        onChange={onChange}
-        disabled={disabled}
-        showHeader={false}
-      />
-    </CollapsibleConfigSection>
+        )}
+      </CollapsibleTrigger>
+
+      <CollapsibleContent className="space-y-3 pt-3">
+        <p className="text-xs text-muted-foreground">
+          从 Body / Headers / Cookies 中提取字段，定义下游步骤可引用的变量名。
+        </p>
+        <HttpOutputExtractionEditor
+          step={step}
+          onChange={onChange}
+          disabled={disabled}
+          showHeader={false}
+        />
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -163,7 +175,6 @@ export function HttpOutputExtractionEditor({
         <>
           <div className="flex items-center justify-between border-b pb-2">
             <div className="flex items-center gap-2 text-blue-600 font-bold text-sm">
-              <ClipboardCopyIcon className="size-4" />
               <span>提取响应数据到变量</span>
             </div>
           </div>

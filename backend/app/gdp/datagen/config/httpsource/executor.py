@@ -14,10 +14,7 @@ from urllib.parse import urljoin
 
 import httpx
 
-# 创建模块日志记录器
-logger = logging.getLogger(__name__)
-
-from app.gdp.datagen.config.common.models import ConditionRule, ErrorMapping
+from app.gdp.datagen.config.common.models import ConditionRule, ErrorMapping, HttpTimeoutConfig
 from app.gdp.datagen.config.httpsource.models import (
     BusinessResult,
     HttpSourceConfig,
@@ -28,6 +25,9 @@ from app.gdp.datagen.config.httpsource.models import (
     ParsedCookie,
     RetryInfo,
 )
+
+# 创建模块日志记录器
+logger = logging.getLogger(__name__)
 
 # 路径解析时标记缺失值
 _MISSING = object()
@@ -47,14 +47,14 @@ _RESPONSE_COOKIE = "RES_COOKIE"
 async def execute_http_test(
     config: HttpSourceConfig,
     base_url: str,
-    timeout: float,
+    timeout_config: HttpTimeoutConfig,
 ) -> HttpSourceTestResponse:
     """执行一次完整的 HTTP 接口配置测试。
 
     Args:
         config: HTTP 接口配置。
         base_url: 已解析的环境 Base URL。
-        timeout: 请求超时秒数。
+        timeout_config: HTTP 请求分阶段超时配置。
 
     Returns:
         完整的测试结果响应。
@@ -78,13 +78,19 @@ async def execute_http_test(
         logger.info("请求体内容:\n%s", body_str)
     else:
         logger.info("请求体内容: 无")
-    logger.info("超时时间: %s 秒", timeout)
+    logger.info(
+        "超时配置: 连接=%s 秒, 读取=%s 秒, 写入=%s 秒, 连接池=%s 秒",
+        timeout_config.connectTimeoutSeconds,
+        timeout_config.readTimeoutSeconds,
+        timeout_config.writeTimeoutSeconds,
+        timeout_config.poolTimeoutSeconds,
+    )
     logger.info("-" * 40)
 
     # 2. 执行请求（含重试）
     started = perf_counter()
     response, retry_info, send_error = await _execute_with_retry(
-        request_info, config, timeout
+        request_info, config, timeout_config
     )
     elapsed_ms = round((perf_counter() - started) * 1000, 3)
 
@@ -343,7 +349,7 @@ def response_body(response: httpx.Response) -> object:
 async def _execute_with_retry(
     request_info: HttpSourceTestRequestInfo,
     config: HttpSourceConfig,
-    timeout: float,
+    timeout_config: HttpTimeoutConfig,
 ) -> tuple[httpx.Response | None, RetryInfo, Exception | None]:
     """执行 HTTP 请求，根据重试策略处理失败。
 
@@ -368,7 +374,7 @@ async def _execute_with_retry(
     for attempt in range(1, max_attempts + 1):
         logger.info("【HTTP 请求】第 %d/%d 次尝试发送...", attempt, max_attempts)
         try:
-            async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+            async with httpx.AsyncClient(timeout=_build_httpx_timeout(timeout_config), follow_redirects=False) as client:
                 response = await client.request(
                     request_info.method,
                     request_info.url,
@@ -418,6 +424,16 @@ async def _execute_with_retry(
     return None, RetryInfo(attempts=max_attempts, lastError=last_error), Exception(last_error or "unknown error")
 
 
+def _build_httpx_timeout(timeout_config: HttpTimeoutConfig) -> httpx.Timeout:
+    """把接口测试超时配置转换为 httpx 原生分阶段超时对象。"""
+    return httpx.Timeout(
+        connect=timeout_config.connectTimeoutSeconds,
+        read=timeout_config.readTimeoutSeconds,
+        write=timeout_config.writeTimeoutSeconds,
+        pool=timeout_config.poolTimeoutSeconds,
+    )
+
+
 def _friendly_error_message(error_type: str, raw_message: str) -> str:
     """根据异常类型生成面向用户的友好中文提示。
 
@@ -429,6 +445,10 @@ def _friendly_error_message(error_type: str, raw_message: str) -> str:
         return "连接服务器超时，请检查网络连通性或适当增加超时时间。"
     if error_type == "ReadTimeout":
         return "服务器响应超时，目标接口处理时间过长，请适当增加超时时间。"
+    if error_type == "WriteTimeout":
+        return "发送请求数据超时，请检查网络状态或适当增加写入超时时间。"
+    if error_type == "PoolTimeout":
+        return "等待 HTTP 连接池可用连接超时，请降低并发或适当增加连接池超时时间。"
     if error_type == "WriteError":
         return "发送请求数据时发生网络错误，请检查网络连接。"
     if error_type == "TimeoutException":

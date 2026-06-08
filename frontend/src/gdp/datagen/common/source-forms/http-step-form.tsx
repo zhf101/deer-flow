@@ -3,6 +3,7 @@
 import {
   ChevronDownIcon,
   ChevronRightIcon,
+  ClockIcon,
   CodeIcon,
   FileCodeIcon,
   FileJsonIcon,
@@ -41,9 +42,10 @@ import { cn } from "@/lib/utils";
 
 import { VariableSelector } from "../editors/variable-selector";
 import { listServiceEndpoints, listSystems } from "../lib/api";
-import { HTTP_METHODS } from "../lib/defaults";
+import { createDefaultHttpTimeoutConfig, HTTP_METHODS } from "../lib/defaults";
 import type {
   HttpMethod,
+  HttpTimeoutConfig,
   SceneDefinition,
   ServiceEndpointResponse,
   StepDefinition,
@@ -87,6 +89,14 @@ interface AuthConfig {
 }
 
 type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "raw-json" | "raw-text" | "raw-xml";
+type TimeoutConfigKey = keyof HttpTimeoutConfig;
+
+const TIMEOUT_FIELDS: Array<{ key: TimeoutConfigKey; label: string }> = [
+  { key: "connectTimeoutSeconds", label: "连接" },
+  { key: "readTimeoutSeconds", label: "读取" },
+  { key: "writeTimeoutSeconds", label: "写入" },
+  { key: "poolTimeoutSeconds", label: "连接池" },
+];
 
 interface HttpRequestMapping extends Record<string, unknown> {
   authConfig?: AuthConfig;
@@ -149,6 +159,18 @@ export function HttpStepForm({
   const selectedEndpoints = endpoints.filter((ep) => ep.sysCode === step.sysCode);
   const method = step.method ?? "POST";
   const requestMapping = (step.requestMapping ?? {}) as HttpRequestMapping;
+  const timeoutConfig = step.timeoutConfig ?? createDefaultHttpTimeoutConfig();
+
+  const updateTimeoutConfig = (key: TimeoutConfigKey, rawValue: string) => {
+    const nextValue = Number(rawValue);
+    onChange({
+      ...step,
+      timeoutConfig: {
+        ...timeoutConfig,
+        [key]: Number.isFinite(nextValue) ? nextValue : 10,
+      },
+    });
+  };
 
   /* ── 认证配置辅助函数 ── */
   const authConfig: AuthConfig = requestMapping.authConfig ?? { type: "none" };
@@ -313,6 +335,27 @@ export function HttpStepForm({
               ))}
             </p>
           )}
+
+          <div className={cn("grid gap-2 rounded-lg border bg-background p-2 md:grid-cols-4", disabled && "pointer-events-none opacity-50")}>
+            {TIMEOUT_FIELDS.map((field) => (
+              <label key={field.key} className="space-y-1">
+                <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
+                  <ClockIcon className="size-3" />
+                  {field.label}超时（秒）
+                </span>
+                <Input
+                  type="number"
+                  min={1}
+                  max={60}
+                  step={1}
+                  value={timeoutConfig[field.key]}
+                  disabled={disabled}
+                  onChange={(event) => updateTimeoutConfig(field.key, event.target.value)}
+                  className="h-8 text-xs"
+                />
+              </label>
+            ))}
+          </div>
 
           {/* ── 请求标签页 ── */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>

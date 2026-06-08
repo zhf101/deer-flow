@@ -72,7 +72,7 @@ class HttpSourceService:
                 ),
             ) from exc
 
-        return await execute_http_test(config, endpoint.baseUrl, request.timeoutSeconds)
+        return await execute_http_test(config, endpoint.baseUrl, config.timeoutConfig)
 
     async def _validate_enabled_system(self, sys_code: str) -> None:
         try:

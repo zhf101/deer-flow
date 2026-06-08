@@ -93,6 +93,13 @@ export interface RetryPolicy {
   retryOn: RetryErrorType[];
 }
 
+export interface HttpTimeoutConfig {
+  connectTimeoutSeconds: number;
+  readTimeoutSeconds: number;
+  writeTimeoutSeconds: number;
+  poolTimeoutSeconds: number;
+}
+
 export interface AssertionDefinition {
   expression: string;
   message?: string | null;
@@ -129,6 +136,7 @@ export interface StepDefinition {
   sysCode?: string | null;
   path?: string | null;
   url?: string | null;
+  timeoutConfig?: HttpTimeoutConfig;
   requestMapping: Record<string, unknown>;
   httpParamMapping: Record<string, unknown>;
   bodySchema?: InputFieldDefinition[] | null;
@@ -360,6 +368,7 @@ export interface HttpSourceConfig {
   sysCode: string;
   path: string;
   method: HttpMethod;
+  timeoutConfig: HttpTimeoutConfig;
   requestMapping: Record<string, unknown>;
   bodySchema?: InputFieldDefinition[] | null;
   responseSchema?: InputFieldDefinition[] | null;

@@ -124,6 +124,7 @@ class DataFactorySceneStepHttpConfigRow(Base):
     sys_code: Mapped[str | None] = mapped_column(String(64), comment="系统编码。")
     path: Mapped[str | None] = mapped_column(String(1024), comment="HTTP 相对路径。")
     method: Mapped[str | None] = mapped_column(String(16), comment="HTTP 方法。")
+    timeout_config_json: Mapped[str] = mapped_column(Text, nullable=False, comment="HTTP 分阶段超时配置 JSON。")
     request_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="请求配置 JSON。")
     http_param_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="HTTP 参数映射 JSON。")
     body_schema_json: Mapped[str | None] = mapped_column(Text, comment="请求 body schema JSON。")
@@ -510,6 +511,7 @@ class SceneRepository:
             sys_code=step.sysCode,
             path=step.path or step.url,
             method=step.method.value if step.method else None,
+            timeout_config_json=_dumps(_model_dump(step.timeoutConfig)),
             request_mapping_json=_dumps(step.requestMapping),
             http_param_mapping_json=_dumps(step.httpParamMapping),
             body_schema_json=_dumps(_model_dump(step.bodySchema)) if step.bodySchema else None,
@@ -647,6 +649,7 @@ class SceneRepository:
                     "method": http_row.method,
                     "path": http_row.path,
                     "url": http_row.path,
+                    "timeoutConfig": _loads(http_row.timeout_config_json, {}),
                     "requestMapping": _loads(http_row.request_mapping_json, {}),
                     "httpParamMapping": _loads(http_row.http_param_mapping_json, {}),
                     "bodySchema": _loads(http_row.body_schema_json, None),
@@ -721,6 +724,7 @@ def _http_hash_payload(step: StepDefinition) -> dict[str, Any]:
         "sysCode": step.sysCode,
         "path": step.path or step.url,
         "method": step.method,
+        "timeoutConfig": step.timeoutConfig,
         "requestMapping": step.requestMapping,
         "httpParamMapping": step.httpParamMapping,
         "bodySchema": step.bodySchema,

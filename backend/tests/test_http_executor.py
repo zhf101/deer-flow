@@ -12,15 +12,18 @@ _harness = str(Path(__file__).resolve().parents[1] / "packages" / "harness")
 if _harness not in sys.path:
     sys.path.insert(0, _harness)
 
-from app.gdp.datagen.config.common.models import ConditionRule
+from app.gdp.datagen.config.common.models import ConditionRule, HttpTimeoutConfig
 from app.gdp.datagen.config.httpsource.models import (
     HttpSourceConfig,
+    HttpSourceTestRequest,
     HttpSourceTestRequestInfo,
     ParsedCookie,
 )
 from app.gdp.datagen.config.httpsource.executor import (
     _MISSING,
+    _build_httpx_timeout,
     _check_condition,
+    _friendly_error_message,
     _parse_set_cookie,
     apply_error_mapping,
     build_runtime_context,
@@ -29,6 +32,70 @@ from app.gdp.datagen.config.httpsource.executor import (
     interpolate_expressions,
     resolve_path,
 )
+
+
+# ── 超时配置 ───────────────────────────────────────────────────────
+
+class TestHttpTimeoutConfig:
+    def test_request_uses_default_timeout_config(self):
+        request = HttpSourceTestRequest(
+            envCode="dev",
+            config=HttpSourceConfig(
+                sourceCode="test",
+                sourceName="test",
+                sysCode="SYS",
+                path="/test",
+                requestMapping={},
+                outputMapping={},
+            ),
+        )
+
+        assert request.config.timeoutConfig.connectTimeoutSeconds == 10
+        assert request.config.timeoutConfig.readTimeoutSeconds == 10
+        assert request.config.timeoutConfig.writeTimeoutSeconds == 10
+        assert request.config.timeoutConfig.poolTimeoutSeconds == 10
+
+    def test_old_timeout_seconds_field_is_rejected(self):
+        from pydantic import ValidationError
+
+        try:
+            HttpSourceTestRequest(
+                envCode="dev",
+                timeoutSeconds=20,
+                config=HttpSourceConfig(
+                    sourceCode="test",
+                    sourceName="test",
+                    sysCode="SYS",
+                    path="/test",
+                    requestMapping={},
+                    outputMapping={},
+                ),
+            )
+        except ValidationError as exc:
+            assert "timeoutSeconds" in str(exc)
+        else:
+            raise AssertionError("旧 timeoutSeconds 字段应被拒绝")
+
+    def test_build_httpx_timeout_uses_all_timeout_fields(self):
+        timeout = _build_httpx_timeout(
+            HttpTimeoutConfig(
+                connectTimeoutSeconds=2,
+                readTimeoutSeconds=15,
+                writeTimeoutSeconds=8,
+                poolTimeoutSeconds=3,
+            )
+        )
+
+        assert timeout.connect == 2
+        assert timeout.read == 15
+        assert timeout.write == 8
+        assert timeout.pool == 3
+
+    def test_friendly_timeout_messages_cover_all_timeout_types(self):
+        assert "连接服务器超时" in _friendly_error_message("ConnectTimeout", "")
+        assert "服务器响应超时" in _friendly_error_message("ReadTimeout", "")
+        assert "发送请求数据超时" in _friendly_error_message("WriteTimeout", "")
+        assert "连接池可用连接超时" in _friendly_error_message("PoolTimeout", "")
 
 
 # ── Cookie 解析 ─────────────────────────────────────────────────────

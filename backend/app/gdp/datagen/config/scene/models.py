@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from app.gdp.datagen.config.common.models import (
     ErrorMapping,
     HttpMethod,
+    HttpTimeoutConfig,
     InputFieldDefinition,
     ResponseHandling,
     RetryPolicy,
@@ -89,6 +90,7 @@ class StepDefinition(BaseModel):
     sysCode: str | None = Field(default=None, max_length=64, description="所属系统编码。")
     method: HttpMethod | None = Field(default=None, description="HTTP 方法。")
     path: str | None = Field(default=None, max_length=1024, description="HTTP 相对路径。")
+    timeoutConfig: HttpTimeoutConfig = Field(default_factory=HttpTimeoutConfig, description="HTTP 请求分阶段超时配置。运行时分别控制连接、读取、写入和连接池等待超时。")
     url: str | None = Field(
         default=None,
         max_length=1024,

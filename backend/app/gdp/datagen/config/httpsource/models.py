@@ -10,12 +10,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.gdp.datagen.config.common.models import (
     ConfigStatus,
     ErrorMapping,
     HttpMethod,
+    HttpTimeoutConfig,
     InputFieldDefinition,
     ResponseHandling,
     RetryPolicy,
@@ -57,6 +58,7 @@ class HttpSourceConfig(BaseModel):
         default=HttpMethod.GET,
         description="HTTP 请求方法，目前前端支持 GET、POST。",
     )
+    timeoutConfig: HttpTimeoutConfig = Field(default_factory=HttpTimeoutConfig, description="HTTP 请求分阶段超时配置。运行时分别控制连接、读取、写入和连接池等待超时。")
     requestMapping: dict[str, Any] = Field(
         default_factory=dict,
         description="请求入参映射配置。保存 query、headers、body、authConfig、bodyType 等请求构造信息。",
@@ -159,9 +161,10 @@ class HttpSourceTestRequest(BaseModel):
     和配置里的 ``sysCode`` 解析服务端点，并真实发起一次 HTTP 请求。
     """
 
+    model_config = ConfigDict(extra="forbid")
+
     envCode: str = Field(..., min_length=1, max_length=64, description="用于测试的环境编码。")
     config: HttpSourceConfig = Field(..., description="待测试的 HTTP 接口配置。")
-    timeoutSeconds: float = Field(default=10, ge=1, le=60, description="请求超时时间，单位秒。")
 
 
 class HttpSourceTestRequestInfo(BaseModel):

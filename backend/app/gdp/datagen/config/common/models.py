@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConfigStatus(StrEnum):
@@ -44,6 +44,21 @@ class HttpMethod(StrEnum):
 
     GET = "GET"
     POST = "POST"
+
+
+class HttpTimeoutConfig(BaseModel):
+    """HTTP 请求分阶段超时配置。
+
+    用于统一描述 HTTP 客户端在连接、读取响应、写入请求和等待连接池时的
+    超时边界，运行时会显式转换为 httpx.Timeout。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    connectTimeoutSeconds: float = Field(default=10, ge=1, le=60, description="连接超时时间，单位秒。超过该时间仍无法建立 TCP/TLS 连接则判定为连接超时。")
+    readTimeoutSeconds: float = Field(default=10, ge=1, le=60, description="读取超时时间，单位秒。建立连接后，等待目标服务返回响应数据的最长时间。")
+    writeTimeoutSeconds: float = Field(default=10, ge=1, le=60, description="写入超时时间，单位秒。发送请求头或请求体到目标服务时允许的最长时间。")
+    poolTimeoutSeconds: float = Field(default=10, ge=1, le=60, description="连接池超时时间，单位秒。等待 HTTP 客户端连接池可用连接的最长时间。")
 
 
 class InputFieldType(StrEnum):
@@ -101,7 +116,7 @@ class InputFieldDefinition(BaseModel):
     optionsSource: str | None = Field(default=None, description="枚举选项来源或静态选项配置。")
     validation: InputFieldValidation | None = Field(default=None, description="字段校验规则。")
     batchEnabled: bool = Field(default=False, description="是否支持批量输入。")
-    children: list["InputFieldDefinition"] | None = Field(default=None, description="对象或数组子字段定义。")
+    children: list[InputFieldDefinition] | None = Field(default=None, description="对象或数组子字段定义。")
 
 
 class ConditionRule(BaseModel):

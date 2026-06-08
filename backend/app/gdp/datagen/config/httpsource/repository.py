@@ -37,6 +37,7 @@ class DataFactoryHttpSourceRow(Base):
     sys_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="所属系统编码，关联 df_system.sys_code。")
     path: Mapped[str] = mapped_column(String(1024), nullable=False, comment="接口相对路径，不包含环境 Base URL。")
     method: Mapped[str] = mapped_column(String(16), nullable=False, comment="HTTP 请求方法。")
+    timeout_config_json: Mapped[str] = mapped_column(Text, nullable=False, comment="HTTP 分阶段超时配置 JSON。")
 
     # 请求构造配置
     request_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="请求映射配置 JSON。")
@@ -136,6 +137,7 @@ class HttpSourceRepository:
                     sys_code=config.sysCode,
                     path=config.path,
                     method=config.method.value,
+                    timeout_config_json=_dumps(_model_dump(config.timeoutConfig)),
                     request_mapping_json=_dumps(config.requestMapping),
                     body_schema_json=_dumps(_model_dump(config.bodySchema)) if config.bodySchema else None,
                     response_schema_json=_dumps(_model_dump(config.responseSchema)) if config.responseSchema else None,
@@ -160,6 +162,7 @@ class HttpSourceRepository:
                 row.sys_code = config.sysCode
                 row.path = config.path
                 row.method = config.method.value
+                row.timeout_config_json = _dumps(_model_dump(config.timeoutConfig))
                 row.request_mapping_json = _dumps(config.requestMapping)
                 row.body_schema_json = _dumps(_model_dump(config.bodySchema)) if config.bodySchema else None
                 row.response_schema_json = _dumps(_model_dump(config.responseSchema)) if config.responseSchema else None
@@ -239,6 +242,7 @@ class HttpSourceRepository:
             sysCode=row.sys_code,
             path=row.path,
             method=row.method,
+            timeoutConfig=_loads(row.timeout_config_json, {}),
             requestMapping=_loads(row.request_mapping_json, {}),
             bodySchema=_loads(row.body_schema_json, None),
             responseSchema=_loads(row.response_schema_json, None),

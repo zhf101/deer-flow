@@ -61,7 +61,7 @@ import {
   testHttpSource,
   updateHttpSource,
 } from "../common/lib/api";
-import { createDefaultHttpSource } from "../common/lib/defaults";
+import { createDefaultHttpSource, createDefaultHttpTimeoutConfig } from "../common/lib/defaults";
 import { jsonToFields } from "../common/lib/schema-utils";
 import type {
   ConfigStatus,
@@ -97,6 +97,7 @@ function configToFakeStep(config: HttpSourceConfig): StepDefinition {
     url: config.path,
     sysCode: config.sysCode,
     requestMapping: config.requestMapping,
+    timeoutConfig: config.timeoutConfig ?? createDefaultHttpTimeoutConfig(),
     bodySchema: config.bodySchema,
     responseSchema: config.responseSchema,
     responseHeadersSchema: config.responseHeadersSchema,
@@ -726,6 +727,7 @@ function HttpSourceEditor({
         method: updatedStep.method ?? config.method,
         sysCode: updatedStep.sysCode ?? config.sysCode,
         path: updatedStep.url ?? config.path,
+        timeoutConfig: updatedStep.timeoutConfig ?? config.timeoutConfig,
         requestMapping: updatedStep.requestMapping,
       });
     },

@@ -18,17 +18,20 @@
  */
 "use client";
 
-import { PlusIcon, Trash2Icon, ZapIcon } from "lucide-react";
+import { ChevronDownIcon, ChevronRightIcon, PlusIcon, Trash2Icon, ZapIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 import type { SqlSourceFieldMeta, StepDefinition } from "../lib/types";
 import { ConfirmDialog } from "../ui/confirm-dialog";
-
-import { CollapsibleConfigSection } from "./collapsible-config-section";
 
 interface SqlOutputExtractionEditorProps {
   step: StepDefinition;
@@ -49,30 +52,39 @@ export function SqlOutputExtractionSection({
   onAddFromResultFields,
 }: Omit<SqlOutputExtractionEditorProps, "showHeader">) {
   const count = Object.keys(step.outputMapping ?? {}).length;
+  const [open, setOpen] = useState(true);
 
   return (
-    <CollapsibleConfigSection
-      title="执行结果提取"
-      description="对于 SELECT 语句，将查询结果字段映射为变量，供后续步骤引用。"
-      icon={<ZapIcon className="size-4" />}
-      badge={
-        count > 0 ? (
-          <span className="rounded-full bg-muted px-1.5 text-[9px] font-bold text-muted-foreground">
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <CollapsibleTrigger className="flex items-center gap-2 w-full py-2 border-b text-sm font-bold text-amber-600 hover:text-amber-700 transition-colors">
+        {open ? (
+          <ChevronDownIcon className="size-4" />
+        ) : (
+          <ChevronRightIcon className="size-4" />
+        )}
+        <ZapIcon className="size-4" />
+        执行结果提取
+        {count > 0 && (
+          <span className="ml-1 rounded-full bg-muted px-1.5 text-[9px] font-bold text-muted-foreground">
             {count}
           </span>
-        ) : null
-      }
-      accentClassName="text-amber-600 hover:text-amber-700"
-    >
-      <SqlOutputExtractionEditor
-        step={step}
-        onChange={onChange}
-        disabled={disabled}
-        resultFields={resultFields}
-        onAddFromResultFields={onAddFromResultFields}
-        showHeader={false}
-      />
-    </CollapsibleConfigSection>
+        )}
+      </CollapsibleTrigger>
+
+      <CollapsibleContent className="space-y-3 pt-3">
+        <p className="text-xs text-muted-foreground">
+          对于 SELECT 语句，将查询结果字段映射为变量，供后续步骤引用。
+        </p>
+        <SqlOutputExtractionEditor
+          step={step}
+          onChange={onChange}
+          disabled={disabled}
+          resultFields={resultFields}
+          onAddFromResultFields={onAddFromResultFields}
+          showHeader={false}
+        />
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

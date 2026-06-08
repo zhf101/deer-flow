@@ -2,6 +2,7 @@ import type {
   BatchConfig,
   ConditionRule,
   HttpSourceConfig,
+  HttpTimeoutConfig,
   InputFieldDefinition,
   SceneDefinition,
   SqlSourceConfig,
@@ -43,6 +44,15 @@ export const CONDITION_OPERATORS = [
   "CONTAINS",
   "REGEX",
 ] as const;
+
+export function createDefaultHttpTimeoutConfig(): HttpTimeoutConfig {
+  return {
+    connectTimeoutSeconds: 10,
+    readTimeoutSeconds: 10,
+    writeTimeoutSeconds: 10,
+    poolTimeoutSeconds: 10,
+  };
+}
 
 export function createEnvField(): InputFieldDefinition {
   return {
@@ -116,6 +126,7 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
     base.url = "";
     base.path = "";
     base.sysCode = "";
+    base.timeoutConfig = createDefaultHttpTimeoutConfig();
     base.requestMapping = { headers: {}, query: {}, body: {} };
     base.responseHandling = {
       expectedContentType: "JSON",
@@ -188,6 +199,7 @@ export function createDefaultHttpSource(): HttpSourceConfig {
     sysCode: "",
     path: "",
     method: "POST",
+    timeoutConfig: createDefaultHttpTimeoutConfig(),
     requestMapping: { headers: {}, query: {}, body: {} },
     bodySchema: null,
     responseSchema: null,
