@@ -63,15 +63,12 @@ async def get_sql_source(
     return await service.get_sql_source(sourceCode)
 
 
-@router.put("/sql-sources/{sourceCode}", response_model=SqlSourceResponse)
+@router.post("/sql-sources/update", response_model=SqlSourceResponse)
 async def update_sql_source(
-    sourceCode: str,
     body: SqlSourceConfig,
     operator: str | None = Depends(_get_operator),
     service: SqlSourceService = Depends(_get_service),
 ) -> SqlSourceResponse:
-    if sourceCode != body.sourceCode:
-        raise HTTPException(status_code=409, detail="path sourceCode must match request sourceCode")
     return await service.upsert_sql_source(body, operator=operator)
 
 

@@ -107,9 +107,9 @@ export async function updateScene(
   sceneCode: string,
   scene: SceneDefinition,
 ): Promise<SceneVersion> {
-  return request<SceneVersion>(`/scenes/${encodeURIComponent(sceneCode)}`, {
-    method: "PUT",
-    body: JSON.stringify(scene),
+  return request<SceneVersion>("/scenes/update", {
+    method: "POST",
+    body: JSON.stringify({ sceneCode, definition: scene }),
   });
 }
 
@@ -130,8 +130,9 @@ export async function publishScene(sceneCode: string): Promise<SceneVersion> {
 }
 
 export async function deleteScene(sceneCode: string): Promise<{ success: boolean }> {
-  return request<{ success: boolean }>(`/scenes/${encodeURIComponent(sceneCode)}/delete`, {
+  return request<{ success: boolean }>("/scenes/delete", {
     method: "POST",
+    body: JSON.stringify({ sceneCode }),
   });
 }
 
@@ -174,10 +175,10 @@ export async function saveSystem(config: SysConfig): Promise<SysResponse> {
 export async function deleteSystem(
   sysCode: string,
 ): Promise<{ success: boolean }> {
-  return request<{ success: boolean }>(
-    `/systems/${encodeURIComponent(sysCode)}`,
-    { method: "DELETE" },
-  );
+  return request<{ success: boolean }>("/systems/delete", {
+    method: "POST",
+    body: JSON.stringify({ sysCode }),
+  });
 }
 
 export async function listServiceEndpoints(
@@ -204,8 +205,8 @@ export async function updateServiceEndpoint(
   endpoint: ServiceEndpointConfig,
 ): Promise<ServiceEndpointResponse> {
   return request<ServiceEndpointResponse>(
-    `/service-endpoints/${encodeURIComponent(id)}`,
-    { method: "PUT", body: JSON.stringify(endpoint) },
+    "/service-endpoints/update",
+    { method: "POST", body: JSON.stringify({ endpointId: id, config: endpoint }) },
   );
 }
 
@@ -232,37 +233,37 @@ export async function updateDatasource(
   id: string,
   config: DatasourceConfig,
 ): Promise<DatasourceResponse> {
-  return request<DatasourceResponse>(`/datasources/${encodeURIComponent(id)}`, {
-    method: "PUT",
-    body: JSON.stringify(config),
+  return request<DatasourceResponse>("/datasources/update", {
+    method: "POST",
+    body: JSON.stringify({ datasourceId: id, config }),
   });
 }
 
 export async function deleteEnvironment(
   envCode: string,
 ): Promise<{ success: boolean }> {
-  return request<{ success: boolean }>(
-    `/environments/${encodeURIComponent(envCode)}`,
-    { method: "DELETE" },
-  );
+  return request<{ success: boolean }>("/environments/delete", {
+    method: "POST",
+    body: JSON.stringify({ envCode }),
+  });
 }
 
 export async function deleteServiceEndpoint(
   id: string,
 ): Promise<{ success: boolean }> {
-  return request<{ success: boolean }>(
-    `/service-endpoints/${encodeURIComponent(id)}`,
-    { method: "DELETE" },
-  );
+  return request<{ success: boolean }>("/service-endpoints/delete", {
+    method: "POST",
+    body: JSON.stringify({ endpointId: id }),
+  });
 }
 
 export async function deleteDatasource(
   id: string,
 ): Promise<{ success: boolean }> {
-  return request<{ success: boolean }>(
-    `/datasources/${encodeURIComponent(id)}`,
-    { method: "DELETE" },
-  );
+  return request<{ success: boolean }>("/datasources/delete", {
+    method: "POST",
+    body: JSON.stringify({ datasourceId: id }),
+  });
 }
 
 export async function listSqlTemplates(): Promise<SqlTemplateResponse[]> {
@@ -332,10 +333,10 @@ export async function updateHttpSource(
   sourceCode: string,
   config: HttpSourceConfig,
 ): Promise<HttpSourceResponse> {
-  return request<HttpSourceResponse>(
-    `/http-sources/${encodeURIComponent(sourceCode)}`,
-    { method: "PUT", body: JSON.stringify(config) },
-  );
+  return request<HttpSourceResponse>("/http-sources/update", {
+    method: "POST",
+    body: JSON.stringify({ ...config, sourceCode }),
+  });
 }
 
 export async function disableHttpSource(
@@ -407,10 +408,10 @@ export async function updateSqlSource(
   sourceCode: string,
   config: SqlSourceConfig,
 ): Promise<SqlSourceResponse> {
-  return request<SqlSourceResponse>(
-    `/sql-sources/${encodeURIComponent(sourceCode)}`,
-    { method: "PUT", body: JSON.stringify(config) },
-  );
+  return request<SqlSourceResponse>("/sql-sources/update", {
+    method: "POST",
+    body: JSON.stringify({ ...config, sourceCode }),
+  });
 }
 
 export async function disableSqlSource(

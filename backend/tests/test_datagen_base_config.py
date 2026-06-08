@@ -81,12 +81,16 @@ async def test_base_config_crud_matches_frontend_contract(base_config_client: As
     assert datasource["databaseName"] == "trade"
 
     systems = (await base_config_client.get("/api/v1/datagen/systems")).json()
+    system_detail = (await base_config_client.get("/api/v1/datagen/systems/ORDER")).json()
     envs = (await base_config_client.get("/api/v1/datagen/environments")).json()
+    env_detail = (await base_config_client.get("/api/v1/datagen/environments/DEV")).json()
     endpoints = (await base_config_client.get("/api/v1/datagen/service-endpoints?envCode=DEV&sysCode=ORDER")).json()
     datasources = (await base_config_client.get("/api/v1/datagen/datasources?envCode=DEV&sysCode=ORDER")).json()
 
     assert [item["sysCode"] for item in systems] == ["ORDER"]
+    assert system_detail["sysCode"] == "ORDER"
     assert [item["envCode"] for item in envs] == ["DEV"]
+    assert env_detail["envCode"] == "DEV"
     assert [item["sysCode"] for item in endpoints] == ["ORDER"]
     assert [item["datasourceCode"] for item in datasources] == ["tradeDb"]
 

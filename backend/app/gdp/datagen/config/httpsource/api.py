@@ -65,15 +65,12 @@ async def get_http_source(
     return await service.get_http_source(sourceCode)
 
 
-@router.put("/http-sources/{sourceCode}", response_model=HttpSourceResponse)
+@router.post("/http-sources/update", response_model=HttpSourceResponse)
 async def update_http_source(
-    sourceCode: str,
     body: HttpSourceConfig,
     operator: str | None = Depends(_get_operator),
     service: HttpSourceService = Depends(_get_service),
 ) -> HttpSourceResponse:
-    if sourceCode != body.sourceCode:
-        raise HTTPException(status_code=409, detail="path sourceCode must match request sourceCode")
     return await service.upsert_http_source(body, operator=operator)
 
 

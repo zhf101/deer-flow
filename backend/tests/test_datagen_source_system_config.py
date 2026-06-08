@@ -154,6 +154,21 @@ async def test_sql_source_accepts_enabled_datasource_for_system(datagen_client: 
     assert saved["conditionFields"] == body["conditionFields"]
 
 
+def test_datagen_routes_only_use_get_or_post_methods():
+    route_paths = {
+        f"{method} {route.path}"
+        for route in router.routes
+        if hasattr(route, "methods") and hasattr(route, "path")
+        for method in route.methods
+        if method not in {"HEAD", "OPTIONS"}
+    }
+
+    assert all(not item.startswith(("PUT ", "DELETE ")) for item in route_paths)
+    assert "GET /api/v1/datagen/sql-sources/{sourceCode}" in route_paths
+    assert "POST /api/v1/datagen/datasources/update" in route_paths
+    assert "POST /api/v1/datagen/datasources/delete" in route_paths
+
+
 async def _create_system(client: AsyncClient, sys_code: str) -> None:
     response = await client.post(
         "/api/v1/datagen/systems",

@@ -293,7 +293,7 @@ class SceneRepository:
 
     async def update_scene(self, scene_code: str, scene: SceneDefinition, *, operator: str | None = None) -> SceneVersion:
         if scene_code != scene.sceneCode:
-            raise SceneConflictError("path sceneCode must match request sceneCode")
+            raise SceneConflictError("request sceneCode must match definition sceneCode")
 
         async with self._sf() as session:
             scene_row = await self._require_scene_row(session, scene_code)

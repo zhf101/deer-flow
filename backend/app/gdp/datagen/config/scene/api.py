@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
 from app.gdp.datagen.config.common.models import SceneStatus
-from app.gdp.datagen.config.scene.models import SceneDefinition, SceneSummary, SceneVersion, ValidationResult
+from app.gdp.datagen.config.scene.models import DisableResponse, SceneDefinition, SceneSummary, SceneVersion, ValidationResult
 from app.gdp.datagen.config.scene.repository import SceneRepository
 from app.gdp.datagen.config.scene.service import SceneService
 from deerflow.persistence.engine import get_session_factory
 
 router = APIRouter(tags=["data-factory-scene"])
+
+
+class SceneCodeRequest(BaseModel):
+    sceneCode: str = Field(..., min_length=1, max_length=128)
+
+
+class SceneUpdateRequest(SceneCodeRequest):
+    definition: SceneDefinition
 
 
 def _get_service() -> SceneService:
@@ -63,14 +72,13 @@ async def get_current_scene_version(
     return await service.get_scene_version(sceneCode)
 
 
-@router.put("/scenes/{sceneCode}", response_model=SceneVersion)
+@router.post("/scenes/update", response_model=SceneVersion)
 async def update_scene(
-    sceneCode: str,
-    body: SceneDefinition,
+    body: SceneUpdateRequest,
     operator: str | None = Depends(_get_operator),
     service: SceneService = Depends(_get_service),
 ) -> SceneVersion:
-    return await service.update_scene(sceneCode, body, operator=operator)
+    return await service.update_scene(body.sceneCode, body.definition, operator=operator)
 
 
 @router.post("/scenes/{sceneCode}/validate", response_model=ValidationResult)
@@ -88,3 +96,12 @@ async def publish_scene(
     service: SceneService = Depends(_get_service),
 ) -> SceneVersion:
     return await service.publish_scene(sceneCode, operator=operator)
+
+
+@router.post("/scenes/delete", response_model=DisableResponse)
+async def delete_scene(
+    body: SceneCodeRequest,
+    operator: str | None = Depends(_get_operator),
+    service: SceneService = Depends(_get_service),
+) -> DisableResponse:
+    return await service.delete_scene(body.sceneCode, operator=operator)
