@@ -15,6 +15,30 @@ class ConfigStatus(StrEnum):
     DISABLED = "DISABLED"
 
 
+class SceneStatus(StrEnum):
+    """场景状态。"""
+
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+    DISABLED = "DISABLED"
+
+
+class VersionStatus(StrEnum):
+    """场景版本状态。"""
+
+    DRAFT = "DRAFT"
+    PUBLISHED = "PUBLISHED"
+
+
+class StepType(StrEnum):
+    """场景步骤类型。"""
+
+    HTTP = "HTTP"
+    SQL = "SQL"
+    ASSERT = "ASSERT"
+    TRANSFORM = "TRANSFORM"
+
+
 class HttpMethod(StrEnum):
     """HTTP 请求方法。"""
 
@@ -68,7 +92,7 @@ class InputFieldDefinition(BaseModel):
     用于描述场景入参、HTTP 请求/响应字段、SQL 参数和结构化对象字段。
     """
 
-    name: str = Field(..., min_length=1, max_length=128, description="字段编码或变量名。")
+    name: str = Field(..., max_length=128, description="字段编码或变量名。")
     label: str | None = Field(default=None, description="字段中文名或展示名称。")
     remark: str | None = Field(default=None, description="字段备注说明。")
     type: InputFieldType = Field(..., description="字段类型。")

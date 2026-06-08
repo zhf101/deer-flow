@@ -1,0 +1,303 @@
+/**
+ * ============================================================================
+ * 步骤级校验和配置完成度计算
+ * ============================================================================
+ *
+ * 独立的步骤校验逻辑，镜像后端 validate_scene_publish 的规则。
+ * 供编辑器、画布、列表视图复用。
+ */
+
+import type {
+  SceneDefinition,
+  StepDefinition,
+  ValidationIssue,
+} from "./types";
+
+// ── 变量引用提取 ────────────────────────────────────────────────────────
+
+const STEP_OUTPUT_REF_RE =
+  /\$\{steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)(?:[.\[].*?)?\}/g;
+
+function extractStepOutputRefs(value: unknown): [string, string][] {
+  const refs: [string, string][] = [];
+  if (typeof value === "string") {
+    let match: RegExpExecArray | null;
+    const re = new RegExp(STEP_OUTPUT_REF_RE.source, "g");
+    while ((match = re.exec(value)) !== null) {
+      refs.push([match[1]!, match[2]!]);
+    }
+  } else if (Array.isArray(value)) {
+    for (const item of value) {
+      refs.push(...extractStepOutputRefs(item));
+    }
+  } else if (value && typeof value === "object") {
+    for (const v of Object.values(value as Record<string, unknown>)) {
+      refs.push(...extractStepOutputRefs(v));
+    }
+  }
+  return refs;
+}
+
+// ── 依赖闭包 ────────────────────────────────────────────────────────────
+
+function dependencyClosure(
+  step: StepDefinition,
+  stepsById: Map<string, StepDefinition>,
+): Set<string> {
+  const allowed = new Set<string>();
+  const stack = [...step.dependsOn];
+  while (stack.length) {
+    const dep = stack.pop()!;
+    if (allowed.has(dep)) continue;
+    allowed.add(dep);
+    const depStep = stepsById.get(dep);
+    if (depStep) stack.push(...depStep.dependsOn);
+  }
+  return allowed;
+}
+
+// ── 单步骤校验 ──────────────────────────────────────────────────────────
+
+export function validateStepForPublish(
+  step: StepDefinition,
+  scene: SceneDefinition,
+): ValidationIssue[] {
+  if (!step.enabled) return [];
+
+  const issues: ValidationIssue[] = [];
+  const field = `step:${step.stepId}`;
+  const stepsById = new Map(scene.steps.map((s) => [s.stepId, s]));
+
+  // HTTP 步骤校验
+  if (step.type === "HTTP") {
+    if (!step.sysCode) {
+      issues.push({ field: `${field}.sysCode`, message: "HTTP 步骤必须配置系统编码。", level: "ERROR" });
+    }
+    if (!step.method) {
+      issues.push({ field: `${field}.method`, message: "HTTP 步骤必须配置请求方法。", level: "ERROR" });
+    }
+    if (!step.path && !step.url) {
+      issues.push({ field: `${field}.path`, message: "HTTP 步骤必须配置请求路径。", level: "ERROR" });
+    }
+  }
+
+  // SQL 步骤校验
+  if (step.type === "SQL") {
+    if (!step.sysCode) {
+      issues.push({ field: `${field}.sysCode`, message: "SQL 步骤必须配置系统编码。", level: "ERROR" });
+    }
+    if (!step.datasourceCode) {
+      issues.push({ field: `${field}.datasourceCode`, message: "SQL 步骤必须配置数据源编码。", level: "ERROR" });
+    }
+    if (!step.operation) {
+      issues.push({ field: `${field}.operation`, message: "SQL 步骤必须配置操作类型。", level: "ERROR" });
+    }
+    if (!step.normalizedSql) {
+      issues.push({ field: `${field}.normalizedSql`, message: "SQL 步骤发布前必须先解析生成标准 SQL。", level: "ERROR" });
+    }
+
+    // SQL 安全检查：UPDATE/DELETE + requireWhere 必须有 WHERE
+    if (
+      step.normalizedSql &&
+      (step.operation === "UPDATE" || step.operation === "DELETE") &&
+      step.safety?.requireWhere !== false
+    ) {
+      if (!/\bWHERE\b/i.test(step.normalizedSql)) {
+        issues.push({
+          field: `${field}.normalizedSql`,
+          message: "UPDATE/DELETE 步骤启用 requireWhere 时必须包含 WHERE 条件。",
+          level: "ERROR",
+        });
+      }
+    }
+
+    // 必填参数映射检查
+    if (step.normalizedSql && step.parameters) {
+      const mapping = step.paramMapping || step.sqlParamMapping || {};
+      for (const param of step.parameters) {
+        if (!param.required) continue;
+        if (!param.name) continue;
+        const hasDefault = param.defaultValue != null;
+        if (!(param.name in mapping) && !hasDefault) {
+          issues.push({
+            field: `${field}.paramMapping.${param.name}`,
+            message: `SQL 必填参数未映射：${param.name}。`,
+            level: "ERROR",
+          });
+        }
+      }
+    }
+  }
+
+  // 模板引用检查（后端当前拒绝）
+  if (step.templateRef) {
+    issues.push({ field: `${field}.templateRef`, message: "当前后端不支持模板来源引用。", level: "ERROR" });
+  }
+  if (step.httpSourceCode) {
+    issues.push({ field: `${field}.httpSourceCode`, message: "当前后端不支持 HTTP 模板引用。", level: "ERROR" });
+  }
+  if (step.sqlSourceCode) {
+    issues.push({ field: `${field}.sqlSourceCode`, message: "当前后端不支持 SQL 模板引用。", level: "ERROR" });
+  }
+
+  // 变量引用校验
+  const allowed = dependencyClosure(step, stepsById);
+  const allValues = [
+    step.requestMapping,
+    step.httpParamMapping,
+    step.paramMapping,
+    step.sqlParamMapping,
+    step.outputMapping,
+    step.assertions,
+    step.assignments,
+  ];
+
+  for (const [refStepId, outputName] of allValues.flatMap(extractStepOutputRefs)) {
+    const refStep = stepsById.get(refStepId);
+    if (!refStep) {
+      issues.push({ field, message: `变量引用的步骤不存在：${refStepId}。`, level: "ERROR" });
+      continue;
+    }
+    if (!allowed.has(refStepId)) {
+      issues.push({ field, message: `变量引用必须来自当前步骤依赖链：${refStepId}。`, level: "ERROR" });
+    }
+    if (!refStep.enabled) {
+      issues.push({ field, message: `变量不能引用禁用步骤的输出：${refStepId}。`, level: "ERROR" });
+      continue;
+    }
+    if (!(outputName in refStep.outputMapping)) {
+      issues.push({ field, message: `变量引用的步骤输出不存在：${refStepId}.${outputName}。`, level: "ERROR" });
+    }
+  }
+
+  return issues;
+}
+
+// ── 步骤配置完成度 ──────────────────────────────────────────────────────
+
+export interface StepConfigStatus {
+  complete: boolean;
+  errorCount: number;
+  warningCount: number;
+  outputCount: number;
+  usedVariableCount: number;
+}
+
+export function computeStepConfigStatus(
+  step: StepDefinition,
+  scene: SceneDefinition,
+): StepConfigStatus {
+  const issues = validateStepForPublish(step, scene);
+  const errorCount = issues.filter((i) => i.level === "ERROR").length;
+  const warningCount = issues.filter((i) => i.level === "WARNING").length;
+  const outputCount = Object.keys(step.outputMapping ?? {}).length;
+
+  // 统计此步骤引用的变量数
+  const allValues = [
+    step.requestMapping,
+    step.httpParamMapping,
+    step.paramMapping,
+    step.sqlParamMapping,
+    step.assignments,
+  ];
+  const usedVars = new Set<string>();
+  for (const [refStepId, outputName] of allValues.flatMap(extractStepOutputRefs)) {
+    usedVars.add(`${refStepId}.${outputName}`);
+  }
+
+  return {
+    complete: errorCount === 0,
+    errorCount,
+    warningCount,
+    outputCount,
+    usedVariableCount: usedVars.size,
+  };
+}
+
+// ── 场景级发布校验（增强版）─────────────────────────────────────────────
+
+export function validateSceneForPublish(scene: SceneDefinition): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+
+  // 基础草稿校验
+  if (!scene.sceneCode?.trim()) {
+    issues.push({ field: "sceneCode", message: "场景编码不能为空。", level: "ERROR" });
+  }
+  if (!scene.sceneName?.trim()) {
+    issues.push({ field: "sceneName", message: "场景名称不能为空。", level: "ERROR" });
+  }
+
+  // 步骤 ID 唯一性
+  const stepIds = new Set<string>();
+  for (const [index, step] of scene.steps.entries()) {
+    if (!step.stepId) {
+      issues.push({ field: `steps[${index}].stepId`, message: "步骤 ID 不能为空。", level: "ERROR" });
+      continue;
+    }
+    if (stepIds.has(step.stepId)) {
+      issues.push({ field: `steps[${index}].stepId`, message: `步骤 ID 重复：${step.stepId}。`, level: "ERROR" });
+    }
+    stepIds.add(step.stepId);
+  }
+
+  // 依赖关系校验
+  const graph = new Map<string, string[]>();
+  const indegree = new Map<string, number>();
+  for (const step of scene.steps) {
+    graph.set(step.stepId, []);
+    indegree.set(step.stepId, 0);
+  }
+  for (const [index, step] of scene.steps.entries()) {
+    for (const dep of step.dependsOn) {
+      if (dep === step.stepId) {
+        issues.push({ field: `steps[${index}].dependsOn`, message: `步骤不能依赖自身：${step.stepId}。`, level: "ERROR" });
+        continue;
+      }
+      if (!stepIds.has(dep)) {
+        issues.push({ field: `steps[${index}].dependsOn`, message: `依赖步骤不存在：${dep}。`, level: "ERROR" });
+        continue;
+      }
+      graph.get(dep)!.push(step.stepId);
+      indegree.set(step.stepId, (indegree.get(step.stepId) ?? 0) + 1);
+    }
+  }
+  // 环检测
+  const queue = [...indegree.entries()].filter(([, d]) => d === 0).map(([id]) => id);
+  let visited = 0;
+  while (queue.length) {
+    const current = queue.shift()!;
+    visited++;
+    for (const next of graph.get(current) ?? []) {
+      const d = (indegree.get(next) ?? 1) - 1;
+      indegree.set(next, d);
+      if (d === 0) queue.push(next);
+    }
+  }
+  if (visited !== stepIds.size) {
+    issues.push({ field: "steps", message: "步骤依赖存在环。", level: "ERROR" });
+  }
+
+  // 逐步骤校验
+  for (const step of scene.steps) {
+    issues.push(...validateStepForPublish(step, scene));
+  }
+
+  // 结果映射校验
+  const stepsById = new Map(scene.steps.map((s) => [s.stepId, s]));
+  for (const [refStepId, outputName] of extractStepOutputRefs(scene.resultMapping)) {
+    const refStep = stepsById.get(refStepId);
+    if (!refStep) {
+      issues.push({ field: "resultMapping", message: `变量引用的步骤不存在：${refStepId}。`, level: "ERROR" });
+      continue;
+    }
+    if (!refStep.enabled) {
+      issues.push({ field: "resultMapping", message: `变量不能引用禁用步骤的输出：${refStepId}。`, level: "ERROR" });
+      continue;
+    }
+    if (!(outputName in refStep.outputMapping)) {
+      issues.push({ field: "resultMapping", message: `变量引用的步骤输出不存在：${refStepId}.${outputName}。`, level: "ERROR" });
+    }
+  }
+
+  return issues;
+}

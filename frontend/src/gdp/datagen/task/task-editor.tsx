@@ -1,3 +1,28 @@
+/**
+ * ============================================================================
+ * 任务编排 - 任务编辑器
+ * ============================================================================
+ *
+ * 任务的详细编辑页面，支持配置基本信息、编排执行步骤和管理版本。
+ *
+ * UI 内容：
+ *   - 顶部工具栏：返回按钮、任务名称、保存按钮、运行按钮
+ *   - 基本信息区域：
+ *     - 任务名称、描述、关联场景
+ *   - 步骤编排区域：
+ *     - 步骤列表（可拖拽排序）
+ *     - 新增步骤按钮
+ *     - 每个步骤可展开配置（引用 HTTP 源/SQL 源、设置参数映射）
+ *     - 步骤间的变量传递配置
+ *   - 版本历史面板（Collapsible）：
+ *     - 版本列表（版本号、时间、描述）
+ *     - 版本对比和回滚
+ *
+ * 被引用位置：
+ *   - page.tsx 中作为 TabType="task-editor" 的内容组件
+ *
+ * 新增/复用判断：新增页面，任务编排模块编辑页
+ */
 "use client";
 
 import {
@@ -72,7 +97,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
   const [versions, setVersions] = useState<TaskVersion[]>([]);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
 
-  // Load task data
+  // 加载任务数据
   useEffect(() => {
     if (taskCode) {
       setLoading(true);
@@ -92,14 +117,14 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
     }
   }, [taskCode, onBack]);
 
-  // Load available scenes
+  // 加载可用场景
   useEffect(() => {
     listScenes({ limit: 500 })
       .then((s) => setScenes(s.filter((sc) => sc.status === "PUBLISHED")))
       .catch(() => toast.error("加载场景列表失败"));
   }, []);
 
-  // Load versions
+  // 加载版本列表
   useEffect(() => {
     if (persistedCode) {
       listTaskVersions(persistedCode)
@@ -211,7 +236,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
+      {/* 头部 */}
       <div className="flex items-center justify-between border-b px-6 py-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={onBack}>
@@ -252,7 +277,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
         </div>
       </div>
 
-      {/* Validation issues */}
+      {/* 校验问题 */}
       {issues.length > 0 && (
         <div className="border-b bg-yellow-50 px-6 py-2">
           {issues.map((issue, i) => (
@@ -263,13 +288,13 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
         </div>
       )}
 
-      {/* Main content: two-column layout */}
+      {/* 主内容：双栏布局 */}
       <div className="flex flex-1 min-h-0">
-        {/* Left: basic info + step list */}
+        {/* 左侧：基本信息 + 步骤列表 */}
         <div className="w-[360px] border-r flex flex-col">
           <ScrollArea className="flex-1">
             <div className="p-4 space-y-4">
-              {/* Basic info */}
+              {/* 基本信息 */}
               <div className="space-y-3">
                 <h3 className="text-sm font-semibold">基本信息</h3>
                 <div>
@@ -304,7 +329,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
                 </div>
               </div>
 
-              {/* Step list */}
+              {/* 步骤列表 */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold">场景步骤</h3>
@@ -360,7 +385,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
                 )}
               </div>
 
-              {/* Version history */}
+              {/* 版本历史 */}
               {versions.length > 0 && (
                 <Collapsible>
                   <CollapsibleTrigger className="flex items-center gap-1 text-xs font-semibold text-muted-foreground">
@@ -384,7 +409,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
           </ScrollArea>
         </div>
 
-        {/* Right: selected step detail */}
+        {/* 右侧：选中步骤详情 */}
         <div className="flex-1 min-w-0">
           {selectedStep ? (
             <StepDetailPanel
@@ -406,7 +431,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
   );
 }
 
-/* ── Step detail panel ──────────────────────────────────────────────── */
+/* ── 步骤详情面板 ── */
 
 function StepDetailPanel({
   step,
@@ -429,7 +454,7 @@ function StepDetailPanel({
   return (
     <ScrollArea className="h-full">
       <div className="p-6 space-y-6 max-w-3xl">
-        {/* Step basic info */}
+        {/* 步骤基本信息 */}
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">步骤配置</h3>
           <div className="grid grid-cols-2 gap-3">
@@ -454,7 +479,7 @@ function StepDetailPanel({
           </div>
         </div>
 
-        {/* Scene selection */}
+        {/* 场景选择 */}
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">关联场景</h3>
           <Select
@@ -480,7 +505,7 @@ function StepDetailPanel({
           )}
         </div>
 
-        {/* Dependencies */}
+        {/* 依赖项 */}
         <div className="space-y-3">
           <h3 className="text-sm font-semibold">依赖步骤</h3>
           {availableSteps.length > 0 ? (
@@ -514,7 +539,7 @@ function StepDetailPanel({
           )}
         </div>
 
-        {/* Input/Output mapping */}
+        {/* 输入/输出映射 */}
         <Collapsible open={mappingOpen} onOpenChange={setMappingOpen}>
           <CollapsibleTrigger className="flex items-center gap-1 text-sm font-semibold">
             {mappingOpen ? <ChevronDownIcon className="size-4" /> : <ChevronRightIcon className="size-4" />}
@@ -533,7 +558,7 @@ function StepDetailPanel({
                 value={JSON.stringify(step.inputMapping, null, 2)}
                 onChange={(e) => {
                   try { onChange({ ...step, inputMapping: JSON.parse(e.target.value) }); }
-                  catch { /* ignore */ }
+                  catch { /* 忽略 */ }
                 }}
               />
             </div>
@@ -549,14 +574,14 @@ function StepDetailPanel({
                 value={JSON.stringify(step.outputMapping, null, 2)}
                 onChange={(e) => {
                   try { onChange({ ...step, outputMapping: JSON.parse(e.target.value) }); }
-                  catch { /* ignore */ }
+                  catch { /* 忽略 */ }
                 }}
               />
             </div>
           </CollapsibleContent>
         </Collapsible>
 
-        {/* Delete */}
+        {/* 删除 */}
         {!readOnly && (
           <div className="border-t pt-4">
             <Button variant="destructive" size="sm" onClick={() => onDelete(step.stepId)} className="gap-1 text-xs">
@@ -569,7 +594,7 @@ function StepDetailPanel({
   );
 }
 
-/* ── helpers ─────────────────────────────────────────────────────────── */
+/* ── 辅助函数 ── */
 
 function normalizeTask(task: TaskDefinition): TaskDefinition {
   return {

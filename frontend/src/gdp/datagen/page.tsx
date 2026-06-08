@@ -22,7 +22,7 @@ import { TaskDashboard } from "./task/task-dashboard";
 import { TaskEditor } from "./task/task-editor";
 import { TaskRunDialog } from "./task/task-run-dialog";
 
-/* ── types ──────────────────────────────────────────────────────── */
+/* ── 类型 ── */
 
 type TabType =
   | "scene-list"
@@ -45,7 +45,7 @@ interface TabState {
   label: string;
 }
 
-/* ── sidebar nav items ──────────────────────────────────────────── */
+/* ── 侧边栏导航项 ── */
 
 const NAV_ITEMS: {
   id: string;
@@ -61,7 +61,7 @@ const NAV_ITEMS: {
   { id: "task-list", type: "task-list", label: "造数任务", icon: WorkflowIcon, group: "编排" },
 ];
 
-/* ── main component ─────────────────────────────────────────────── */
+/* ── 主组件 ── */
 
 export function DataFactoryPage() {
   const [tabs, setTabs] = useState<TabState[]>([
@@ -70,7 +70,7 @@ export function DataFactoryPage() {
   const [activeTabId, setActiveTabId] = useState("scene-list");
   const [runningTaskCode, setRunningTaskCode] = useState<string | null>(null);
 
-  /* ── tab operations ────────────────────────────────────────────── */
+  /* ── 标签页操作 ── */
 
   const ensureTab = useCallback(
     (newTab: TabState) => {
@@ -187,7 +187,7 @@ export function DataFactoryPage() {
     [],
   );
 
-  /* ── build TabBar data ─────────────────────────────────────────── */
+  /* ── 构建 TabBar 数据 ── */
 
   const tabBarData: Tab[] = tabs.map((t) => ({
     id: t.id,
@@ -209,7 +209,7 @@ export function DataFactoryPage() {
       ) : undefined,
   }));
 
-  /* ── render active tab content ─────────────────────────────────── */
+  /* ── 渲染当前标签内容 ── */
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
@@ -295,17 +295,17 @@ export function DataFactoryPage() {
     }
   };
 
-  /* ── determine active sidebar item ────────────────────────────── */
+  /* ── 计算当前侧边栏项 ── */
 
   const activeNavId = (() => {
     if (!activeTab) return "scene-list";
-    // Map editor/view/new tabs back to their parent nav item
+    // 将编辑、查看、新建标签映射回父级导航项
     if (activeTab.type.startsWith("scene")) return "scene-list";
     if (activeTab.type.startsWith("task")) return "task-list";
     return activeTab.type;
   })();
 
-  /* ── group nav items ──────────────────────────────────────────── */
+  /* ── 导航项分组 ── */
 
   const groups = NAV_ITEMS.reduce<Record<string, typeof NAV_ITEMS>>(
     (acc, item) => {
@@ -317,7 +317,7 @@ export function DataFactoryPage() {
 
   return (
     <main className="flex h-screen bg-background overflow-hidden">
-      {/* ── Left Sidebar Navigation ── */}
+      {/* ── 左侧边栏导航 ── */}
       <aside className="flex w-[180px] flex-col border-r bg-muted/20 shrink-0">
         <div className="px-4 py-3 border-b">
           <h2 className="text-sm font-bold tracking-tight">造数工厂</h2>
@@ -361,7 +361,7 @@ export function DataFactoryPage() {
         </nav>
       </aside>
 
-      {/* ── Main Content ── */}
+      {/* ── 主内容 ── */}
       <div className="flex flex-1 flex-col min-w-0">
         <TabBar
           tabs={tabBarData}
@@ -374,7 +374,7 @@ export function DataFactoryPage() {
         </div>
       </div>
 
-      {/* Task run dialog (shared across tabs) */}
+      {/* 任务执行对话框（跨标签共享） */}
       {runningTaskCode && (
         <TaskRunDialog
           taskCode={runningTaskCode}

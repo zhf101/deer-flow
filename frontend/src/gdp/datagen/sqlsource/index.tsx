@@ -425,7 +425,7 @@ export function SqlSourceManagement() {
   );
 }
 
-/* ── Row Actions (dropdown menu) ──────────────────────────────── */
+/* ── 行操作（下拉菜单） ── */
 
 function SqlRowActions({
   source,
@@ -721,7 +721,7 @@ function SqlSourceEditor({
           <section className="space-y-3 rounded-lg border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground">基本信息</h3>
             <div className="grid grid-cols-4 gap-x-4 gap-y-3">
-              {/* Row 1: SQL编码 + 操作类型 + 状态 */}
+              {/* 第 1 行：SQL 编码 + 操作类型 + 状态 */}
               <div className="col-span-2 space-y-1">
                 <Label className="text-xs">SQL 编码</Label>
                 <Input
@@ -772,7 +772,7 @@ function SqlSourceEditor({
                 </Select>
               </div>
 
-              {/* Row 2: 所属系统 + 数据源 */}
+              {/* 第 2 行：所属系统 + 数据源 */}
               <div className="col-span-2 space-y-1">
                 <Label className="text-xs">所属系统</Label>
                 <Select
@@ -823,7 +823,7 @@ function SqlSourceEditor({
                 </Select>
               </div>
 
-              {/* Row 3: 描述 (full width) */}
+              {/* 第 3 行：描述（占满宽度） */}
               <div className="col-span-4 space-y-1">
                 <Label className="text-xs">描述</Label>
                 <Textarea

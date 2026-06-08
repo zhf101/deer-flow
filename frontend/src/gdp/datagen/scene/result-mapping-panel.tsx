@@ -102,7 +102,7 @@ export function ResultMappingPanel({
   };
 
   const handleDeleteField = (flatIndex: number) => {
-    // Build index paths to find which field to delete
+    // 构建索引路径，用于定位要删除的字段
     const indexPaths: number[][] = [];
     let count = 0;
     const buildPaths = (
@@ -122,7 +122,7 @@ export function ResultMappingPanel({
     const targetPath = indexPaths[flatIndex];
     if (!targetPath) return;
 
-    // Remove the field and its children from the tree
+    // 从树中移除字段及其子节点
     const next = JSON.parse(JSON.stringify(schema)) as InputFieldDefinition[];
     if (targetPath.length === 1) {
       next.splice(targetPath[0]!, 1);
@@ -138,7 +138,7 @@ export function ResultMappingPanel({
       );
     }
 
-    // Clean up mapping for deleted paths
+    // 清理已删除路径对应的映射
     const deletedPaths = flatFields
       .slice(flatIndex)
       .filter(
@@ -161,7 +161,7 @@ export function ResultMappingPanel({
     const next = [
       ...schema,
       {
-        name: `field${schema.length + 1}`,
+        name: "",
         label: "",
         type: "string" as InputFieldType,
         required: false,
@@ -200,7 +200,7 @@ export function ResultMappingPanel({
     }
     field.children ??= [];
     field.children.push({
-      name: `child${field.children.length + 1}`,
+      name: "",
       label: "",
       type: "string",
       required: false,
@@ -211,7 +211,7 @@ export function ResultMappingPanel({
 
   return (
     <div className={cn("space-y-10", readOnly && "pointer-events-none opacity-80")}>
-      {/* SECTION 1: RESULT SCHEMA DEFINITION */}
+      {/* 第 1 部分：结果 schema 定义 */}
       <section className="space-y-4">
         <div className="flex items-center justify-between border-b pb-2">
           <div className="flex items-center gap-2 text-primary font-bold">
@@ -271,7 +271,7 @@ export function ResultMappingPanel({
         </Button>
       </section>
 
-      {/* SECTION 2: FIELD VALUE MAPPING */}
+      {/* 第 2 部分：字段值映射 */}
       <section className="space-y-4">
         <div className="flex items-center justify-between border-b pb-2">
           <div className="flex items-center gap-2 text-blue-600 font-bold">
@@ -384,7 +384,7 @@ export function ResultMappingPanel({
         </div>
       </section>
 
-      {/* SECTION 3: ERROR POLICY */}
+      {/* 第 3 部分：错误策略 */}
       <section className="space-y-4">
         <div className="flex items-center justify-between border-b pb-2">
           <div className="flex items-center gap-2 text-amber-600 font-bold">
@@ -448,7 +448,7 @@ export function ResultMappingPanel({
         </div>
       </section>
 
-      {/* JSON Import Dialog */}
+      {/* JSON 导入对话框 */}
       <Dialog open={showJsonDialog} onOpenChange={setShowJsonDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -479,7 +479,7 @@ export function ResultMappingPanel({
   );
 }
 
-/* ─── Result Schema Row (recursive) ─── */
+/* ── 结果 schema 行（递归） ── */
 
 function ResultSchemaRow({
   field,

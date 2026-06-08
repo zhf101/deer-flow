@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 
 import { cn } from "@/lib/utils";
 
-/* ── types ──────────────────────────────────────────────────────── */
+/* ── 类型 ── */
 
 export interface Tab {
   id: string;
@@ -28,7 +28,7 @@ interface ContextMenuState {
   tabId: string;
 }
 
-/* ── component ──────────────────────────────────────────────────── */
+/* ── 组件 ── */
 
 export function TabBar({ tabs, activeTabId, onSelect, onClose }: TabBarProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -52,7 +52,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose }: TabBarProps) {
     [],
   );
 
-  // Close context menu on outside click / scroll / escape
+  // 点击外部、滚动或按下 Escape 时关闭上下文菜单
   useEffect(() => {
     if (!ctxMenu) return;
 
@@ -71,7 +71,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose }: TabBarProps) {
     };
   }, [ctxMenu]);
 
-  /* ── context menu actions ──────────────────────────────────────── */
+  /* ── 上下文菜单操作 ── */
 
   const doAction = useCallback(
     (action: "close-all" | "close-others" | "close-left" | "close-right") => {
@@ -95,16 +95,17 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose }: TabBarProps) {
           break;
       }
 
-      // Close in reverse order to avoid index shifting issues
+      // 按反向顺序关闭，避免索引偏移问题
       for (let i = targets.length - 1; i >= 0; i--) {
-        onClose(targets[i].id);
+        const target = targets[i];
+        if (target) onClose(target.id);
       }
       setCtxMenu(null);
     },
     [ctxMenu, tabs, onClose],
   );
 
-  /* ── compute which actions are enabled ─────────────────────────── */
+  /* ── 计算可用操作 ── */
 
   const ctxActions = (() => {
     if (!ctxMenu) return { canCloseLeft: false, canCloseRight: false, canCloseOthers: false, canCloseAll: false };
@@ -140,27 +141,27 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose }: TabBarProps) {
                   : "bg-transparent text-muted-foreground hover:bg-muted/50 hover:text-foreground",
               )}
             >
-              {/* Active indicator - top accent bar */}
+              {/* 激活状态顶部强调条 */}
               {isActive && (
                 <div className="absolute top-0 left-0 right-0 h-[2px] bg-primary rounded-b" />
               )}
 
-              {/* Icon */}
+              {/* 图标 */}
               {tab.icon && (
                 <span className="shrink-0 size-3.5">{tab.icon}</span>
               )}
 
-              {/* Label */}
+              {/* 标签 */}
               <span className="truncate text-[11px] font-medium leading-none">
                 {tab.label}
               </span>
 
-              {/* Dirty indicator */}
+              {/* 未保存状态标记 */}
               {tab.dirty && (
                 <span className="shrink-0 size-1.5 rounded-full bg-primary/60" />
               )}
 
-              {/* Close button */}
+              {/* 关闭按钮 */}
               {tab.closable && (
                 <button
                   type="button"
@@ -180,7 +181,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose }: TabBarProps) {
         })}
       </div>
 
-      {/* ── Context Menu ── */}
+      {/* ── 上下文菜单 ── */}
       {ctxMenu && (
         <div
           ref={ctxMenuRef}
@@ -215,7 +216,7 @@ export function TabBar({ tabs, activeTabId, onSelect, onClose }: TabBarProps) {
   );
 }
 
-/* ── Context Menu Item ── */
+/* ── 上下文菜单项 ── */
 
 function CtxMenuItem({
   label,

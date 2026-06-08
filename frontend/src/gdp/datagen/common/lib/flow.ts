@@ -8,11 +8,21 @@ export interface StepNodeData extends Record<string, unknown> {
   type: string;
   enabled: boolean;
   order: number;
+  url?: string;
+  sql?: string;
+  outputCount: number;
+  hasErrors: boolean;
 }
 
 export function stepsToNodes(steps: StepDefinition[]): Node<StepNodeData>[] {
   return steps.map((step, index) => {
     const isHttp = step.type === 'HTTP';
+    const outputCount = Object.keys(step.outputMapping ?? {}).length;
+    // 简单判断：HTTP 缺 path 或 SQL 缺 normalizedSql 视为有错误
+    const hasErrors = isHttp
+      // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty string path/url should fall through
+      ? !(step.path || step.url) || !step.sysCode
+      : !step.normalizedSql || !step.datasourceCode || !step.sysCode;
     return {
       id: step.stepId,
       type: isHttp ? "httpStep" : step.type === 'SQL' ? "sqlStep" : "default",
@@ -22,8 +32,12 @@ export function stepsToNodes(steps: StepDefinition[]): Node<StepNodeData>[] {
         type: step.type,
         enabled: step.enabled,
         order: index + 1,
-        url: step.url || undefined,
-        sql: step.description?.startsWith('Raw SQL:') ? step.description.substring(8) : (step.sqlTemplateCode || undefined),
+        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty strings should fall through
+        url: step.url || step.path || undefined,
+        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty strings should fall through
+        sql: step.sqlText || step.normalizedSql || step.sqlTemplateCode || undefined,
+        outputCount,
+        hasErrors,
       },
     };
   });
@@ -33,7 +47,7 @@ export function stepsToEdges(steps: StepDefinition[]): Edge[] {
   const edges: Edge[] = [];
 
   steps.forEach((step) => {
-    // 1. Explicit Step Dependencies (Depends On)
+    // 1. 显式步骤依赖（Depends On）
     step.dependsOn.forEach((source) => {
       edges.push({
         id: `${source}-${step.stepId}-dep`,
@@ -46,7 +60,7 @@ export function stepsToEdges(steps: StepDefinition[]): Edge[] {
       });
     });
 
-    // 2. Implicit Data Mapping Dependencies
+    // 2. 隐式数据映射依赖
     const stepStr = JSON.stringify(step);
     const varRegex = /\$\{steps\.([\w-]+)\.outputs\.([\w-]+)\}/g;
     let match;

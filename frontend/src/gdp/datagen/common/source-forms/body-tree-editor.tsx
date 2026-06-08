@@ -45,7 +45,7 @@ import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
 import { parseJsonWithComments, jsonToFields } from "../lib/schema-utils";
 import { VariableSelector } from "../editors/variable-selector";
 
-/* ── themes ─────────────────────────────────────────────────────── */
+/* ── 主题 ── */
 
 const darkTheme = monokaiInit({
   settings: { background: "transparent", gutterBackground: "transparent", fontSize: "12px" },
@@ -54,7 +54,7 @@ const lightTheme = basicLightInit({
   settings: { background: "transparent", fontSize: "12px" },
 });
 
-/* ── types ──────────────────────────────────────────────────────── */
+/* ── 类型 ── */
 
 interface BodyTreeEditorProps {
   format: "json" | "xml";
@@ -65,7 +65,7 @@ interface BodyTreeEditorProps {
 
 type SubView = "tree" | "preview";
 
-/* ── main component ─────────────────────────────────────────────── */
+/* ── 主组件 ── */
 
 export function BodyTreeEditor({
   format,
@@ -86,7 +86,7 @@ export function BodyTreeEditor({
 
   const cmExtensions = useMemo(() => [json()], []);
 
-  /* ── view switch ──────────────────────────────────────────────── */
+  /* ── 视图切换 ── */
   const switchView = useCallback(
     (next: SubView) => {
       if (next === "preview" && bodyTree.length > 0) {
@@ -100,7 +100,7 @@ export function BodyTreeEditor({
     [bodyTree, format, rm, onChange],
   );
 
-  /* ── tree update ──────────────────────────────────────────────── */
+  /* ── 树结构更新 ── */
   const updateTree = useCallback(
     (next: InputFieldDefinition[]) => {
       onChange({ ...rm, bodyTree: next });
@@ -108,7 +108,7 @@ export function BodyTreeEditor({
     [rm, onChange],
   );
 
-  /* ── import JSON ──────────────────────────────────────────────── */
+  /* ── 导入 JSON ── */
   const handleImportJson = useCallback(() => {
     try {
       const { cleanJson, labels } = parseJsonWithComments(dialogInput);
@@ -124,7 +124,7 @@ export function BodyTreeEditor({
     }
   }, [dialogInput, rm, onChange]);
 
-  /* ── import XML ───────────────────────────────────────────────── */
+  /* ── 导入 XML ── */
   const handleImportXml = useCallback(() => {
     try {
       const tree = xmlToTree(dialogInput);
@@ -138,7 +138,7 @@ export function BodyTreeEditor({
     }
   }, [dialogInput, rm, onChange]);
 
-  /* ── generate preview text ────────────────────────────────────── */
+  /* ── 生成预览文本 ── */
   const previewText = useMemo(() => {
     if (bodyTree.length === 0) return "";
     const obj = treeToJson(bodyTree);
@@ -147,7 +147,7 @@ export function BodyTreeEditor({
 
   return (
     <div className="space-y-2">
-      {/* ── toolbar: 2-mode toggle + import buttons ── */}
+      {/* ── 工具栏：双模式切换与导入按钮 ── */}
       <div className="flex items-center gap-2">
         <div className="flex items-center rounded-md border bg-muted/30 p-0.5">
           <button
@@ -204,10 +204,10 @@ export function BodyTreeEditor({
         </div>
       </div>
 
-      {/* ── tree view ── */}
+      {/* ── 树形视图 ── */}
       {bodyView === "tree" && (
         <div className="rounded-md border bg-card overflow-hidden">
-          {/* Table header */}
+          {/* 表头 */}
           <div className="grid grid-cols-[1fr_1fr_1fr] gap-2 px-3 py-1.5 bg-muted/30 text-[10px] font-bold text-muted-foreground uppercase border-b">
             <div>Key</div>
             <div className="text-blue-600">Value</div>
@@ -239,7 +239,7 @@ export function BodyTreeEditor({
         </div>
       )}
 
-      {/* ── preview (read-only) ── */}
+      {/* ── 预览（只读） ── */}
       {bodyView === "preview" && (
         <div className="space-y-1">
           <span className="text-[10px] text-muted-foreground">
@@ -276,7 +276,7 @@ export function BodyTreeEditor({
         </div>
       )}
 
-      {/* ── JSON import dialog ── */}
+      {/* ── JSON 导入对话框 ── */}
       <Dialog open={showJsonDialog} onOpenChange={setShowJsonDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -304,7 +304,7 @@ export function BodyTreeEditor({
         </DialogContent>
       </Dialog>
 
-      {/* ── XML import dialog ── */}
+      {/* ── XML 导入对话框 ── */}
       <Dialog open={showXmlDialog} onOpenChange={setShowXmlDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -331,7 +331,7 @@ export function BodyTreeEditor({
   );
 }
 
-/* ── tree node (recursive) ─────────────────────────────────────── */
+/* ── 树节点（递归） ── */
 
 function TreeNode({
   field,
@@ -370,7 +370,7 @@ function TreeNode({
           "grid grid-cols-[1fr_1fr_1fr] gap-2 items-center px-3 py-1.5 border-b border-border/30 hover:bg-muted/20 transition-colors",
         )}
       >
-        {/* Key column */}
+        {/* 键列 */}
         <div className="flex items-center gap-1 min-w-0">
           {hasChildren ? (
             <button
@@ -398,7 +398,7 @@ function TreeNode({
           </span>
         </div>
 
-        {/* Value column (blue highlight) */}
+        {/* 值列（蓝色高亮） */}
         {isLeaf ? (
           <div className="relative group">
             <TooltipProvider>
@@ -450,7 +450,7 @@ function TreeNode({
           </span>
         )}
 
-        {/* Description column */}
+        {/* 描述列 */}
         <Input
           value={field.label ?? ""}
           onChange={(e) => onUpdate({ ...field, label: e.target.value })}
@@ -459,7 +459,7 @@ function TreeNode({
         />
       </div>
 
-      {/* Children */}
+      {/* 子节点 */}
       {hasChildren && expanded && field.children?.map((child, i) => (
         <TreeNode
           key={i}
@@ -478,9 +478,9 @@ function TreeNode({
   );
 }
 
-/* ── utilities ──────────────────────────────────────────────────── */
+/* ── 工具函数 ── */
 
-/** Convert bodyTree (InputFieldDefinition[]) back to a plain JSON object */
+/** 将 bodyTree（InputFieldDefinition[]）还原为普通 JSON 对象 */
 function treeToJson(tree: InputFieldDefinition[]): Record<string, any> {
   const obj: Record<string, any> = {};
   for (const field of tree) {
@@ -508,7 +508,7 @@ function treeToJson(tree: InputFieldDefinition[]): Record<string, any> {
   return obj;
 }
 
-/** Simple JSON-to-XML serializer (for preview when format is xml) */
+/** 简单的 JSON 转 XML 序列化器（用于 XML 格式预览） */
 function jsonToXml(obj: Record<string, any>, indent = 0): string {
   const pad = "  ".repeat(indent);
   const lines: string[] = [];
@@ -535,7 +535,7 @@ function jsonToXml(obj: Record<string, any>, indent = 0): string {
   return lines.join("\n");
 }
 
-/** Parse XML string into InputFieldDefinition[] */
+/** 将 XML 字符串解析为 InputFieldDefinition[] */
 function xmlToTree(xmlStr: string): InputFieldDefinition[] {
   const parser = new DOMParser();
   const doc = parser.parseFromString(xmlStr.trim(), "text/xml");

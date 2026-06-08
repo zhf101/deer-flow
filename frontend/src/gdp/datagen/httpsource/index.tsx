@@ -82,7 +82,7 @@ import { ConfirmDialog } from "../common/ui/confirm-dialog";
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 
-/* ── adapter: HttpSourceConfig → StepDefinition ────────────────── */
+/* ── 适配器：HttpSourceConfig → StepDefinition ── */
 
 function configToFakeStep(config: HttpSourceConfig): StepDefinition {
   return {
@@ -195,7 +195,7 @@ function inferFieldType(value: unknown): InputFieldDefinition["type"] {
   return "string";
 }
 
-/* ── main component ─────────────────────────────────────────────── */
+/* ── 主组件 ── */
 
 export function HttpSourceManagement() {
   const [sources, setSources] = useState<HttpSourceResponse[]>([]);
@@ -332,7 +332,7 @@ export function HttpSourceManagement() {
     setPage(0);
   };
 
-  /* ── editor view ── */
+  /* ── 编辑视图 ── */
   if (editing && editorMode) {
     const isNew = !sources.some((s) => s.sourceCode === editing.sourceCode);
     return (
@@ -347,7 +347,7 @@ export function HttpSourceManagement() {
     );
   }
 
-  /* ── list view ── */
+  /* ── 列表视图 ── */
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between border-b px-6 py-3">
@@ -536,7 +536,7 @@ export function HttpSourceManagement() {
   );
 }
 
-/* ── Row Actions (dropdown menu) ──────────────────────────────── */
+/* ── 行操作（下拉菜单） ── */
 
 function HttpRowActions({
   source: _source,
@@ -673,7 +673,7 @@ function nextCopyCode(code: string, existingCodes: string[]) {
   return candidate;
 }
 
-/* ── rich editor component ──────────────────────────────────────── */
+/* ── 富编辑器组件 ── */
 
 function HttpSourceEditor({
   config,
@@ -691,7 +691,7 @@ function HttpSourceEditor({
   onCancel: () => void;
 }) {
   const readOnly = mode === "view";
-  /* Build a fake StepDefinition from the HttpSourceConfig */
+  /* 根据 HttpSourceConfig 构造一个临时 StepDefinition */
   const fakeStep = configToFakeStep(config);
   const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
   const [testEnvCode, setTestEnvCode] = useState("");
@@ -718,7 +718,7 @@ function HttpSourceEditor({
     };
   }, []);
 
-  /* ── request panel change handler ── */
+  /* ── 请求面板变更处理函数 ── */
   const handleRequestChange = useCallback(
     (updatedStep: StepDefinition) => {
       onChange({
@@ -732,7 +732,7 @@ function HttpSourceEditor({
     [config, onChange],
   );
 
-  /* ── response panel change handler ── */
+  /* ── 响应面板变更处理函数 ── */
   const handleResponseChange = useCallback(
     (updates: Partial<StepDefinition>) => {
       const next = { ...config };
@@ -754,7 +754,7 @@ function HttpSourceEditor({
         next.outputMapping = updates.outputMapping;
       if (updates.outputMeta !== undefined)
         next.outputMeta = updates.outputMeta;
-      // _rawResponseSample is stored in requestMapping
+      // _rawResponseSample 存储在 requestMapping 中
       if (updates.requestMapping !== undefined) {
         next.requestMapping = {
           ...config.requestMapping,
@@ -814,7 +814,7 @@ function HttpSourceEditor({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
+      {/* 头部 */}
       <div className="flex items-center gap-3 border-b px-4 py-2 shrink-0">
         <Button variant="ghost" size="icon-sm" onClick={onCancel}>
           <ArrowLeftIcon className="size-4" />
@@ -900,10 +900,10 @@ function HttpSourceEditor({
         environments={environments}
       />
 
-      {/* Content */}
+      {/* 内容 */}
       <div className="flex-1 overflow-auto">
         <div className="max-w-5xl mx-auto p-4 space-y-4">
-          {/* ── Basic Info ── */}
+          {/* ── 基本信息 ── */}
           <section className="rounded-lg border bg-card p-4 space-y-3">
             <h3 className="text-sm font-semibold text-foreground">基本信息</h3>
             <div className="grid grid-cols-[minmax(0,1fr)_180px] gap-4">
@@ -958,7 +958,7 @@ function HttpSourceEditor({
             </div>
           </section>
 
-          {/* ── Tabs ── */}
+          {/* ── 标签页 ── */}
           <Tabs defaultValue="request" className="space-y-4">
             <TabsList variant="line" className="w-full border-b border-border/40">
               <TabsTrigger value="request" className="text-xs">
@@ -969,7 +969,7 @@ function HttpSourceEditor({
               </TabsTrigger>
             </TabsList>
 
-            {/* ── Request Tab ── */}
+            {/* ── 请求标签页 ── */}
             <TabsContent value="request">
               <div className="rounded-lg border bg-card p-4">
                 <HttpStepForm
@@ -982,13 +982,12 @@ function HttpSourceEditor({
               </div>
             </TabsContent>
 
-            {/* ── Response Tab ── */}
+            {/* ── 响应标签页 ── */}
             <TabsContent value="response">
               <div className="rounded-lg border bg-card p-4">
                 <HttpResponseMappingEditor
                   step={fakeStep}
                   onChange={readOnly ? () => undefined : handleResponseChange}
-                  showExtraction={false}
                   disabled={readOnly}
                 />
               </div>
@@ -1087,7 +1086,7 @@ function HttpSourceTestDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl max-h-[82vh] flex flex-col gap-0 p-0 overflow-hidden">
-        {/* ── Header ── */}
+        {/* ── 头部 ── */}
         <div className="shrink-0 px-5 pt-5 pb-4 border-b">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
@@ -1135,7 +1134,7 @@ function HttpSourceTestDialog({
             )}
           </div>
 
-          {/* Metrics strip */}
+          {/* 指标条 */}
           <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/40">
             <div className="inline-flex items-center gap-1.5">
               <span className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider">Status</span>
@@ -1180,7 +1179,7 @@ function HttpSourceTestDialog({
           </div>
         </div>
 
-        {/* ── Main Tabs ── */}
+        {/* ── 主标签页 ── */}
         <Tabs value={mainTab} onValueChange={setMainTab} className="flex-1 min-h-0 flex flex-col">
           <div className="px-5 pt-1">
             <TabsList variant="line" className="shrink-0 w-full border-b border-border/30">
@@ -1189,7 +1188,7 @@ function HttpSourceTestDialog({
             </TabsList>
           </div>
 
-          {/* ═══════════ Response Tab ═══════════ */}
+          {/* ── 响应标签页 ── */}
           <TabsContent value="response" className="mt-0 flex-1 min-h-0 flex flex-col">
             <Tabs value={responseTab} onValueChange={setResponseTab} className="flex-1 min-h-0 flex flex-col px-5">
               <TabsList variant="line" className="shrink-0 w-full border-b border-border/30 mt-1">
@@ -1224,7 +1223,7 @@ function HttpSourceTestDialog({
               </TabsList>
 
               <div className="flex-1 min-h-0 overflow-auto py-3">
-                {/* Body */}
+                {/* 请求体 */}
                 <TabsContent value="body" className="mt-0">
                   <div className="relative group">
                     <Button
@@ -1245,7 +1244,7 @@ function HttpSourceTestDialog({
                   </div>
                 </TabsContent>
 
-                {/* Headers */}
+                {/* 响应头 */}
                 <TabsContent value="headers" className="mt-0">
                   <div className="rounded-lg border overflow-hidden">
                     <table className="w-full">
@@ -1275,12 +1274,12 @@ function HttpSourceTestDialog({
                   </div>
                 </TabsContent>
 
-                {/* Cookies */}
+                {/* Cookie 信息 */}
                 <TabsContent value="cookies" className="mt-0">
                   <CookieTable cookies={result.response?.cookies ?? []} />
                 </TabsContent>
 
-                {/* Outputs */}
+                {/* 输出 */}
                 {outputCount > 0 && (
                   <TabsContent value="outputs" className="mt-0">
                     <div className="space-y-3">
@@ -1328,7 +1327,7 @@ function HttpSourceTestDialog({
                   </TabsContent>
                 )}
 
-                {/* Error */}
+                {/* 错误 */}
                 {result.error && (
                   <TabsContent value="error" className="mt-0">
                     <div className="space-y-3">
@@ -1347,10 +1346,10 @@ function HttpSourceTestDialog({
             </Tabs>
           </TabsContent>
 
-          {/* ═══════════ Request Tab ═══════════ */}
+          {/* ── 请求标签页 ── */}
           <TabsContent value="request" className="mt-0 flex-1 min-h-0 overflow-auto px-5 py-3">
             <div className="space-y-5">
-              {/* curl */}
+              {/* curl 命令 */}
               <div className="rounded-lg border overflow-hidden">
                 <div className="flex items-center justify-between px-4 py-2 bg-muted/30 border-b">
                   <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">cURL Command</span>
@@ -1372,7 +1371,7 @@ function HttpSourceTestDialog({
                 </pre>
               </div>
 
-              {/* Headers & Query */}
+              {/* 请求头与查询参数 */}
               <div className="grid gap-4 md:grid-cols-2">
                 <PreviewBlock title="Request Headers" value={result.request.headers} />
                 {Object.keys(result.request.query).length > 0 && (
@@ -1380,7 +1379,7 @@ function HttpSourceTestDialog({
                 )}
               </div>
 
-              {/* Body */}
+              {/* 请求体 */}
               {result.request.body != null && (
                 <PreviewBlock title={`Request Body`} subtitle={result.request.bodyType} value={result.request.body} />
               )}
@@ -1424,7 +1423,7 @@ function buildCurlCommand(req: HttpSourceTestResult["request"]): string {
   return parts.join(" \\\n  ");
 }
 
-/* ── Cookie Table ── */
+/* ── Cookie 表格 ── */
 
 function CookieTable({ cookies }: { cookies: ParsedCookie[] }) {
   if (cookies.length === 0) {
@@ -1487,7 +1486,7 @@ function CookieTable({ cookies }: { cookies: ParsedCookie[] }) {
   );
 }
 
-/* ── Preview helpers ── */
+/* ── 预览辅助函数 ── */
 
 function PreviewBlock({ title, subtitle, value }: { title: string; subtitle?: string; value: unknown }) {
   return (
@@ -1533,12 +1532,12 @@ function configToCurl(config: HttpSourceConfig, baseUrl: string): string {
   const query = toStringRecord(mapping.query);
   const headers: Record<string, string> = {};
 
-  // 复制用户配置的 headers
+  // 复制用户配置的请求头
   for (const [key, value] of Object.entries(toStringRecord(mapping.headers))) {
     headers[key] = value;
   }
 
-  // 处理 auth
+  // 处理认证配置
   const auth = toRecord(mapping.authConfig);
   const authType = toStringValue(auth.type, "none");
   if (authType === "bearer") {
@@ -1564,7 +1563,7 @@ function configToCurl(config: HttpSourceConfig, baseUrl: string): string {
   const normalizedPath = config.path.startsWith("/") ? config.path : `/${config.path}`;
   let url = `${normalizedBase}${normalizedPath}`;
 
-  // 拼接 query params
+  // 拼接查询参数
   const queryEntries = Object.entries(query).filter(([, value]) => value !== "");
   if (queryEntries.length > 0) {
     const qs = queryEntries
@@ -1581,7 +1580,7 @@ function configToCurl(config: HttpSourceConfig, baseUrl: string): string {
     parts.push(`-H '${key}: ${value}'`);
   }
 
-  // Body（仅 POST）
+  // 请求体（仅 POST）
   if (config.method !== "GET") {
     const bodyType = toStringValue(mapping.bodyType, "none");
     if (bodyType === "raw-json") {
@@ -1654,7 +1653,7 @@ function escapeSingleQuotedShell(value: string): string {
   return value.replace(/'/g, "'\\''");
 }
 
-/* ── Export Curl Dialog ── */
+/* ── 导出 curl 对话框 ── */
 
 function ExportCurlDialog({
   open,

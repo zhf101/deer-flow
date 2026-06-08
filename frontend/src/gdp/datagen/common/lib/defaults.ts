@@ -114,6 +114,7 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
   if (type === "HTTP") {
     base.method = "POST";
     base.url = "";
+    base.path = "";
     base.sysCode = "";
     base.requestMapping = { headers: {}, query: {}, body: {} };
     base.responseHandling = {
@@ -145,8 +146,15 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
   if (type === "SQL") {
     base.sysCode = "";
     base.datasourceCode = "";
-    base.sqlTemplateCode = "";
+    base.sqlTemplateCode = null;
     base.operation = "UPDATE";
+    base.sqlText = "";
+    base.normalizedSql = "";
+    base.tables = [];
+    base.resultFields = [];
+    base.conditionFields = [];
+    base.parameters = [];
+    base.safety = { requireWhere: true, maxAffectedRows: null };
   }
 
   if (type === "ASSERT") {

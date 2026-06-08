@@ -1,3 +1,24 @@
+/**
+ * ============================================================================
+ * 任务编排 - 任务列表（仪表盘）
+ * ============================================================================
+ *
+ * 任务编排模块的列表页面，展示所有任务并支持搜索、筛选、新建、删除等操作。
+ *
+ * UI 内容：
+ *   - 搜索框（按任务名称搜索）
+ *   - 新建任务按钮
+ *   - 任务卡片/表格列表：
+ *     - 任务名称、描述、创建时间、状态
+ *     - 操作按钮：编辑、运行、删除
+ *   - 分页组件
+ *   - 删除确认对话框
+ *
+ * 被引用位置：
+ *   - page.tsx 中作为 TabType="task-list" 的内容组件
+ *
+ * 新增/复用判断：新增页面，任务编排模块列表页
+ */
 "use client";
 
 import {
@@ -274,7 +295,7 @@ export function TaskDashboard({ onEdit, onView, onRun, onCreate }: TaskDashboard
         </div>
       </div>
 
-      {/* Delete Dialog */}
+      {/* 删除对话框 */}
       <Dialog open={!!deletingTask} onOpenChange={(open) => !open && setDeletingTask(null)}>
         <DialogContent>
           <DialogHeader>

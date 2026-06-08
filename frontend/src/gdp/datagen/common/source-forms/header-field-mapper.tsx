@@ -24,7 +24,7 @@ import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
 import { VariableSelector } from "../editors/variable-selector";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 
-/* ── common HTTP headers for autocomplete ──────────────────────── */
+/* ── 用于自动补全的常见 HTTP 请求头 ── */
 const COMMON_HEADERS = [
   { name: "Content-Type", desc: "内容类型" },
   { name: "Accept", desc: "接受的响应类型" },
@@ -58,7 +58,7 @@ interface HeaderFieldMapperProps {
   scene?: SceneDefinition;
   currentStepId?: string;
   placeholder?: string;
-  /** Optional description map for each header key */
+  /** 每个请求头键可选的描述映射 */
   descriptions?: Record<string, string>;
   onDescriptionsChange?: (descriptions: Record<string, string>) => void;
 }
@@ -133,7 +133,7 @@ export function HeaderFieldMapper({
         </Button>
       </div>
 
-      {/* Hidden datalist for browser autocomplete */}
+      {/* 用于浏览器自动补全的隐藏 datalist */}
       <datalist id={listId}>
         {COMMON_HEADERS.map((h) => (
           <option key={h.name} value={h.name}>
@@ -169,7 +169,7 @@ export function HeaderFieldMapper({
   );
 }
 
-/* ── single header row ──────────────────────────────────────────── */
+/* ── 单个请求头行 ── */
 
 function HeaderRow({
   k,
@@ -216,7 +216,7 @@ function HeaderRow({
 
   return (
     <div className={cn("flex items-center gap-2", hasDesc && "grid grid-cols-[1fr_1fr_1fr_32px]")}>
-      {/* Key input with autocomplete dropdown */}
+      {/* 带自动补全下拉的键输入框 */}
       <div className={cn("relative", !hasDesc && "w-1/3")}>
         <Input
           ref={inputRef}
@@ -231,7 +231,7 @@ function HeaderRow({
             setFilter(k);
           }}
           onBlur={() => {
-            // Delay to allow click on suggestion
+            // 延迟处理，允许点击建议项
             setTimeout(() => setShowSuggestions(false), 150);
           }}
           placeholder={placeholder}
@@ -258,7 +258,7 @@ function HeaderRow({
         )}
       </div>
 
-      {/* Value input with variable selector */}
+      {/* 带变量选择器的值输入框 */}
       <div className="relative flex-1 group">
         <TooltipProvider>
           <Tooltip>

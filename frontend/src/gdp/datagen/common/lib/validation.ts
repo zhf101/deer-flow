@@ -55,13 +55,6 @@ export function validateSceneDraft(scene: SceneDefinition): ValidationIssue[] {
     }
     stepIds.add(step.stepId);
   }
-  if (!scene.inputSchema.some((field) => field.name === "env" && field.required)) {
-    issues.push({
-      field: "inputSchema.env",
-      message: "env 入参必须存在且必填",
-      level: "WARNING",
-    });
-  }
   return issues;
 }
 

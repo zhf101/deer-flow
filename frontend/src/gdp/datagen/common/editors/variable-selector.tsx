@@ -20,13 +20,13 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { SceneDefinition } from "../lib/types";
-import { buildVariableList } from "../lib/variable-utils";
+import { buildVariableList, type VariableItem } from "../lib/variable-utils";
 
 interface VariableCommandListProps {
   scene: SceneDefinition;
   currentStepId?: string | null;
   includeAllSteps?: boolean;
-  onSelect: (variable: string) => void;
+  onSelect: (variable: string, item?: VariableItem) => void;
 }
 
 export function VariableCommandList({
@@ -55,7 +55,7 @@ export function VariableCommandList({
                   key={v.value}
                   value={v.value}
                   onSelect={() => {
-                    onSelect(v.value);
+                    onSelect(v.value, v);
                   }}
                 >
                   <CheckIcon className="mr-2 h-4 w-4 opacity-0" />
@@ -78,7 +78,7 @@ export function VariableCommandList({
 interface VariableSelectorProps {
   scene: SceneDefinition;
   currentStepId?: string | null;
-  onSelect: (variable: string) => void;
+  onSelect: (variable: string, item?: VariableItem) => void;
   className?: string;
 }
 
@@ -107,8 +107,8 @@ export function VariableSelector({
         <VariableCommandList
           scene={scene}
           currentStepId={currentStepId}
-          onSelect={(variable) => {
-            onSelect(variable);
+          onSelect={(variable, item) => {
+            onSelect(variable, item);
             setOpen(false);
           }}
         />

@@ -30,10 +30,15 @@ try:
         DataFactorySystemRow,
     )
     from app.gdp.datagen.config.httpsource.repository import DataFactoryHttpSourceRow
+    from app.gdp.datagen.config.scene.repository import (
+        DataFactorySceneRow,
+        DataFactorySceneStepHttpConfigRow,
+        DataFactorySceneStepRow,
+        DataFactorySceneStepSqlConfigRow,
+        DataFactorySceneVersionRow,
+    )
     from app.gdp.datagen.config.sqlsource.repository import DataFactorySqlSourceRow
 
-    DataFactorySceneRow = None
-    DataFactorySceneVersionRow = None
     DataFactorySqlTemplateRow = None
     DataFactoryTaskRow = None
     DataFactoryTaskVersionRow = None
@@ -44,6 +49,9 @@ except ImportError:
     DataFactoryHttpSourceRow = None
     DataFactoryIdentifierReferenceRow = None
     DataFactorySceneRow = None
+    DataFactorySceneStepHttpConfigRow = None
+    DataFactorySceneStepRow = None
+    DataFactorySceneStepSqlConfigRow = None
     DataFactorySceneVersionRow = None
     DataFactoryServiceEndpointRow = None
     DataFactorySqlSourceRow = None
@@ -81,6 +89,9 @@ __all__ = [
     "DataFactoryHttpSourceRow",
     "DataFactoryIdentifierReferenceRow",
     "DataFactorySceneRow",
+    "DataFactorySceneStepHttpConfigRow",
+    "DataFactorySceneStepRow",
+    "DataFactorySceneStepSqlConfigRow",
     "DataFactorySceneVersionRow",
     "DataFactoryServiceEndpointRow",
     "DataFactorySqlSourceRow",

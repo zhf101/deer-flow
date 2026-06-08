@@ -1,3 +1,27 @@
+/**
+ * ============================================================================
+ * 任务编排 - 任务执行对话框
+ * ============================================================================
+ *
+ * 任务运行的弹窗对话框，支持填入输入参数、执行任务并查看逐步执行结果。
+ *
+ * UI 内容：
+ *   - 环境选择下拉框
+ *   - 输入参数表单（根据关联场景的入参定义动态生成）
+ *   - 执行按钮
+ *   - 执行结果展示区域：
+ *     - 整体状态（运行中/成功/失败）
+ *     - 各步骤执行结果（可折叠展开）：
+ *       - 步骤名称、状态图标、耗时
+ *       - 请求/响应详情
+ *       - 变量提取结果
+ *   - 日志输出区域
+ *
+ * 被引用位置：
+ *   - page.tsx 中全局渲染，由 TaskDashboard / TaskEditor 触发打开
+ *
+ * 新增/复用判断：新增页面，任务执行交互组件
+ */
 "use client";
 
 import {
@@ -62,14 +86,14 @@ export function TaskRunDialog({
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set());
   const [loadingTask, setLoadingTask] = useState(false);
 
-  // Load task definition
+  // 加载任务定义
   useEffect(() => {
     if (open && taskCode) {
       setLoadingTask(true);
       getTask(taskCode)
         .then((data) => {
           setTask(data);
-          // Pre-fill defaults
+          // 预填默认值
           const defaults: Record<string, unknown> = {};
           for (const field of data.inputSchema || []) {
             if (field.defaultValue !== null && field.defaultValue !== undefined) {
@@ -91,7 +115,7 @@ export function TaskRunDialog({
     }
   }, [open, taskCode]);
 
-  // Reset on close
+  // 关闭时重置
   useEffect(() => {
     if (!open) {
       setResult(null);
@@ -153,7 +177,7 @@ export function TaskRunDialog({
           </div>
         ) : (
           <div className="flex-1 grid grid-cols-2 gap-4 overflow-hidden min-h-0">
-            {/* Left: inputs */}
+            {/* 左侧：输入 */}
             <ScrollArea className="pr-4">
               <div className="space-y-4">
                 <div className="space-y-2">
@@ -189,7 +213,7 @@ export function TaskRunDialog({
                   </p>
                 )}
 
-                {/* Step preview */}
+                {/* 步骤预览 */}
                 {task && task.steps.length > 0 && (
                   <div className="space-y-2">
                     <label className="text-sm font-medium">执行步骤预览</label>
@@ -225,7 +249,7 @@ export function TaskRunDialog({
               </div>
             </ScrollArea>
 
-            {/* Right: results */}
+            {/* 右侧：结果 */}
             <ScrollArea className="pl-4 border-l">
               {result ? (
                 <div className="space-y-4">
@@ -279,7 +303,7 @@ export function TaskRunDialog({
   );
 }
 
-/* ── Sub-components ────────────────────────────────────────────────── */
+/* ── 子组件 ── */
 
 function InputFieldRenderer({
   field,

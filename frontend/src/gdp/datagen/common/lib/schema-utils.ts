@@ -10,9 +10,7 @@ export interface FlatSchemaEntry {
   fieldRemark: string;
 }
 
-/**
- * Converts a plain JS object into an array of InputFieldDefinitions.
- */
+/** 将普通 JS 对象转换为 InputFieldDefinition 数组。 */
 export function jsonToFields(
   obj: Record<string, unknown>,
   labels: Record<string, string> = {},
@@ -50,9 +48,7 @@ export function jsonToFields(
   });
 }
 
-/**
- * Parses JSON string that contains // comments and maps them to field names.
- */
+/** 解析包含行注释的 JSON 字符串，并将注释映射到字段名。 */
 export function parseJsonWithComments(input: string): {
   cleanJson: string;
   labels: Record<string, string>;
@@ -77,9 +73,7 @@ export function parseJsonWithComments(input: string): {
   };
 }
 
-/**
- * Flattens the schema tree into a list of paths for selectors.
- */
+/** 将 schema 树展开为选择器可用的路径列表。 */
 export function flattenSchema(
   fields: InputFieldDefinition[],
   parentPath = "$",
@@ -107,9 +101,7 @@ export function flattenSchema(
   return list;
 }
 
-/**
- * Count total fields in a tree branch (including the root).
- */
+/** 统计树分支中的字段总数（包含根节点）。 */
 export function countFields(field: InputFieldDefinition): number {
   let n = 1;
   if (field.children) {
@@ -120,9 +112,7 @@ export function countFields(field: InputFieldDefinition): number {
   return n;
 }
 
-/**
- * Compute the flat index for the Nth top-level field in the flattened list.
- */
+/** 计算第 N 个顶层字段在展开列表中的索引。 */
 export function getFlatIndex(
   fields: InputFieldDefinition[],
   topIndex: number,
@@ -134,10 +124,7 @@ export function getFlatIndex(
   return count;
 }
 
-/**
- * Update a field property at a specific flat index within the schema tree.
- * Returns a new array (immutable update).
- */
+/** 按展开索引更新 schema 树中的字段属性，并返回新的数组（不可变更新）。 */
 export function updateFieldPropAtPath(
   schema: InputFieldDefinition[],
   flatIndex: number,

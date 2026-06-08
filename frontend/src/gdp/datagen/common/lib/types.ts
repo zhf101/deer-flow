@@ -98,6 +98,17 @@ export interface AssertionDefinition {
   message?: string | null;
 }
 
+export interface StepTemplateRef {
+  type: "HTTP_SOURCE" | "SQL_SOURCE";
+  sourceCode: string;
+  sourceNameAtSnapshot?: string | null;
+  sourceUpdatedAtSnapshot?: string | null;
+  sourceHashSnapshot?: string | null;
+  configHash?: string | null;
+  snapshotAt?: string | null;
+  drifted: boolean;
+}
+
 export interface StepDefinition {
   stepId: string;
   stepName?: string | null;
@@ -106,17 +117,20 @@ export interface StepDefinition {
   dependsOn: string[];
   description?: string | null;
   position?: Position | null;
-  // HTTP 步骤：引用 httpsource
+
+  // 来源快照信息。自定义节点为空。
+  templateRef?: StepTemplateRef | null;
   httpSourceCode?: string | null;
-  httpParamMapping: Record<string, unknown>;
-  // SQL 步骤：引用 sqlsource
   sqlSourceCode?: string | null;
-  sqlParamMapping: Record<string, unknown>;
-  // 内联步骤字段
+
+  // HTTP 快照字段
+  sourceName?: string | null;
   method?: HttpMethod | null;
-  url?: string | null;
   sysCode?: string | null;
+  path?: string | null;
+  url?: string | null;
   requestMapping: Record<string, unknown>;
+  httpParamMapping: Record<string, unknown>;
   bodySchema?: InputFieldDefinition[] | null;
   bodyMapping?: Record<string, unknown> | null;
   responseSchema?: InputFieldDefinition[] | null;
@@ -125,15 +139,29 @@ export interface StepDefinition {
   responseHandling?: ResponseHandling | null;
   errorMapping?: ErrorMapping | null;
   businessErrorMapping?: ErrorMapping | null;
+  retryPolicy?: RetryPolicy | null;
+
+  // SQL 快照字段
+  datasourceCode?: string | null;
+  operation?: SqlOperation | null;
+  sqlText?: string | null;
+  normalizedSql?: string | null;
+  tables?: SqlSourceTableMeta[];
+  resultFields?: SqlSourceFieldMeta[];
+  conditionFields?: SqlSourceConditionMeta[];
+  parameters?: SqlSourceParameter[];
+  safety?: SqlTemplateSafety;
+  paramMapping: Record<string, unknown>;
+  sqlParamMapping: Record<string, unknown>;
+
+  // 公共输出和扩展步骤字段
   outputMapping: Record<string, string>;
   outputMeta?: Record<string, { label?: string; remark?: string }> | null;
-  retryPolicy?: RetryPolicy | null;
-  datasourceCode?: string | null;
-  sqlTemplateCode?: string | null;
-  operation?: SqlOperation | null;
-  paramMapping: Record<string, unknown>;
   assertions: AssertionDefinition[];
   assignments: Record<string, string>;
+
+  // 兼容字段（旧数据可能使用）
+  sqlTemplateCode?: string | null;
 }
 
 export interface BatchConfig {

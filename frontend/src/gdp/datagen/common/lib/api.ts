@@ -58,7 +58,7 @@ async function readError(response: Response): Promise<string> {
       return JSON.stringify(detail ?? data);
     }
   } catch {
-    // Fall through to status text.
+    // 继续使用状态文本。
   }
   return response.statusText || `HTTP ${response.status}`;
 }

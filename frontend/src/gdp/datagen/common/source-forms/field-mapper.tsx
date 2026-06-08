@@ -32,7 +32,7 @@ interface FieldMapperProps {
   scene?: SceneDefinition;
   currentStepId?: string;
   placeholder?: string;
-  /** Optional description map for each key, displayed as a third column */
+  /** 每个键可选的描述映射，会展示为第三列 */
   descriptions?: Record<string, string>;
   onDescriptionsChange?: (descriptions: Record<string, string>) => void;
 }
@@ -55,7 +55,7 @@ export function FieldMapper({
   const updateField = (oldKey: string, newKey: string, newValue: any) => {
     const next = { ...value };
     if (oldKey !== newKey) {
-      // Also migrate description when key changes
+      // 键名变更时同步迁移描述
       if (hasDesc && descriptions![oldKey] != null) {
         const nextDesc = { ...descriptions };
         nextDesc[newKey] = nextDesc[oldKey]!;

@@ -91,10 +91,9 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
   };
 
   const addTopLevelField = () => {
-    const nextIndex = scene.inputSchema.length + 1;
     updateFields(
       scene.inputSchema.concat({
-        name: `field${nextIndex}`,
+        name: "",
         label: "",
         type: "string",
         required: false,
@@ -105,14 +104,14 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
 
   const handleJsonToSchema = () => {
     try {
-      // 1. Clean JSON and extract comments mapping
+      // 1. 清理 JSON 并提取注释映射
       const { cleanJson, labels } = parseJsonWithComments(jsonInput);
       const parsed = JSON.parse(cleanJson);
       
-      // 2. Generate fields recursively with labels
+      // 2. 递归生成带标签的字段
       const generated = jsonToFields(parsed, labels);
       
-      // 3. Keep "env" field if exists
+      // 3. 保留已有的 "env" 字段
       const envField = scene.inputSchema.find((f) => f.name === "env") || createEnvField();
       updateFields([envField, ...generated]);
       setShowJsonDialog(false);
@@ -153,7 +152,7 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
         <div className="space-y-4">
           {scene.inputSchema.map((field, index) => (
             <InputFieldTreeItem
-              key={field.name + index}
+              key={index}
               field={field}
               onUpdate={(updated) => {
                 const next = [...scene.inputSchema];
@@ -161,7 +160,6 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
                 updateFields(next);
               }}
               onDelete={() => {
-                if (field.name === "env") return;
                 updateFields(scene.inputSchema.filter((_, i) => i !== index));
               }}
             />
@@ -239,8 +237,6 @@ function InputFieldTreeItem({
   onDelete: () => void;
   depth?: number;
 }) {
-  const isEnv = field.name === "env";
-
   const addChild = () => {
     const children = field.children || [];
     onUpdate({
@@ -249,7 +245,7 @@ function InputFieldTreeItem({
       children: [
         ...children,
         {
-          name: `item${children.length + 1}`,
+          name: "",
           label: "",
           type: "string",
           required: false,
@@ -265,10 +261,9 @@ function InputFieldTreeItem({
         <div className="grid flex-1 grid-cols-4 gap-2">
           <Input
             value={field.name}
-            disabled={isEnv}
             onChange={(e) => onUpdate({ ...field, name: e.target.value })}
             placeholder="参数编码"
-            className="h-8 font-mono text-xs"
+            className={cn("h-8 font-mono text-xs", !field.name.trim() && "border-destructive")}
           />
           <Input
             value={field.label || ""}
@@ -296,21 +291,18 @@ function InputFieldTreeItem({
               <span className="text-[10px] text-muted-foreground">必填</span>
               <Switch
                 checked={field.required}
-                disabled={isEnv}
                 onCheckedChange={(val) => onUpdate({ ...field, required: val })}
                 className="scale-75"
               />
             </div>
-            {!isEnv && (
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onDelete}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2Icon className="size-4" />
-              </Button>
-            )}
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={onDelete}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <Trash2Icon className="size-4" />
+            </Button>
           </div>
         </div>
         {(field.type === "object" || field.type === "array") && (
@@ -378,16 +370,13 @@ function jsonToFields(obj: any, labels: Record<string, string> = {}): InputField
   });
 }
 
-/**
- * Parses JSON with // comments and extracts them as labels.
- * This is a heuristic parser for the "paste JSON with comments" feature.
- */
+/** 解析带行注释的 JSON，并将注释提取为标签。这是“粘贴带注释 JSON”功能的启发式解析器。 */
 function parseJsonWithComments(input: string): { cleanJson: string; labels: Record<string, string> } {
   const labels: Record<string, string> = {};
   const lines = input.split("\n");
   const cleanLines = lines.map(line => {
-    // Regex to match "key": value, // comment
-    // Group 1: key, Group 2: comment
+    // 用于匹配 "key": value 后行注释的正则表达式
+    // 分组 1：key，分组 2：注释
     const match = /^\s*"([^"]+)"\s*:.*?\/\/\s*(.*)$/.exec(line);
     if (match) {
       const key = match[1];
@@ -396,7 +385,7 @@ function parseJsonWithComments(input: string): { cleanJson: string; labels: Reco
         labels[key] = comment;
       }
     }
-    // Remove the comment part for standard JSON parsing
+    // 移除注释部分，供标准 JSON 解析使用
     return line.replace(/\/\/.*$/, "");
   });
 

@@ -33,6 +33,7 @@ import type {
   ValidationIssue,
 } from "../common/lib/types";
 import { validateSceneDraft } from "../common/lib/validation";
+import { validateSceneForPublish } from "../common/lib/step-validation";
 
 import { BasicInfoPanel } from "./basic-info-panel";
 import { BatchConfigPanel } from "./batch-config-panel";
@@ -106,7 +107,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   }, []);
 
   useEffect(() => {
-    setIssues(validateSceneDraft(scene));
+    setIssues(validateSceneForPublish(scene));
   }, [scene]);
 
   const save = async (showToast = true): Promise<string | null> => {
@@ -216,7 +217,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
         readOnly={readOnly}
       />
 
-      {/* Main Content Area */}
+      {/* 主内容区域 */}
       <div className="flex-1 flex flex-col min-w-0 bg-background">
         <SceneEditorHeader
           sceneName={scene.sceneName || null}
@@ -236,6 +237,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
                 sqlTemplates={sqlTemplates}
                 httpSources={httpSources}
                 sqlSources={sqlSources}
+                issues={issues}
                 updateStep={updateStep}
                 deleteStep={deleteStep}
                 addStep={addStep}
@@ -310,10 +312,22 @@ function normalizeScene(scene: SceneDefinition): SceneDefinition {
       requestMapping: step.requestMapping || {},
       outputMapping: step.outputMapping || {},
       paramMapping: step.paramMapping || {},
+      sqlParamMapping: step.sqlParamMapping || {},
+      httpParamMapping: step.httpParamMapping || {},
       assertions: step.assertions || [],
       assignments: step.assignments || {},
       dependsOn: step.dependsOn || [],
       enabled: step.enabled ?? true,
+      // HTTP 快照字段兼容
+      path: step.path ?? step.url ?? null,
+      // SQL 快照字段兼容
+      sqlText: step.sqlText ?? null,
+      normalizedSql: step.normalizedSql ?? null,
+      tables: step.tables ?? [],
+      resultFields: step.resultFields ?? [],
+      conditionFields: step.conditionFields ?? [],
+      parameters: step.parameters ?? [],
+      safety: step.safety ?? { requireWhere: true, maxAffectedRows: null },
     })),
   };
 }

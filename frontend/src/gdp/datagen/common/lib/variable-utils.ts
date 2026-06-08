@@ -7,12 +7,11 @@ export interface VariableItem {
   label: string;
   value: string;
   group: string;
+  sourceStepId?: string;
+  outputName?: string;
 }
 
-/**
- * Build the full list of selectable variables from scene context.
- * Shared between VariableSelector and label resolution.
- */
+/** 根据场景上下文构建完整的可选变量列表，供 VariableSelector 和标签解析共享。 */
 export function buildVariableList(
   scene: SceneDefinition,
   currentStepId?: string | null,
@@ -20,7 +19,7 @@ export function buildVariableList(
 ): VariableItem[] {
   const list: VariableItem[] = [];
 
-  // Input parameters
+  // 输入参数
   const addInput = (field: InputFieldDefinition, path = "input") => {
     const fullPath = `${path}.${field.name}`;
     list.push({
@@ -34,7 +33,7 @@ export function buildVariableList(
   };
   scene.inputSchema.forEach((field) => addInput(field));
 
-  // Dependent step outputs
+  // 依赖步骤输出
   const currentStep = scene.steps.find((s) => s.stepId === currentStepId);
   const dependentStepIds = currentStep?.dependsOn ?? [];
   const dependentSteps = includeAllSteps
@@ -49,11 +48,13 @@ export function buildVariableList(
         label: `${step.stepName ?? step.stepId} -> ${fieldLabel}`,
         value: `\${steps.${step.stepId}.outputs.${outKey}}`,
         group: "步骤输出",
+        sourceStepId: step.stepId,
+        outputName: outKey,
       });
     });
   });
 
-  // System variables
+  // 系统变量
   list.push({ label: "当前时间 (now)", value: "${system.now}", group: "系统变量" });
   list.push({ label: "时间戳 (timestamp)", value: "${system.timestamp}", group: "系统变量" });
   list.push({ label: "UUID", value: "${system.uuid}", group: "系统变量" });
@@ -63,13 +64,7 @@ export function buildVariableList(
 
 const VARIABLE_PATTERN = /^\$\{(.+)\}$/;
 
-/**
- * Resolve a raw variable string (e.g. "${input.userId}") into a
- * human-readable label (e.g. "输入参数-用户ID").
- *
- * Returns the original string unchanged if it is not a variable reference
- * or cannot be resolved.
- */
+/** 将原始变量字符串（如 "${input.userId}"）解析为可读标签（如 "输入参数-用户ID"）。如果不是变量引用或无法解析，则返回原字符串。 */
 export function resolveVariableLabel(
   raw: string,
   scene: SceneDefinition,
@@ -78,7 +73,7 @@ export function resolveVariableLabel(
   if (!raw) return raw;
 
   const match = VARIABLE_PATTERN.exec(raw.trim());
-  if (!match) return raw; // not a variable reference
+  if (!match) return raw; // 不是变量引用
 
   const variables = buildVariableList(scene, currentStepId);
   const found = variables.find((v) => v.value === raw.trim());
@@ -86,7 +81,7 @@ export function resolveVariableLabel(
     return `${found.group}-${found.label}`;
   }
 
-  // Fallback: try to parse the inner path for a reasonable display
+  // 兜底处理：尝试解析内部路径以生成可读展示文本
   const inner = match[1];
   if (!inner) return raw;
 
@@ -132,7 +127,7 @@ function findFieldByName(
   return undefined;
 }
 
-/** Check if a string is a variable reference (${...}) */
+/** 判断字符串是否为变量引用（${...}） */
 export function isVariableRef(value: string): boolean {
   return VARIABLE_PATTERN.test(value.trim());
 }

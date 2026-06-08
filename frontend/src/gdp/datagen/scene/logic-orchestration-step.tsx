@@ -18,6 +18,7 @@ import type {
   SqlSourceResponse,
   SqlTemplateResponse,
   StepDefinition,
+  ValidationIssue,
 } from "../common/lib/types";
 
 import { FlowCanvas } from "./flow/flow-canvas";
@@ -31,6 +32,7 @@ interface LogicOrchestrationStepProps {
   sqlTemplates: SqlTemplateResponse[];
   httpSources?: HttpSourceResponse[];
   sqlSources?: SqlSourceResponse[];
+  issues?: ValidationIssue[];
   updateStep: (step: StepDefinition) => void;
   deleteStep: (id: string) => void;
   addStep: (type: "HTTP" | "SQL") => void;
@@ -38,7 +40,7 @@ interface LogicOrchestrationStepProps {
   readOnly?: boolean;
 }
 
-/** Sentinel value meaning "show the canvas/list view". */
+/** 表示“显示画布/列表视图”的哨兵值。 */
 const CANVAS_TAB = "__canvas__";
 
 export function LogicOrchestrationStep({
@@ -48,18 +50,19 @@ export function LogicOrchestrationStep({
   sqlTemplates,
   httpSources,
   sqlSources,
+  issues = [],
   updateStep,
   deleteStep,
   addStep,
   setScene,
   readOnly,
 }: LogicOrchestrationStepProps) {
-  // Ordered list of open step-tab IDs (stepId strings).
+  // 已打开步骤标签的有序 ID 列表（stepId 字符串）。
   const [openTabs, setOpenTabs] = useState<string[]>([]);
-  // Currently active tab: a stepId or CANVAS_TAB.
+  // 当前激活的标签：stepId 或 CANVAS_TAB。
   const [activeTabId, setActiveTabId] = useState<string>(CANVAS_TAB);
 
-  // Resolve the active step definition (if a step tab is active).
+  // 解析当前激活的步骤定义（当步骤标签激活时）。
   const activeStep = useMemo(
     () =>
       activeTabId === CANVAS_TAB
@@ -68,13 +71,13 @@ export function LogicOrchestrationStep({
     [scene.steps, activeTabId],
   );
 
-  // Open or activate a step tab.
+  // 打开或激活步骤标签。
   const openStep = useCallback((stepId: string) => {
     setOpenTabs((prev) => (prev.includes(stepId) ? prev : [...prev, stepId]));
     setActiveTabId(stepId);
   }, []);
 
-  // Close a step tab, activating its neighbor or falling back to canvas.
+  // 关闭步骤标签，并激活相邻标签或回退到画布。
   const closeTab = useCallback(
     (stepId: string) => {
       setOpenTabs((prev) => {
@@ -83,7 +86,7 @@ export function LogicOrchestrationStep({
         const next = [...prev];
         next.splice(idx, 1);
 
-        // If the closed tab was active, activate neighbor or canvas.
+        // 如果关闭的是当前标签，则激活相邻标签或画布。
         if (activeTabId === stepId) {
           if (next.length > 0) {
             const neighbor = next[Math.min(idx, next.length - 1)] ?? CANVAS_TAB;
@@ -98,7 +101,7 @@ export function LogicOrchestrationStep({
     [activeTabId],
   );
 
-  // Delete a step: remove its tab then call the parent delete.
+  // 删除步骤：先移除标签，再调用父级删除逻辑。
   const handleDeleteStep = useCallback(
     (id: string) => {
       setOpenTabs((prev) => prev.filter((t) => t !== id));
@@ -110,12 +113,12 @@ export function LogicOrchestrationStep({
     [activeTabId, deleteStep],
   );
 
-  // Add a step: delegate to parent, then open the new tab.
+  // 新增步骤：委托父级创建，然后打开新标签。
   const handleAddStep = useCallback(
     (type: "HTTP" | "SQL") => {
       addStep(type);
-      // The new step will be the last in scene.steps after addStep runs.
-      // We compute the expected stepId to open its tab.
+      // addStep 执行后，新步骤会位于 scene.steps 末尾。
+      // 这里计算预期的 stepId，用于打开对应标签。
       const idx = scene.steps.length;
       const stepId = `${type.toLowerCase()}${idx + 1}`;
       openStep(stepId);
@@ -123,7 +126,7 @@ export function LogicOrchestrationStep({
     [addStep, scene.steps.length, openStep],
   );
 
-  // When clicking a node in canvas or list, open/activate its tab.
+  // 点击画布或列表中的节点时，打开或激活对应标签。
   const handleSelectStep = useCallback(
     (stepId: string | null) => {
       if (stepId) {
@@ -133,7 +136,7 @@ export function LogicOrchestrationStep({
     [openStep],
   );
 
-  // For canvas: which step is "selected" (highlighted on canvas).
+  // 画布中当前被选中并高亮的步骤。
   const selectedStepId =
     activeTabId !== CANVAS_TAB && openTabs.includes(activeTabId)
       ? activeTabId
@@ -141,9 +144,9 @@ export function LogicOrchestrationStep({
 
   return (
     <div className="h-full animate-in fade-in slide-in-from-left-2 duration-300 flex flex-col overflow-hidden rounded-lg border bg-card">
-      {/* ── Tab Bar ── */}
+      {/* ── 标签栏 ── */}
       <div className="flex items-center border-b bg-muted/5 shrink-0">
-        {/* Canvas tab (always present) */}
+        {/* 画布标签（始终存在） */}
         <button
           type="button"
           onClick={() => setActiveTabId(CANVAS_TAB)}
@@ -161,7 +164,7 @@ export function LogicOrchestrationStep({
           </Badge>
         </button>
 
-        {/* Step tabs (scrollable) */}
+        {/* 步骤标签（可滚动） */}
         <div className="flex items-center overflow-x-auto min-w-0 flex-1 scrollbar-thin">
           {openTabs.map((stepId) => {
             const step = scene.steps.find((s) => s.stepId === stepId);
@@ -186,6 +189,7 @@ export function LogicOrchestrationStep({
                 ) : (
                   <DatabaseIcon className="size-3 text-emerald-500 shrink-0" />
                 )}
+                {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty stepName should fall through */}
                 <span className="truncate">{step.stepName || step.stepId}</span>
                 <span
                   role="button"
@@ -215,13 +219,14 @@ export function LogicOrchestrationStep({
         </div>
       </div>
 
-      {/* ── Content Area ── */}
+      {/* ── 内容区域 ── */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
         {activeTabId === CANVAS_TAB ? (
-          /* Canvas or List view */
+          /* 画布或列表视图 */
           <div className="h-full">
             {orchView === "list" ? (
               <StepListView
+                scene={scene}
                 steps={scene.steps}
                 onSelectStep={handleSelectStep}
                 onDeleteStep={handleDeleteStep}
@@ -253,7 +258,7 @@ export function LogicOrchestrationStep({
             )}
           </div>
         ) : activeStep ? (
-          /* Step config panel */
+          /* 步骤配置面板 */
           <ScrollArea className="h-full">
             <div className="mx-auto max-w-[1200px] p-4">
               <StepConfigPanel
@@ -263,6 +268,7 @@ export function LogicOrchestrationStep({
                 sqlTemplates={sqlTemplates}
                 httpSources={httpSources}
                 sqlSources={sqlSources}
+                stepIssues={issues.filter((i) => i.field.startsWith(`step:${activeStep.stepId}`))}
                 onChange={updateStep}
                 onDelete={handleDeleteStep}
                 readOnly={readOnly}
@@ -270,7 +276,7 @@ export function LogicOrchestrationStep({
             </div>
           </ScrollArea>
         ) : (
-          /* Fallback: step was deleted but tab still referenced */
+          /* 兜底处理：步骤已删除但标签仍引用该步骤 */
           <div className="flex h-full items-center justify-center text-muted-foreground text-sm">
             该步骤已被删除
           </div>
