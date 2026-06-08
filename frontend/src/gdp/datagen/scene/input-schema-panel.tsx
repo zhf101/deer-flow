@@ -40,6 +40,7 @@ import type {
   InputFieldType,
   SceneDefinition,
 } from "../common/lib/types";
+import { isRecord } from "../common/lib/value-utils";
 
 const darkTheme = monokaiInit({
   settings: {
@@ -70,7 +71,7 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
 
   const previewJson = useMemo(() => {
     const build = (fields: InputFieldDefinition[]) => {
-      const obj: any = {};
+      const obj: Record<string, unknown> = {};
       fields.forEach((f) => {
         if (f.name === "env") return;
         if (f.type === "object" && f.children) {
@@ -106,13 +107,14 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
     try {
       // 1. 清理 JSON 并提取注释映射
       const { cleanJson, labels } = parseJsonWithComments(jsonInput);
-      const parsed = JSON.parse(cleanJson);
+      const parsed = JSON.parse(cleanJson) as unknown;
+      if (!isRecord(parsed)) throw new Error("root must be object");
       
       // 2. 递归生成带标签的字段
       const generated = jsonToFields(parsed, labels);
       
       // 3. 保留已有的 "env" 字段
-      const envField = scene.inputSchema.find((f) => f.name === "env") || createEnvField();
+      const envField = scene.inputSchema.find((f) => f.name === "env") ?? createEnvField();
       updateFields([envField, ...generated]);
       setShowJsonDialog(false);
       setJsonInput("");
@@ -238,7 +240,7 @@ function InputFieldTreeItem({
   depth?: number;
 }) {
   const addChild = () => {
-    const children = field.children || [];
+    const children = field.children ?? [];
     onUpdate({
       ...field,
       type: field.type === "object" || field.type === "array" ? field.type : "object",
@@ -266,7 +268,7 @@ function InputFieldTreeItem({
             className={cn("h-8 font-mono text-xs", !field.name.trim() && "border-destructive")}
           />
           <Input
-            value={field.label || ""}
+            value={field.label ?? ""}
             onChange={(e) => onUpdate({ ...field, label: e.target.value })}
             placeholder="中文描述"
             className="h-8 text-xs"
@@ -320,14 +322,14 @@ function InputFieldTreeItem({
               field={child}
               depth={depth + 1}
               onUpdate={(updated) => {
-                const nextChildren = [...field.children!];
+                const nextChildren = [...(field.children ?? [])];
                 nextChildren[idx] = updated;
                 onUpdate({ ...field, children: nextChildren });
               }}
               onDelete={() => {
                 onUpdate({
                   ...field,
-                  children: field.children!.filter((_, i) => i !== idx),
+                  children: (field.children ?? []).filter((_, i) => i !== idx),
                 });
               }}
             />
@@ -338,8 +340,7 @@ function InputFieldTreeItem({
   );
 }
 
-function jsonToFields(obj: any, labels: Record<string, string> = {}): InputFieldDefinition[] {
-  if (typeof obj !== "object" || obj === null) return [];
+function jsonToFields(obj: Record<string, unknown>, labels: Record<string, string> = {}): InputFieldDefinition[] {
   
   return Object.entries(obj).map(([key, value]) => {
     let type: InputFieldType = "string";
@@ -347,10 +348,10 @@ function jsonToFields(obj: any, labels: Record<string, string> = {}): InputField
 
     if (Array.isArray(value)) {
       type = "array";
-      if (value.length > 0 && typeof value[0] === "object") {
+      if (value.length > 0 && isRecord(value[0])) {
         children = jsonToFields(value[0], labels);
       }
-    } else if (typeof value === "object" && value !== null) {
+    } else if (isRecord(value)) {
       type = "object";
       children = jsonToFields(value, labels);
     } else if (typeof value === "number") {
@@ -361,7 +362,7 @@ function jsonToFields(obj: any, labels: Record<string, string> = {}): InputField
 
     return {
       name: key,
-      label: labels[key] || "",
+      label: labels[key] ?? "",
       type,
       required: false,
       batchEnabled: false,

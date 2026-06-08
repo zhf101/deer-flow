@@ -17,6 +17,8 @@ import type {
   ServiceEndpointConfig,
   ServiceEndpointResponse,
   SqlSourceConfig,
+  SqlExecutionOptions,
+  SqlExecutionResult,
   SqlSourceParseResponse,
   SqlSourceResponse,
   SqlTemplateConfig,
@@ -296,10 +298,10 @@ export async function runScene(
   sceneCode: string,
   body: ExecutionRequest,
 ): Promise<ExecutionResult> {
-  return request<ExecutionResult>(
-    `/scenes/${encodeURIComponent(sceneCode)}/run`,
-    { method: "POST", body: JSON.stringify(body) },
-  );
+  return request<ExecutionResult>("/scenes/run", {
+    method: "POST",
+    body: JSON.stringify({ sceneCode, ...body }),
+  });
 }
 
 // ── HTTP 接口配置（httpsource）───────────────────────────────────────────
@@ -430,6 +432,39 @@ export async function deleteSqlSource(
     `/sql-sources/${encodeURIComponent(sourceCode)}/delete`,
     { method: "POST" },
   );
+}
+
+export async function testSqlSource(
+  envCode: string,
+  sourceCode: string,
+  parameters: Record<string, unknown>,
+  options?: SqlExecutionOptions,
+): Promise<SqlExecutionResult> {
+  return request<SqlExecutionResult>("/sql-sources/test", {
+    method: "POST",
+    body: JSON.stringify({ envCode, sourceCode, parameters, options }),
+  });
+}
+
+export async function executeSql(
+  envCode: string,
+  config: SqlSourceConfig,
+  parameters: Record<string, unknown>,
+  options?: SqlExecutionOptions,
+): Promise<SqlExecutionResult> {
+  return request<SqlExecutionResult>("/sql/execute", {
+    method: "POST",
+    body: JSON.stringify({
+      envCode,
+      sysCode: config.sysCode,
+      datasourceCode: config.datasourceCode,
+      operation: config.operation,
+      sqlText: config.normalizedSql || config.sqlText,
+      parameters,
+      safety: config.safety,
+      options,
+    }),
+  });
 }
 
 // ── 造数任务（task）──────────────────────────────────────────────────────

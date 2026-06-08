@@ -16,7 +16,6 @@ import { PlusIcon } from "lucide-react";
 import { useEffect, useMemo } from "react";
 
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 import { createDefaultStep, STEP_TYPES, stepLabel } from "../../common/lib/defaults";
 import {
@@ -27,6 +26,7 @@ import {
   type StepNodeData,
 } from "../../common/lib/flow";
 import type { SceneDefinition, StepType } from "../../common/lib/types";
+
 import { HttpStepNode, SqlStepNode } from "./flow-nodes";
 
 type StepNode = Node<StepNodeData>;
@@ -41,7 +41,7 @@ interface FlowCanvasProps {
 
 export function FlowCanvas({
   scene,
-  selectedStepId,
+  selectedStepId: _selectedStepId,
   onSceneChange,
   onSelectStep,
   readOnly,

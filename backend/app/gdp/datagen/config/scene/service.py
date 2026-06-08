@@ -8,7 +8,16 @@ from typing import TypeVar
 from fastapi import HTTPException
 
 from app.gdp.datagen.config.common.models import SceneStatus
-from app.gdp.datagen.config.scene.models import DisableResponse, SceneDefinition, SceneSummary, SceneVersion, ValidationResult
+from app.gdp.datagen.config.scene.executor import SceneExecutor
+from app.gdp.datagen.config.scene.models import (
+    DisableResponse,
+    SceneDefinition,
+    SceneExecutionResult,
+    SceneRunRequest,
+    SceneSummary,
+    SceneVersion,
+    ValidationResult,
+)
 from app.gdp.datagen.config.scene.repository import (
     SceneConflictError,
     SceneNotFoundError,
@@ -23,8 +32,9 @@ T = TypeVar("T")
 class SceneService:
     """场景配置服务。"""
 
-    def __init__(self, repository: SceneRepository) -> None:
+    def __init__(self, repository: SceneRepository, executor: SceneExecutor | None = None) -> None:
         self._repo = repository
+        self._executor = executor
 
     async def list_scenes(
         self,
@@ -62,8 +72,14 @@ class SceneService:
         return await self._guard(lambda: self._repo.publish_scene(scene_code, validation_result, operator=operator))
 
     async def delete_scene(self, scene_code: str, *, operator: str | None = None) -> DisableResponse:
-        # 预留 API 语义，当前无物理删除实现，避免误删已发布快照。
+        # 预留接口语义，当前无物理删除实现，避免误删已发布快照。
         raise HTTPException(status_code=501, detail=f"scene delete is not implemented: {scene_code}")
+
+    async def run_scene(self, request: SceneRunRequest) -> SceneExecutionResult:
+        if self._executor is None:
+            raise HTTPException(status_code=503, detail="Scene executor not available")
+        version = await self._guard(lambda: self._repo.get_published_scene(request.sceneCode))
+        return await self._executor.run(version, request)
 
     @staticmethod
     def _raise_if_invalid(result: ValidationResult) -> None:

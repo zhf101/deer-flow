@@ -5,13 +5,17 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import re
+import traceback
 from time import perf_counter
-from traceback import format_exception
 from typing import Any
 from urllib.parse import urljoin
 
 import httpx
+
+# 创建模块日志记录器
+logger = logging.getLogger(__name__)
 
 from app.gdp.datagen.config.common.models import ConditionRule, ErrorMapping
 from app.gdp.datagen.config.httpsource.models import (
@@ -55,8 +59,27 @@ async def execute_http_test(
     Returns:
         完整的测试结果响应。
     """
+    logger.info("=" * 60)
+    logger.info("【HTTP 执行器】开始执行 HTTP 接口配置测试")
+    logger.info("接口编码: %s", config.sourceCode)
+    logger.info("接口名称: %s", config.sourceName)
+
     # 1. 构造请求信息
     request_info = build_request_info(base_url, config)
+    logger.info("-" * 40)
+    logger.info("【请求信息】")
+    logger.info("请求方式: %s", request_info.method)
+    logger.info("请求 URL: %s", request_info.url)
+    logger.info("请求头: %s", json.dumps(request_info.headers, ensure_ascii=False, indent=2) if request_info.headers else "无")
+    logger.info("查询参数: %s", json.dumps(request_info.query, ensure_ascii=False, indent=2) if request_info.query else "无")
+    logger.info("请求体类型: %s", request_info.bodyType)
+    if request_info.body is not None:
+        body_str = json.dumps(request_info.body, ensure_ascii=False, indent=2) if isinstance(request_info.body, (dict, list)) else str(request_info.body)
+        logger.info("请求体内容:\n%s", body_str)
+    else:
+        logger.info("请求体内容: 无")
+    logger.info("超时时间: %s 秒", timeout)
+    logger.info("-" * 40)
 
     # 2. 执行请求（含重试）
     started = perf_counter()
@@ -67,10 +90,22 @@ async def execute_http_test(
 
     # 3. 异常处理
     if send_error is not None:
+        # 服务端记录完整堆栈用于排查
+        logger.error("【HTTP 请求失败】发生异常")
+        logger.error("异常类型: %s", type(send_error).__name__)
+        logger.error("异常信息: %s", str(send_error))
+        logger.error("完整堆栈:\n%s", "".join(traceback.format_exception(type(send_error), send_error, send_error.__traceback__)))
+
+        # 前端只返回友好的错误信息，不暴露内部堆栈和源代码路径
         error_msg = str(send_error)
         if config.errorMapping:
             context = build_runtime_context(config, request_info, None, {}, [])
             error_msg = apply_error_mapping(config, None, error_msg, context=context)
+
+        # 根据异常类型生成友好的用户提示
+        friendly_message = _friendly_error_message(type(send_error).__name__, str(send_error))
+
+        logger.info("=" * 60)
         return HttpSourceTestResponse(
             success=False,
             request=request_info,
@@ -79,22 +114,43 @@ async def execute_http_test(
             error=HttpSourceTestErrorInfo(
                 type=type(send_error).__name__,
                 message=error_msg,
-                detail="".join(format_exception(type(send_error), send_error, send_error.__traceback__)),
+                detail=friendly_message,
             ),
         )
 
     # 4. 解析响应
     assert response is not None
+    logger.info("【响应信息】")
+    logger.info("HTTP 状态码: %d", response.status_code)
+    logger.info("响应头: %s", json.dumps(dict(response.headers), ensure_ascii=False, indent=2))
     body = response_body(response)
     cookies = parse_response_cookies(response)
     headers_dict = dict(response.headers)
+    logger.info("解析到的 Cookie 数量: %d", len(cookies))
+    if isinstance(body, (dict, list)):
+        logger.info("响应体 (JSON):\n%s", json.dumps(body, ensure_ascii=False, indent=2))
+    else:
+        logger.info("响应体 (文本): %s", str(body)[:500] if body else "空")
+    logger.info("执行耗时: %.3f 毫秒", elapsed_ms)
+    logger.info("-" * 40)
+
     context = build_runtime_context(config, request_info, body, headers_dict, cookies)
 
     # 5. 求值业务结果
     business_result = evaluate_business_result(config, response.status_code, body, context=context)
+    if business_result:
+        logger.info("【业务结果判定】")
+        logger.info("是否成功: %s", "成功" if business_result.isSuccess else "失败")
+        logger.info("原因: %s", business_result.reason)
+        if business_result.matchedRules:
+            logger.info("匹配规则: %s", business_result.matchedRules)
 
     # 6. 提取输出变量
     extracted = extract_outputs(config, body, headers_dict, cookies, request_info=request_info)
+    if extracted:
+        logger.info("【输出变量提取】")
+        for var_name, var_value in extracted.items():
+            logger.info("  %s = %s", var_name, var_value)
 
     error_info = None
     if business_result is not None and not business_result.isSuccess:
@@ -111,8 +167,13 @@ async def execute_http_test(
             detail=business_result.reason,
         )
 
+    final_success = business_result.isSuccess if business_result else True
+    logger.info("=" * 60)
+    logger.info("【HTTP 执行器】测试完成，最终结果: %s", "成功" if final_success else "失败")
+    logger.info("=" * 60)
+
     return HttpSourceTestResponse(
-        success=business_result.isSuccess if business_result else True,
+        success=final_success,
         request=request_info,
         response=HttpSourceTestResponseInfo(
             statusCode=response.status_code,
@@ -298,11 +359,14 @@ async def _execute_with_retry(
         max_attempts = retry_policy.maxAttempts
         interval_ms = retry_policy.intervalMs
         retry_on = {e.value for e in retry_policy.retryOn}
+        logger.info("【重试策略】已启用，最大尝试次数: %d, 重试间隔: %d 毫秒, 重试条件: %s",
+                    max_attempts, interval_ms, retry_on)
 
     last_error: str | None = None
     response: httpx.Response | None = None
 
     for attempt in range(1, max_attempts + 1):
+        logger.info("【HTTP 请求】第 %d/%d 次尝试发送...", attempt, max_attempts)
         try:
             async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
                 response = await client.request(
@@ -314,10 +378,14 @@ async def _execute_with_retry(
                     files=_request_files(request_info),
                 )
 
+            logger.info("【HTTP 响应】收到响应，状态码: %d", response.status_code)
+
             # 检查是否需要因 HTTP 状态码重试
             error_type = _classify_response_status(response.status_code)
             if error_type and error_type in retry_on and attempt < max_attempts:
                 last_error = f"HTTP {response.status_code}"
+                logger.warning("【HTTP 重试】状态码 %d 触发重试条件 %s，将在 %d 毫秒后重试",
+                               response.status_code, error_type, interval_ms)
                 response = None
                 await asyncio.sleep(interval_ms / 1000)
                 continue
@@ -326,22 +394,55 @@ async def _execute_with_retry(
 
         except httpx.TimeoutException as exc:
             last_error = str(exc)
+            logger.error("【HTTP 请求超时】%s", last_error)
             if "NETWORK_TIMEOUT" not in retry_on or attempt >= max_attempts:
                 return None, RetryInfo(attempts=attempt, lastError=last_error), exc
+            logger.info("【HTTP 重试】超时触发重试，将在 %d 毫秒后重试", interval_ms)
             await asyncio.sleep(interval_ms / 1000)
 
         except httpx.ConnectError as exc:
             last_error = str(exc)
+            logger.error("【HTTP 连接失败】%s", last_error)
             if "CONNECTION_RESET" not in retry_on or attempt >= max_attempts:
                 return None, RetryInfo(attempts=attempt, lastError=last_error), exc
+            logger.info("【HTTP 重试】连接失败触发重试，将在 %d 毫秒后重试", interval_ms)
             await asyncio.sleep(interval_ms / 1000)
 
         except Exception as exc:
             last_error = str(exc)
+            logger.error("【HTTP 请求异常】%s: %s", type(exc).__name__, last_error)
             return None, RetryInfo(attempts=attempt, lastError=last_error), exc
 
     # 理论上不会到这里
+    logger.error("【HTTP 请求】所有重试尝试均已失败")
     return None, RetryInfo(attempts=max_attempts, lastError=last_error), Exception(last_error or "unknown error")
+
+
+def _friendly_error_message(error_type: str, raw_message: str) -> str:
+    """根据异常类型生成面向用户的友好中文提示。
+
+    不暴露内部堆栈、源代码路径或第三方库实现细节。
+    """
+    if error_type == "ConnectError":
+        return "无法连接到目标服务器，请检查服务器地址、端口是否正确，以及目标服务是否正常运行。"
+    if error_type == "ConnectTimeout":
+        return "连接服务器超时，请检查网络连通性或适当增加超时时间。"
+    if error_type == "ReadTimeout":
+        return "服务器响应超时，目标接口处理时间过长，请适当增加超时时间。"
+    if error_type == "WriteError":
+        return "发送请求数据时发生网络错误，请检查网络连接。"
+    if error_type == "TimeoutException":
+        return "请求超时，请检查目标服务状态或适当增加超时时间。"
+    if error_type == "NetworkError":
+        return "网络异常，请检查网络连接和目标服务是否可用。"
+    if error_type == "RemoteProtocolError":
+        return "服务器协议异常，目标服务返回了不合规的响应，请检查目标服务状态。"
+    if error_type == "DNSLookupFailed":
+        return "域名解析失败，请检查服务器地址是否正确。"
+    if error_type == "SSLZeroReturnError" or error_type == "SSLError":
+        return "SSL/TLS 握手失败，请检查目标服务的证书配置。"
+    # 兜底：只返回原始消息，不包含堆栈
+    return raw_message or "请求执行过程中发生未知错误。"
 
 
 def _classify_response_status(status_code: int) -> str | None:

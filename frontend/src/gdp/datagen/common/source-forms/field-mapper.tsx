@@ -18,17 +18,17 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import type { SceneDefinition } from "../lib/types";
-import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
-
 import { VariableSelector } from "../editors/variable-selector";
+import type { SceneDefinition } from "../lib/types";
+import { formatUnknownValue } from "../lib/value-utils";
+import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 
 interface FieldMapperProps {
   label: string;
   description?: string;
-  value: Record<string, any>;
-  onChange: (value: Record<string, any>) => void;
+  value: Record<string, unknown>;
+  onChange: (value: Record<string, unknown>) => void;
   scene?: SceneDefinition;
   currentStepId?: string;
   placeholder?: string;
@@ -52,15 +52,15 @@ export function FieldMapper({
   const hasDesc = descriptions != null && onDescriptionsChange != null;
   const [pendingDeleteKey, setPendingDeleteKey] = useState<string | null>(null);
 
-  const updateField = (oldKey: string, newKey: string, newValue: any) => {
+  const updateField = (oldKey: string, newKey: string, newValue: unknown) => {
     const next = { ...value };
     if (oldKey !== newKey) {
       // 键名变更时同步迁移描述
-      if (hasDesc && descriptions![oldKey] != null) {
+      if (hasDesc && descriptions[oldKey] != null) {
         const nextDesc = { ...descriptions };
         nextDesc[newKey] = nextDesc[oldKey]!;
         delete nextDesc[oldKey];
-        onDescriptionsChange!(nextDesc);
+        onDescriptionsChange(nextDesc);
       }
       delete next[oldKey];
     }
@@ -75,7 +75,7 @@ export function FieldMapper({
     if (hasDesc) {
       const nextDesc = { ...descriptions };
       delete nextDesc[key];
-      onDescriptionsChange!(nextDesc);
+      onDescriptionsChange(nextDesc);
     }
   };
 
@@ -121,11 +121,11 @@ export function FieldMapper({
             />
             <div className={cn("relative group", !hasDesc && "flex-1")}>
               {(() => {
-                const rawVal = typeof val === "string" ? val : JSON.stringify(val);
+                const rawVal = formatUnknownValue(val);
                 const canResolve = !!scene;
                 const isVar = canResolve && !!(rawVal && isVariableRef(rawVal));
                 const displayVal = isVar
-                  ? resolveVariableLabel(rawVal, scene!, currentStepId)
+                  ? resolveVariableLabel(rawVal, scene, currentStepId)
                   : rawVal;
                 return (
                   <TooltipProvider>
@@ -173,7 +173,7 @@ export function FieldMapper({
             </div>
             {hasDesc && (
               <Input
-                value={descriptions![key] ?? ""}
+                value={descriptions[key] ?? ""}
                 onChange={(e) => updateDesc(key, e.target.value)}
                 placeholder="说明"
                 className="h-8 text-[10px]"

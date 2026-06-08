@@ -291,6 +291,14 @@ class SceneRepository:
             version_row = await self._require_version_row(session, scene_row, version_no)
             return await self._to_scene_version(session, scene_row, version_row)
 
+    async def get_published_scene(self, scene_code: str) -> SceneVersion:
+        async with self._sf() as session:
+            scene_row = await self._require_scene_row(session, scene_code)
+            if scene_row.published_version_no is None:
+                raise SceneNotFoundError(f"published scene version not found: {scene_code}")
+            version_row = await self._require_version_row(session, scene_row, scene_row.published_version_no)
+            return await self._to_scene_version(session, scene_row, version_row)
+
     async def update_scene(self, scene_code: str, scene: SceneDefinition, *, operator: str | None = None) -> SceneVersion:
         if scene_code != scene.sceneCode:
             raise SceneConflictError("request sceneCode must match definition sceneCode")

@@ -96,13 +96,13 @@ export function validateStepForPublish(
       issues.push({ field: `${field}.normalizedSql`, message: "SQL 步骤发布前必须先解析生成标准 SQL。", level: "ERROR" });
     }
 
-    // SQL 安全检查：UPDATE/DELETE + requireWhere 必须有 WHERE
+    // SQL 安全检查：UPDATE/DELETE + requireWhere 必须有顶层 WHERE
     if (
       step.normalizedSql &&
       (step.operation === "UPDATE" || step.operation === "DELETE") &&
       step.safety?.requireWhere !== false
     ) {
-      if (!/\bWHERE\b/i.test(step.normalizedSql)) {
+      if (!hasTopLevelWhere(step.normalizedSql)) {
         issues.push({
           field: `${field}.normalizedSql`,
           message: "UPDATE/DELETE 步骤启用 requireWhere 时必须包含 WHERE 条件。",
@@ -171,6 +171,65 @@ export function validateStepForPublish(
   }
 
   return issues;
+}
+
+function hasTopLevelWhere(sqlText: string): boolean {
+  let depth = 0;
+  let quote: string | null = null;
+
+  for (let index = 0; index < sqlText.length; index += 1) {
+    const char = sqlText[index]!;
+    if (quote) {
+      if (char === quote) {
+        if (sqlText[index + 1] === quote) {
+          index += 1;
+        } else {
+          quote = null;
+        }
+      } else if (char === "\\" && (quote === "'" || quote === '"')) {
+        index += 1;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"' || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (sqlText.slice(index, index + 2) === "--") {
+      const newlineIndex = sqlText.indexOf("\n", index + 2);
+      index = newlineIndex === -1 ? sqlText.length : newlineIndex;
+      continue;
+    }
+    if (sqlText.slice(index, index + 2) === "/*") {
+      const commentEnd = sqlText.indexOf("*/", index + 2);
+      index = commentEnd === -1 ? sqlText.length : commentEnd + 1;
+      continue;
+    }
+    if (char === "(") {
+      depth += 1;
+      continue;
+    }
+    if (char === ")") {
+      depth = Math.max(depth - 1, 0);
+      continue;
+    }
+    if (
+      depth === 0 &&
+      sqlText.slice(index, index + 5).toLowerCase() === "where" &&
+      isWordBoundary(sqlText, index - 1) &&
+      isWordBoundary(sqlText, index + 5)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isWordBoundary(sqlText: string, index: number): boolean {
+  if (index < 0 || index >= sqlText.length) return true;
+  return !/[A-Za-z0-9_]/.test(sqlText[index]!);
 }
 
 // ── 步骤配置完成度 ──────────────────────────────────────────────────────

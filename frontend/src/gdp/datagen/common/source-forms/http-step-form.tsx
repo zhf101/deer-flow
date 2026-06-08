@@ -88,6 +88,19 @@ interface AuthConfig {
 
 type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "raw-json" | "raw-text" | "raw-xml";
 
+interface HttpRequestMapping extends Record<string, unknown> {
+  authConfig?: AuthConfig;
+  bodyType?: BodyType;
+  rawBody?: string;
+  headers?: Record<string, unknown>;
+  query?: Record<string, unknown>;
+  _queryDesc?: Record<string, string>;
+  _headersDesc?: Record<string, string>;
+  urlEncodedData?: Record<string, unknown>;
+  _urlEncodedDesc?: Record<string, string>;
+  formData?: FormDataRow[];
+}
+
 /* ── 主组件 ── */
 
 export function HttpStepForm({
@@ -135,18 +148,18 @@ export function HttpStepForm({
 
   const selectedEndpoints = endpoints.filter((ep) => ep.sysCode === step.sysCode);
   const method = step.method ?? "POST";
-  const requestMapping = step.requestMapping || {};
+  const requestMapping = (step.requestMapping ?? {}) as HttpRequestMapping;
 
   /* ── 认证配置辅助函数 ── */
-  const authConfig: AuthConfig = (requestMapping as any).authConfig ?? { type: "none" };
+  const authConfig: AuthConfig = requestMapping.authConfig ?? { type: "none" };
 
   const updateAuthConfig = (next: AuthConfig) => {
-    const headers = { ...(requestMapping.headers || {}) } as Record<string, string>;
-    const query = { ...(requestMapping.query || {}) } as Record<string, string>;
+    const headers = { ...(requestMapping.headers ?? {}) } as Record<string, string>;
+    const query = { ...(requestMapping.query ?? {}) } as Record<string, string>;
 
     // 清理之前由认证配置管理的条目
     delete headers.Authorization;
-    const prevAuth: AuthConfig = (requestMapping as any).authConfig ?? { type: "none" };
+    const prevAuth: AuthConfig = requestMapping.authConfig ?? { type: "none" };
     if (prevAuth.type === "apikey" && prevAuth.key) {
       if (prevAuth.addTo === "query") {
         delete query[prevAuth.key];
@@ -158,28 +171,28 @@ export function HttpStepForm({
     if (next.type === "bearer" && next.token) {
       headers.Authorization = `Bearer ${next.token}`;
     } else if (next.type === "basic" && next.username) {
-      headers.Authorization = `Basic {{${next.username}:${next.password || ""}}}`;
+      headers.Authorization = `Basic {{${next.username}:${next.password ?? ""}}}`;
     } else if (next.type === "apikey" && next.key) {
       if (next.addTo === "query") {
-        query[next.key] = next.value || "";
+        query[next.key] = next.value ?? "";
       } else {
-        headers[next.key] = next.value || "";
+        headers[next.key] = next.value ?? "";
       }
     }
 
     onChange({
       ...step,
-      requestMapping: { ...requestMapping, headers, query, authConfig: next } as any,
+      requestMapping: { ...requestMapping, headers, query, authConfig: next },
     });
   };
 
   /* ── 请求体类型辅助函数 ── */
-  const bodyType: BodyType = (requestMapping as any).bodyType ?? "raw-json";
+  const bodyType: BodyType = requestMapping.bodyType ?? "raw-json";
 
   const updateBodyType = (next: BodyType) => {
-    const updated = { ...requestMapping, bodyType: next } as any;
+    const updated: HttpRequestMapping = { ...requestMapping, bodyType: next };
     // 切换请求体类型时自动设置 Content-Type 请求头
-    const headers = { ...(requestMapping.headers || {}) } as Record<string, string>;
+    const headers = { ...(requestMapping.headers ?? {}) } as Record<string, string>;
     if (next === "raw-json") {
       headers["Content-Type"] = "application/json";
     } else if (next === "raw-xml") {
@@ -197,23 +210,23 @@ export function HttpStepForm({
     onChange({ ...step, requestMapping: updated });
   };
 
-  const rawBodyText = (requestMapping as any).rawBody ?? "";
+  const rawBodyText = requestMapping.rawBody ?? "";
 
   const updateRawBody = (text: string) => {
     onChange({
       ...step,
-      requestMapping: { ...requestMapping, rawBody: text } as any,
+      requestMapping: { ...requestMapping, rawBody: text },
     });
   };
 
   /* ── 请求映射区域更新器 ── */
-  const updateSection = (section: string, value: any) => {
+  const updateSection = (section: string, value: unknown) => {
     onChange({ ...step, requestMapping: { ...requestMapping, [section]: value } });
   };
 
   /* ── 标签徽标数量 ── */
-  const paramCount = Object.keys(requestMapping.query || {}).length;
-  const headerCount = Object.keys(requestMapping.headers || {}).length;
+  const paramCount = Object.keys(requestMapping.query ?? {}).length;
+  const headerCount = Object.keys(requestMapping.headers ?? {}).length;
   const hasAuth = authConfig.type !== "none";
   const hasBody = method === "POST" && bodyType !== "none";
 
@@ -335,14 +348,14 @@ export function HttpStepForm({
               <FieldMapper
                 label="Query Params"
                 description="URL 问号后面的参数, 如 ?id=1&name=test"
-                value={requestMapping.query || {}}
+                value={requestMapping.query ?? {}}
                 onChange={(v) => updateSection("query", v)}
                 scene={scene}
                 currentStepId={step.stepId}
                 placeholder="Param Key"
-                descriptions={(requestMapping as any)._queryDesc || {}}
+                descriptions={requestMapping._queryDesc ?? {}}
                 onDescriptionsChange={(d) =>
-                  onChange({ ...step, requestMapping: { ...requestMapping, _queryDesc: d } as any })
+                  onChange({ ...step, requestMapping: { ...requestMapping, _queryDesc: d } })
                 }
               />
             </TabsContent>
@@ -444,8 +457,8 @@ export function HttpStepForm({
                     </div>
                     <p className="text-[10px] text-muted-foreground">
                       {authConfig.addTo === "query"
-                        ? `将以 ${authConfig.key || "<key>"}=<value> 追加到 URL 查询参数`
-                        : `将以 ${authConfig.key || "<key>"}: <value> 追加到请求头`}
+                        ? `将以 ${authConfig.key ?? "<key>"}=<value> 追加到 URL 查询参数`
+                        : `将以 ${authConfig.key ?? "<key>"}: <value> 追加到请求头`}
                     </p>
                   </div>
                 )}
@@ -463,14 +476,14 @@ export function HttpStepForm({
               <HeaderFieldMapper
                 label="请求头"
                 description="配置 HTTP Header, 输入时自动联想常见 Header"
-                value={requestMapping.headers || {}}
+                value={requestMapping.headers ?? {}}
                 onChange={(v) => updateSection("headers", v)}
                 scene={scene}
                 currentStepId={step.stepId}
                 placeholder="Header Key"
-                descriptions={(requestMapping as any)._headersDesc || {}}
+                descriptions={requestMapping._headersDesc ?? {}}
                 onDescriptionsChange={(d) =>
-                  onChange({ ...step, requestMapping: { ...requestMapping, _headersDesc: d } as any })
+                  onChange({ ...step, requestMapping: { ...requestMapping, _headersDesc: d } })
                 }
               />
             </TabsContent>
@@ -567,16 +580,16 @@ export function HttpStepForm({
                     <FieldMapper
                       label="URL Encoded Form"
                       description="以 application/x-www-form-urlencoded 格式发送，数据编码为 key=value&key2=value2"
-                      value={(requestMapping as any).urlEncodedData || {}}
+                      value={requestMapping.urlEncodedData ?? {}}
                       onChange={(v) =>
-                        onChange({ ...step, requestMapping: { ...requestMapping, urlEncodedData: v } as any })
+                        onChange({ ...step, requestMapping: { ...requestMapping, urlEncodedData: v } })
                       }
                       scene={scene}
                       currentStepId={step.stepId}
                       placeholder="Field Name"
-                      descriptions={(requestMapping as any)._urlEncodedDesc || {}}
+                      descriptions={requestMapping._urlEncodedDesc ?? {}}
                       onDescriptionsChange={(d) =>
-                        onChange({ ...step, requestMapping: { ...requestMapping, _urlEncodedDesc: d } as any })
+                        onChange({ ...step, requestMapping: { ...requestMapping, _urlEncodedDesc: d } })
                       }
                     />
                   )}
@@ -671,8 +684,8 @@ function FormDataEditor({
   step: StepDefinition;
   onChange: (step: StepDefinition) => void;
 }) {
-  const requestMapping = step.requestMapping || {};
-  const rows: FormDataRow[] = (requestMapping as any).formData ?? [
+  const requestMapping = (step.requestMapping ?? {}) as HttpRequestMapping;
+  const rows: FormDataRow[] = requestMapping.formData ?? [
     { key: "", value: "", description: "", enabled: true },
   ];
   const [pendingDeleteIdx, setPendingDeleteIdx] = useState<number | null>(null);
@@ -680,11 +693,11 @@ function FormDataEditor({
   const updateRows = (next: FormDataRow[]) => {
     onChange({
       ...step,
-      requestMapping: { ...requestMapping, formData: next } as any,
+      requestMapping: { ...requestMapping, formData: next },
     });
   };
 
-  const updateRow = (index: number, field: keyof FormDataRow, val: any) => {
+  const updateRow = (index: number, field: keyof FormDataRow, val: string | boolean) => {
     const next = [...rows];
     next[index] = { ...next[index]!, [field]: val };
     updateRows(next);

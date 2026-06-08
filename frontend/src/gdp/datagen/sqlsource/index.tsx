@@ -2,18 +2,22 @@
 
 import {
   ArrowLeftIcon,
+  CheckCircle2Icon,
   CopyIcon,
   DatabaseIcon,
   EyeIcon,
   FileCodeIcon,
   ListChecksIcon,
+  Loader2Icon,
   MoreHorizontalIcon,
   PencilIcon,
+  PlayCircleIcon,
   PlusIcon,
   SaveIcon,
   SearchIcon,
   TableIcon,
   Trash2Icon,
+  XCircleIcon,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -37,11 +41,13 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-import { ConfirmDialog } from "../common/ui/confirm-dialog";
 
+import { systemNameByCode } from "../baseconfig/config-helpers";
 import {
   createSqlSource,
   deleteSqlSource,
+  executeSql,
+  listEnvironments,
   listDatasources,
   listSystems,
   listSqlSources,
@@ -49,11 +55,12 @@ import {
   updateSqlSource,
 } from "../common/lib/api";
 import { createDefaultSqlSource } from "../common/lib/defaults";
-import { systemNameByCode } from "../baseconfig/config-helpers";
 import type {
   ConfigStatus,
   DatasourceResponse,
+  EnvironmentResponse,
   InputFieldType,
+  SqlExecutionResult,
   SqlOperation,
   SqlSourceConfig,
   SqlSourceConditionMeta,
@@ -64,6 +71,7 @@ import type {
   SqlSourceTableMeta,
   SysResponse,
 } from "../common/lib/types";
+import { ConfirmDialog } from "../common/ui/confirm-dialog";
 
 const SQL_OPERATIONS: SqlOperation[] = ["SELECT", "INSERT", "UPDATE", "DELETE"];
 const FIELD_TYPES: InputFieldType[] = ["string", "number", "boolean", "date"];
@@ -74,6 +82,7 @@ type SqlAnalysis = SqlSourceParseResponse;
 export function SqlSourceManagement() {
   const [sources, setSources] = useState<SqlSourceResponse[]>([]);
   const [datasources, setDatasources] = useState<DatasourceResponse[]>([]);
+  const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
   const [systems, setSystems] = useState<SysResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<SqlSourceConfig | null>(null);
@@ -89,14 +98,16 @@ export function SqlSourceManagement() {
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, d, systemItems] = await Promise.all([
+      const [s, d, systemItems, envItems] = await Promise.all([
         listSqlSources(),
         listDatasources(),
         listSystems(),
+        listEnvironments(),
       ]);
       setSources(s);
       setDatasources(d);
       setSystems(systemItems);
+      setEnvironments(envItems.filter((env) => env.status === "ENABLED"));
     } finally {
       setLoading(false);
     }
@@ -203,6 +214,7 @@ export function SqlSourceManagement() {
       <SqlSourceEditor
         config={editing}
         datasources={datasources}
+        environments={environments}
         systems={systems}
         mode={editorMode}
         isNew={isNew}
@@ -387,7 +399,6 @@ export function SqlSourceManagement() {
                       </td>
                       <td className="px-2 py-2.5">
                         <SqlRowActions
-                          source={source}
                           onView={() => handleView(source)}
                           onEdit={() => handleEdit(source)}
                           onCopy={() => handleCopy(source)}
@@ -428,13 +439,11 @@ export function SqlSourceManagement() {
 /* ── 行操作（下拉菜单） ── */
 
 function SqlRowActions({
-  source,
   onView,
   onEdit,
   onCopy,
   onDelete,
 }: {
-  source: SqlSourceResponse;
   onView: () => void;
   onEdit: () => void;
   onCopy: () => void;
@@ -569,6 +578,7 @@ function nextCopyCode(code: string, existingCodes: string[]) {
 function SqlSourceEditor({
   config,
   datasources,
+  environments,
   systems,
   mode,
   isNew,
@@ -578,6 +588,7 @@ function SqlSourceEditor({
 }: {
   config: SqlSourceConfig;
   datasources: DatasourceResponse[];
+  environments: EnvironmentResponse[];
   systems: SysResponse[];
   mode: "edit" | "view";
   isNew: boolean;
@@ -590,6 +601,24 @@ function SqlSourceEditor({
     createInitialAnalysis(config),
   );
   const [parsing, setParsing] = useState(false);
+  const [testEnvCode, setTestEnvCode] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [testParameters, setTestParameters] = useState<Record<string, unknown>>(
+    () => defaultTestParameters(config.parameters ?? []),
+  );
+  const [testResult, setTestResult] = useState<SqlExecutionResult | null>(null);
+
+  useEffect(() => {
+    const firstEnv = environments[0];
+    if (!testEnvCode && firstEnv) {
+      setTestEnvCode(firstEnv.envCode);
+    }
+  }, [environments, testEnvCode]);
+
+  useEffect(() => {
+    setTestParameters(defaultTestParameters(analysis.parameters));
+    setTestResult(null);
+  }, [analysis.parameters]);
 
   const datasourceOptions = useMemo(() => {
     const seen = new Map<string, { code: string; name: string; envCodes: string[] }>();
@@ -679,6 +708,49 @@ function SqlSourceEditor({
     if (!current) return;
     next[index] = { ...current, ...updates };
     updateAnalysis({ parameters: next });
+  };
+
+  const handleTestSql = async () => {
+    if (!testEnvCode) {
+      toast.error("请先选择测试环境");
+      return;
+    }
+    if (!config.sysCode || !config.datasourceCode) {
+      toast.error("请先选择系统和数据源");
+      return;
+    }
+    if (!(config.normalizedSql || config.sqlText).trim()) {
+      toast.error("请先填写 SQL");
+      return;
+    }
+
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const result = await executeSql(testEnvCode, {
+        ...config,
+        normalizedSql: config.normalizedSql || analysis.normalizedSql,
+        operation: analysis.operation,
+        tables: analysis.tables,
+        resultFields: analysis.resultFields,
+        conditionFields: analysis.conditionFields,
+        parameters: analysis.parameters,
+      }, testParameters, {
+        maxRows: 200,
+        dryRun: false,
+        explain: false,
+      });
+      setTestResult(result);
+      if (result.success) {
+        toast.success("SQL 测试执行完成");
+      } else {
+        toast.error(result.error?.message ?? "SQL 测试失败");
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "SQL 测试执行失败");
+    } finally {
+      setTesting(false);
+    }
   };
 
   return (
@@ -1110,7 +1182,7 @@ function SqlSourceEditor({
                     value={
                       row.defaultValue === undefined || row.defaultValue === null
                         ? ""
-                        : String(row.defaultValue)
+                        : safeStringify(row.defaultValue)
                     }
                     onChange={(e) =>
                       updateParameter(index, { defaultValue: e.target.value })
@@ -1129,6 +1201,92 @@ function SqlSourceEditor({
               )}
             />
           </section>
+
+          {!readOnly && (
+            <section className="space-y-3 rounded-lg border bg-card p-4">
+              <div className="flex items-center justify-between border-b pb-2">
+                <div className="flex items-center gap-2 text-emerald-600 text-sm font-bold">
+                  <PlayCircleIcon className="size-4" />
+                  <span>测试执行</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={testEnvCode} onValueChange={setTestEnvCode}>
+                    <SelectTrigger className="h-8 w-[160px] text-xs">
+                      <SelectValue placeholder="选择环境" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {environments.length === 0 ? (
+                        <SelectItem value="__none__" disabled className="text-xs">
+                          暂无启用环境
+                        </SelectItem>
+                      ) : (
+                        environments.map((env) => (
+                          <SelectItem key={env.envCode} value={env.envCode} className="text-xs">
+                            {env.envName} ({env.envCode})
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleTestSql}
+                    disabled={testing || !testEnvCode || !config.sysCode || !config.datasourceCode}
+                  >
+                    {testing ? (
+                      <Loader2Icon className="mr-1 size-3 animate-spin" />
+                    ) : (
+                      <PlayCircleIcon className="mr-1 size-3" />
+                    )}
+                    {testing ? "执行中..." : "测试 SQL"}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-xs">测试参数</Label>
+                {analysis.parameters.length === 0 ? (
+                  <div className="rounded-md border bg-muted/20 px-3 py-6 text-center text-xs text-muted-foreground">
+                    当前 SQL 无参数
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                    {analysis.parameters.map((param) => (
+                      <div key={param.name} className="space-y-1 rounded-md border bg-muted/10 p-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <Label className="truncate font-mono text-[10px]" title={param.name}>
+                            {param.name}
+                            {param.required && <span className="ml-0.5 text-destructive">*</span>}
+                          </Label>
+                          <Badge variant="outline" className="text-[9px]">
+                            {String(param.type)}
+                          </Badge>
+                        </div>
+                        <Input
+                          value={safeStringify(testParameters[param.name])}
+                          onChange={(event) =>
+                            setTestParameters((prev) => ({
+                              ...prev,
+                              [param.name]: event.target.value,
+                            }))
+                          }
+                          placeholder={
+                            param.defaultValue == null
+                              ? "输入测试值"
+                              : `默认: ${safeStringify(param.defaultValue)}`
+                          }
+                          className="h-8 font-mono text-xs"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {testResult && <SqlExecutionResultPanel result={testResult} />}
+            </section>
+          )}
         </div>
       </div>
     </div>
@@ -1169,6 +1327,111 @@ function EditableMetaTable<T>({
   );
 }
 
+function SqlExecutionResultPanel({ result }: { result: SqlExecutionResult }) {
+  const previewRows = result.rows.slice(0, 10);
+  return (
+    <div className="space-y-3 border-t pt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        {result.success ? (
+          <CheckCircle2Icon className="size-4 text-emerald-500" />
+        ) : (
+          <XCircleIcon className="size-4 text-destructive" />
+        )}
+        <span className="text-xs font-bold">
+          {result.success ? "执行成功" : "执行失败"}
+        </span>
+        <Badge variant="outline" className="text-[10px]">
+          {result.dbType}
+        </Badge>
+        <Badge variant="outline" className="text-[10px]">
+          {result.operation}
+        </Badge>
+        {result.elapsedMs != null && (
+          <span className="text-[10px] text-muted-foreground">
+            {result.elapsedMs}ms
+          </span>
+        )}
+      </div>
+
+      {result.operation === "SELECT" ? (
+        <div className="overflow-hidden rounded-md border">
+          {result.columns.length === 0 ? (
+            <div className="px-3 py-6 text-center text-xs text-muted-foreground">
+              无查询字段
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-left text-xs">
+                <thead className="bg-muted/40">
+                  <tr>
+                    {result.columns.map((column) => (
+                      <th key={column.name} className="border-b px-2 py-1.5 font-mono">
+                        {column.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewRows.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={result.columns.length}
+                        className="px-2 py-6 text-center text-muted-foreground"
+                      >
+                        无返回数据
+                      </td>
+                    </tr>
+                  ) : (
+                    previewRows.map((row, index) => (
+                      <tr key={index} className="border-b last:border-b-0">
+                        {result.columns.map((column) => (
+                          <td key={column.name} className="max-w-[220px] truncate px-2 py-1.5 font-mono">
+                            {safeStringify(row[column.name])}
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+          <ResultMetric label="影响行数" value={result.affectedRows} />
+          <ResultMetric label="Last Insert ID" value={result.lastInsertId ?? "-"} />
+          <ResultMetric label="Generated Keys" value={result.generatedKeys.length} />
+        </div>
+      )}
+
+      {result.warnings.length > 0 && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] text-amber-800">
+          {result.warnings.join("；")}
+        </div>
+      )}
+
+      {result.error && (
+        <div className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-[10px] text-destructive">
+          <div className="font-bold">{result.error.message}</div>
+          {result.error.detail && (
+            <pre className="mt-1 whitespace-pre-wrap">{result.error.detail}</pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResultMetric({ label, value }: { label: string; value: unknown }) {
+  return (
+    <div className="rounded-md border bg-muted/10 p-3">
+      <div className="text-[10px] text-muted-foreground">{label}</div>
+      <div className="mt-1 font-mono text-sm font-semibold">{safeStringify(value)}</div>
+    </div>
+  );
+}
+
 function sanitizeSqlSourceConfig(config: SqlSourceConfig): SqlSourceConfig {
   return {
     ...config,
@@ -1178,6 +1441,22 @@ function sanitizeSqlSourceConfig(config: SqlSourceConfig): SqlSourceConfig {
     conditionFields: config.conditionFields ?? [],
     parameters: config.parameters ?? [],
   };
+}
+
+function defaultTestParameters(parameters: SqlSourceParameter[]) {
+  return Object.fromEntries(
+    parameters.map((param) => [
+      param.name,
+      param.defaultValue ?? "",
+    ]),
+  );
+}
+
+function safeStringify(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
 }
 
 function createInitialAnalysis(config: SqlSourceConfig): SqlAnalysis {

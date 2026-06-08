@@ -129,7 +129,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
     if (persistedCode) {
       listTaskVersions(persistedCode)
         .then(setVersions)
-        .catch(() => {});
+        .catch(() => undefined);
     }
   }, [persistedCode]);
 
@@ -301,7 +301,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
                   <Label className="text-xs">任务编码</Label>
                   <Input
                     value={task.taskCode}
-                    disabled={readOnly || !!persistedCode}
+                    disabled={Boolean(readOnly) || persistedCode !== null}
                     onChange={(e) => setTask({ ...task, taskCode: e.target.value })}
                     placeholder="如: create_test_data"
                     className="h-8 font-mono text-xs"
@@ -342,7 +342,7 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
 
                 {task.steps.length === 0 ? (
                   <div className="border border-dashed rounded-md p-4 text-center text-xs text-muted-foreground">
-                    暂无步骤，点击"添加步骤"编排场景
+                    暂无步骤，点击&quot;添加步骤&quot;编排场景
                   </div>
                 ) : (
                   <div className="space-y-1">
@@ -364,10 +364,10 @@ export function TaskEditor({ taskCode, onBack, readOnly, onRun }: TaskEditorProp
                           </span>
                           <div className="flex-1 min-w-0">
                             <div className="font-medium truncate">
-                              {step.stepName || step.stepId}
+                              {step.stepName ?? step.stepId}
                             </div>
                             <div className="text-muted-foreground text-[10px] truncate">
-                              {scene ? scene.sceneName : step.sceneCode || "未选择场景"}
+                              {scene ? scene.sceneName : step.sceneCode ?? "未选择场景"}
                             </div>
                           </div>
                           <Switch
@@ -500,7 +500,7 @@ function StepDetailPanel({
           </Select>
           {step.sceneCode && (
             <p className="text-xs text-muted-foreground">
-              运行时将执行场景 "{step.sceneCode}" 的已发布版本。
+              运行时将执行场景 &quot;{step.sceneCode}&quot; 的已发布版本。
             </p>
           )}
         </div>
@@ -529,7 +529,7 @@ function StepDetailPanel({
                         : "hover:bg-muted"
                     )}
                   >
-                    {s.stepName || s.stepId}
+                    {s.stepName ?? s.stepId}
                   </button>
                 );
               })}

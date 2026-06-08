@@ -1,4 +1,5 @@
 import { Loader2Icon } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
 
 interface SceneEditorHeaderProps {
@@ -12,14 +13,14 @@ interface SceneEditorHeaderProps {
 export function SceneEditorHeader({
   sceneName,
   stepTitle,
-  currentStepIndex,
+  currentStepIndex: _currentStepIndex,
   saving,
   isPublished,
 }: SceneEditorHeaderProps) {
   return (
     <header className="h-12 border-b flex items-center justify-between px-6 shrink-0">
       <div className="flex items-center gap-3">
-        <h2 className="text-sm font-bold truncate max-w-[200px]">{sceneName || "未命名场景"}</h2>
+        <h2 className="text-sm font-bold truncate max-w-[200px]">{sceneName ?? "未命名场景"}</h2>
         <div className="w-px h-4 bg-border mx-1" />
         <h3 className="text-sm font-medium text-muted-foreground">
           {stepTitle}

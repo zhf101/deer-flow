@@ -40,10 +40,11 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import type { InputFieldDefinition, SceneDefinition } from "../lib/types";
-import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
-import { parseJsonWithComments, jsonToFields } from "../lib/schema-utils";
 import { VariableSelector } from "../editors/variable-selector";
+import { parseJsonWithComments, jsonToFields } from "../lib/schema-utils";
+import type { InputFieldDefinition, SceneDefinition } from "../lib/types";
+import { formatUnknownValue, isRecord } from "../lib/value-utils";
+import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
 
 /* ── 主题 ── */
 
@@ -65,6 +66,12 @@ interface BodyTreeEditorProps {
 
 type SubView = "tree" | "preview";
 
+interface BodyRequestMapping extends Record<string, unknown> {
+  bodyTree?: InputFieldDefinition[];
+  bodyView?: SubView;
+  rawBody?: string;
+}
+
 /* ── 主组件 ── */
 
 export function BodyTreeEditor({
@@ -74,10 +81,16 @@ export function BodyTreeEditor({
   onChange,
 }: BodyTreeEditorProps) {
   const { resolvedTheme } = useTheme();
-  const rm = step?.requestMapping ?? {};
+  const rm = useMemo<BodyRequestMapping>(
+    () => step?.requestMapping ?? {},
+    [step?.requestMapping],
+  );
 
-  const bodyTree: InputFieldDefinition[] = (rm as any).bodyTree ?? [];
-  const storedBodyView = (rm as any).bodyView;
+  const bodyTree = useMemo(
+    () => (Array.isArray(rm.bodyTree) ? rm.bodyTree : []),
+    [rm.bodyTree],
+  );
+  const storedBodyView = rm.bodyView;
   const bodyView: SubView = storedBodyView === "preview" ? "preview" : "tree";
 
   const [showJsonDialog, setShowJsonDialog] = useState(false);
@@ -112,7 +125,8 @@ export function BodyTreeEditor({
   const handleImportJson = useCallback(() => {
     try {
       const { cleanJson, labels } = parseJsonWithComments(dialogInput);
-      const parsed = JSON.parse(cleanJson);
+      const parsed = JSON.parse(cleanJson) as unknown;
+      if (!isRecord(parsed)) throw new Error("root must be object");
       const tree = jsonToFields(parsed, labels);
       const text = JSON.stringify(parsed, null, 2);
       onChange({ ...rm, bodyTree: tree, rawBody: text, bodyView: "tree" });
@@ -350,11 +364,11 @@ function TreeNode({
   const hasChildren = field.type === "object" || field.type === "array";
   const isLeaf = !hasChildren;
 
-  const rawVal = typeof field.defaultValue === "string" ? field.defaultValue : String(field.defaultValue ?? "");
+  const rawVal = formatUnknownValue(field.defaultValue);
   const canResolve = !!scene;
   const isVar = canResolve && rawVal && isVariableRef(rawVal);
   const displayVal = isVar
-    ? resolveVariableLabel(rawVal, scene!, currentStepId)
+    ? resolveVariableLabel(rawVal, scene, currentStepId)
     : rawVal;
 
   const typeBadge = hasChildren
@@ -468,7 +482,7 @@ function TreeNode({
           scene={scene}
           currentStepId={currentStepId}
           onUpdate={(updated) => {
-            const nextChildren = [...(field.children || [])];
+            const nextChildren = [...(field.children ?? [])];
             nextChildren[i] = updated;
             onUpdate({ ...field, children: nextChildren });
           }}
@@ -481,8 +495,8 @@ function TreeNode({
 /* ── 工具函数 ── */
 
 /** 将 bodyTree（InputFieldDefinition[]）还原为普通 JSON 对象 */
-function treeToJson(tree: InputFieldDefinition[]): Record<string, any> {
-  const obj: Record<string, any> = {};
+function treeToJson(tree: InputFieldDefinition[]): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
   for (const field of tree) {
     if (field.type === "object" && field.children) {
       obj[field.name] = treeToJson(field.children);
@@ -494,7 +508,12 @@ function treeToJson(tree: InputFieldDefinition[]): Record<string, any> {
         obj[field.name] = "";
       } else if (typeof val === "string" && isVariableRef(val)) {
         obj[field.name] = val;
-      } else if (typeof val === "string" && val !== "" && !isNaN(Number(val)) && !val.includes(" ")) {
+      } else if (
+        typeof val === "string" &&
+        val !== "" &&
+        !isNaN(Number(val)) &&
+        !val.includes(" ")
+      ) {
         obj[field.name] = Number(val);
       } else if (val === "true") {
         obj[field.name] = true;
@@ -509,27 +528,27 @@ function treeToJson(tree: InputFieldDefinition[]): Record<string, any> {
 }
 
 /** 简单的 JSON 转 XML 序列化器（用于 XML 格式预览） */
-function jsonToXml(obj: Record<string, any>, indent = 0): string {
+function jsonToXml(obj: Record<string, unknown>, indent = 0): string {
   const pad = "  ".repeat(indent);
   const lines: string[] = [];
   if (indent === 0) lines.push('<?xml version="1.0" encoding="UTF-8"?>');
   for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    if (isRecord(value)) {
       lines.push(`${pad}<${key}>`);
       lines.push(jsonToXml(value, indent + 1));
       lines.push(`${pad}</${key}>`);
     } else if (Array.isArray(value)) {
       for (const item of value) {
-        if (typeof item === "object" && item !== null) {
+        if (isRecord(item)) {
           lines.push(`${pad}<${key}>`);
           lines.push(jsonToXml(item, indent + 1));
           lines.push(`${pad}</${key}>`);
         } else {
-          lines.push(`${pad}<${key}>${item ?? ""}</${key}>`);
+          lines.push(`${pad}<${key}>${formatUnknownValue(item)}</${key}>`);
         }
       }
     } else {
-      lines.push(`${pad}<${key}>${value ?? ""}</${key}>`);
+      lines.push(`${pad}<${key}>${formatUnknownValue(value)}</${key}>`);
     }
   }
   return lines.join("\n");
@@ -541,7 +560,7 @@ function xmlToTree(xmlStr: string): InputFieldDefinition[] {
   const doc = parser.parseFromString(xmlStr.trim(), "text/xml");
 
   const errorNode = doc.querySelector("parsererror");
-  if (errorNode) throw new Error(errorNode.textContent || "XML parse error");
+  if (errorNode) throw new Error(errorNode.textContent ?? "XML parse error");
 
   function elementToField(el: Element): InputFieldDefinition {
     const children = Array.from(el.children);

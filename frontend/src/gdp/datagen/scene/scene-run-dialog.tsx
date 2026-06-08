@@ -23,6 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -30,7 +31,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
 import { listEnvironments, runScene } from "../common/lib/api";
@@ -41,6 +41,7 @@ import type {
   SceneDefinition,
   StepResult,
 } from "../common/lib/types";
+import { formatUnknownValue } from "../common/lib/value-utils";
 
 interface SceneRunDialogProps {
   scene: SceneDefinition;
@@ -74,7 +75,7 @@ export function SceneRunDialog({
         })
         .catch(() => toast.error("加载环境列表失败"));
     }
-  }, [open]);
+  }, [envCode, open]);
 
   // 预填默认值
   useEffect(() => {
@@ -113,7 +114,7 @@ export function SceneRunDialog({
       if (res.status === "SUCCESS") {
         toast.success("场景执行成功");
       } else {
-        toast.error(`场景执行失败: ${res.errors[0] || "未知错误"}`);
+        toast.error(`场景执行失败: ${res.errors[0] ?? "未知错误"}`);
       }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "执行请求失败");
@@ -283,7 +284,7 @@ function InputFieldRenderer({
   value: unknown;
   onChange: (val: unknown) => void;
 }) {
-  const label = field.label || field.name;
+  const label = field.label ?? field.name;
 
   switch (field.type) {
     case "boolean":
@@ -292,7 +293,7 @@ function InputFieldRenderer({
           <input
             type="checkbox"
             id={`field-${field.name}`}
-            checked={!!value}
+            checked={value === true}
             onChange={(e) => onChange(e.target.checked)}
             className="rounded border-gray-300"
           />
@@ -312,12 +313,12 @@ function InputFieldRenderer({
           </label>
           <Input
             type="number"
-            value={value != null ? String(value) : ""}
+            value={formatUnknownValue(value)}
             onChange={(e) => {
               const v = e.target.value;
               onChange(v === "" ? undefined : Number(v));
             }}
-            placeholder={field.remark || `输入 ${label}`}
+            placeholder={field.remark ?? `输入 ${label}`}
           />
         </div>
       );
@@ -330,9 +331,9 @@ function InputFieldRenderer({
             {field.required && <span className="text-red-500 ml-1">*</span>}
           </label>
           <Input
-            value={value != null ? String(value) : ""}
-            onChange={(e) => onChange(e.target.value || undefined)}
-            placeholder={field.remark || `输入 ${label}`}
+            value={formatUnknownValue(value)}
+            onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}
+            placeholder={field.remark ?? `输入 ${label}`}
           />
         </div>
       );
@@ -402,7 +403,7 @@ function StepResultCard({
         )}
         <StatusIcon className={cn("size-4 shrink-0", statusConfig.color)} />
         <span className="text-xs font-medium flex-1 truncate">
-          {step.stepName || step.stepId}
+          {step.stepName ?? step.stepId}
         </span>
         <Badge variant="outline" className="text-[10px] px-1.5 py-0 shrink-0">
           {step.type}

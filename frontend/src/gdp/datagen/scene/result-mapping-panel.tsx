@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
+import { VariableCommandList } from "../common/editors/variable-selector";
 import {
   countFields,
   flattenSchema,
@@ -51,7 +52,6 @@ import type {
 } from "../common/lib/types";
 import { resolveVariableLabel } from "../common/lib/variable-utils";
 
-import { VariableCommandList } from "../common/editors/variable-selector";
 
 interface ResultMappingPanelProps {
   scene: SceneDefinition;
@@ -67,7 +67,7 @@ export function ResultMappingPanel({
   const [showJsonDialog, setShowJsonDialog] = useState(false);
   const [rawJsonInput, setRawJsonInput] = useState("");
 
-  const schema = scene.resultSchema ?? [];
+  const schema = useMemo(() => scene.resultSchema ?? [], [scene.resultSchema]);
   const mapping = scene.resultMapping ?? {};
   const errorPolicy = scene.errorPolicy ?? "STOP_ON_ERROR";
 

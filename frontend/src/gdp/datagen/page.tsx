@@ -13,11 +13,11 @@ import { useCallback, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import { ConfigManagement } from "./baseconfig";
+import { TabBar, type Tab } from "./common/shell/module-tab-bar";
 import { HttpSourceManagement } from "./httpsource";
 import { SceneDashboard } from "./scene/scene-dashboard";
 import { SceneEditor } from "./scene/scene-editor";
 import { SqlSourceManagement } from "./sqlsource";
-import { TabBar, type Tab } from "./common/shell/module-tab-bar";
 import { TaskDashboard } from "./task/task-dashboard";
 import { TaskEditor } from "./task/task-editor";
 import { TaskRunDialog } from "./task/task-run-dialog";
@@ -104,14 +104,6 @@ export function DataFactoryPage() {
     ensureTab({ id: "config", type: "config", label: "基础配置" });
   }, [ensureTab]);
 
-  const openHttpSource = useCallback(() => {
-    ensureTab({ id: "httpsource", type: "httpsource", label: "HTTP 接口" });
-  }, [ensureTab]);
-
-  const openSqlSource = useCallback(() => {
-    ensureTab({ id: "sqlsource", type: "sqlsource", label: "SQL 配置" });
-  }, [ensureTab]);
-
   const openSceneEdit = useCallback(
     (code: string) => {
       ensureTab({
@@ -142,10 +134,6 @@ export function DataFactoryPage() {
       type: "scene-new",
       label: "新增场景",
     });
-  }, [ensureTab]);
-
-  const openTaskList = useCallback(() => {
-    ensureTab({ id: "task-list", type: "task-list", label: "造数任务" });
   }, [ensureTab]);
 
   const openTaskEdit = useCallback(

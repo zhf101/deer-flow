@@ -4,6 +4,7 @@ import {
     ChevronRightIcon,
     EyeIcon,
     Loader2Icon,
+    type LucideIcon,
     PlayIcon,
     RocketIcon,
     SaveIcon,
@@ -39,7 +40,7 @@ import {
     sceneName: string | null;
     sceneCode: string | null;
     status: SceneStatus;
-    steps: Array<{ title: string; description: string; icon: any }>;
+    steps: Array<{ title: string; description: string; icon: LucideIcon }>;
     currentStep: number;
     navigateToStep: (idx: number) => void;
     saving: boolean;
@@ -87,10 +88,10 @@ import {
 
         {isSidebarExpanded && (
             <div className="px-5 pt-4 pb-2">
-                <h2 className="text-sm font-bold truncate" title={sceneName || ""}>{sceneName || "未命名场景"}</h2>
+                <h2 className="text-sm font-bold truncate" title={sceneName ?? ""}>{sceneName ?? "未命名场景"}</h2>
                 <div className="flex items-center gap-2 mt-1">
                     <StatusBadge status={status} />
-                    <span className="text-[10px] font-mono text-muted-foreground uppercase">{sceneCode || "DRAFT"}</span>
+                    <span className="text-[10px] font-mono text-muted-foreground uppercase">{sceneCode ?? "DRAFT"}</span>
                 </div>
             </div>
         )}

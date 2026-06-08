@@ -504,6 +504,35 @@ export interface SqlSourceResponse extends SqlSourceConfig {
   updatedAt: string;
 }
 
+export interface SqlExecutionOptions {
+  timeoutSeconds?: number;
+  maxRows?: number;
+  dryRun?: boolean;
+  explain?: boolean;
+}
+
+export interface SqlExecutionErrorInfo {
+  type: string;
+  message: string;
+  detail?: string | null;
+}
+
+export interface SqlExecutionResult {
+  success: boolean;
+  dbType: string;
+  operation: SqlOperation;
+  columns: Array<{ name: string; type?: string | null }>;
+  rows: Record<string, unknown>[];
+  row?: Record<string, unknown> | null;
+  affectedRows: number;
+  lastInsertId?: unknown;
+  generatedKeys: unknown[];
+  warnings: string[];
+  elapsedMs?: number | null;
+  extractedOutputs: Record<string, unknown>;
+  error?: SqlExecutionErrorInfo | null;
+}
+
 // ── 造数任务（task）──────────────────────────────────────────────────────
 
 export interface TaskStepDefinition {

@@ -65,6 +65,7 @@ import type {
   TaskExecutionResult,
   TaskStepExecutionResult,
 } from "../common/lib/types";
+import { formatUnknownValue } from "../common/lib/value-utils";
 
 interface TaskRunDialogProps {
   taskCode: string;
@@ -95,7 +96,7 @@ export function TaskRunDialog({
           setTask(data);
           // 预填默认值
           const defaults: Record<string, unknown> = {};
-          for (const field of data.inputSchema || []) {
+          for (const field of data.inputSchema ?? []) {
             if (field.defaultValue !== null && field.defaultValue !== undefined) {
               defaults[field.name] = field.defaultValue;
             }
@@ -113,7 +114,7 @@ export function TaskRunDialog({
         })
         .catch(() => toast.error("加载环境列表失败"));
     }
-  }, [open, taskCode]);
+  }, [envCode, open, taskCode]);
 
   // 关闭时重置
   useEffect(() => {
@@ -156,7 +157,7 @@ export function TaskRunDialog({
     });
   };
 
-  const inputFields = (task?.inputSchema || []).filter((f) => f.name !== "env");
+  const inputFields = (task?.inputSchema ?? []).filter((f) => f.name !== "env");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -164,7 +165,7 @@ export function TaskRunDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <PlayIcon className="size-4 text-green-600" />
-            执行任务: {task?.taskName || taskCode}
+            执行任务: {task?.taskName ?? taskCode}
           </DialogTitle>
           <DialogDescription>
             填写输入参数并选择执行环境，任务将按依赖关系依次执行各场景步骤。
@@ -221,8 +222,8 @@ export function TaskRunDialog({
                       {task.steps.map((step, idx) => (
                         <div key={step.stepId} className="flex items-center gap-2 text-xs text-muted-foreground border rounded px-2 py-1.5">
                           <span className="font-mono">{idx + 1}</span>
-                          <span className="flex-1 truncate">{step.stepName || step.stepId}</span>
-                          <Badge variant="outline" className="text-[9px]">{step.sceneCode || "未配置"}</Badge>
+                          <span className="flex-1 truncate">{step.stepName ?? step.stepId}</span>
+                          <Badge variant="outline" className="text-[9px]">{step.sceneCode ?? "未配置"}</Badge>
                         </div>
                       ))}
                     </div>
@@ -314,7 +315,7 @@ function InputFieldRenderer({
   value: unknown;
   onChange: (val: unknown) => void;
 }) {
-  const label = field.label || field.name;
+  const label = field.label ?? field.name;
 
   if (field.type === "boolean") {
     return (
@@ -322,7 +323,7 @@ function InputFieldRenderer({
         <input
           type="checkbox"
           id={`field-${field.name}`}
-          checked={!!value}
+          checked={value === true}
           onChange={(e) => onChange(e.target.checked)}
           className="rounded border-gray-300"
         />
@@ -343,12 +344,12 @@ function InputFieldRenderer({
         </label>
         <Input
           type="number"
-          value={value != null ? String(value) : ""}
+          value={formatUnknownValue(value)}
           onChange={(e) => {
             const v = e.target.value;
             onChange(v === "" ? undefined : Number(v));
           }}
-          placeholder={field.remark || `输入 ${label}`}
+          placeholder={field.remark ?? `输入 ${label}`}
         />
       </div>
     );
@@ -361,9 +362,9 @@ function InputFieldRenderer({
         {field.required && <span className="text-red-500 ml-1">*</span>}
       </label>
       <Input
-        value={value != null ? String(value) : ""}
-        onChange={(e) => onChange(e.target.value || undefined)}
-        placeholder={field.remark || `输入 ${label}`}
+        value={formatUnknownValue(value)}
+        onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}
+        placeholder={field.remark ?? `输入 ${label}`}
       />
     </div>
   );

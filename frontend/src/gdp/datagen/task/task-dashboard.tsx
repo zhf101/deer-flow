@@ -301,7 +301,7 @@ export function TaskDashboard({ onEdit, onView, onRun, onCreate }: TaskDashboard
           <DialogHeader>
             <DialogTitle className="text-destructive">确认删除</DialogTitle>
             <DialogDescription>
-              您确定要删除任务 "{deletingTask?.taskName}" 吗？此操作不可撤销。
+              您确定要删除任务 &quot;{deletingTask?.taskName}&quot; 吗？此操作不可撤销。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

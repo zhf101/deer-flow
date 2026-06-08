@@ -18,10 +18,10 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-import type { SceneDefinition } from "../lib/types";
-import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
-
 import { VariableSelector } from "../editors/variable-selector";
+import type { SceneDefinition } from "../lib/types";
+import { formatUnknownValue } from "../lib/value-utils";
+import { isVariableRef, resolveVariableLabel } from "../lib/variable-utils";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 
 /* ── 用于自动补全的常见 HTTP 请求头 ── */
@@ -53,8 +53,8 @@ const COMMON_HEADERS = [
 interface HeaderFieldMapperProps {
   label: string;
   description?: string;
-  value: Record<string, any>;
-  onChange: (value: Record<string, any>) => void;
+  value: Record<string, unknown>;
+  onChange: (value: Record<string, unknown>) => void;
   scene?: SceneDefinition;
   currentStepId?: string;
   placeholder?: string;
@@ -78,14 +78,14 @@ export function HeaderFieldMapper({
   const hasDesc = descriptions != null && onDescriptionsChange != null;
   const listId = useMemo(() => `header-suggest-${Math.random().toString(36).slice(2, 8)}`, []);
 
-  const updateField = (oldKey: string, newKey: string, newValue: any) => {
+  const updateField = (oldKey: string, newKey: string, newValue: unknown) => {
     const next = { ...value };
     if (oldKey !== newKey) {
-      if (hasDesc && descriptions![oldKey] != null) {
+      if (hasDesc && descriptions[oldKey] != null) {
         const nextDesc = { ...descriptions };
         nextDesc[newKey] = nextDesc[oldKey]!;
         delete nextDesc[oldKey];
-        onDescriptionsChange!(nextDesc);
+        onDescriptionsChange(nextDesc);
       }
       delete next[oldKey];
     }
@@ -100,7 +100,7 @@ export function HeaderFieldMapper({
     if (hasDesc) {
       const nextDesc = { ...descriptions };
       delete nextDesc[key];
-      onDescriptionsChange!(nextDesc);
+      onDescriptionsChange(nextDesc);
     }
   };
 
@@ -153,7 +153,7 @@ export function HeaderFieldMapper({
             scene={scene}
             currentStepId={currentStepId}
             hasDesc={hasDesc}
-            descValue={hasDesc ? (descriptions![key] ?? "") : undefined}
+            descValue={hasDesc ? (descriptions[key] ?? "") : undefined}
             onUpdate={(newKey, newVal) => updateField(key, newKey, newVal)}
             onRemove={() => removeField(key)}
             onDescChange={hasDesc ? (d) => updateDesc(key, d) : undefined}
@@ -185,14 +185,14 @@ function HeaderRow({
   onDescChange,
 }: {
   k: string;
-  val: any;
+  val: unknown;
   listId: string;
   placeholder: string;
   scene?: SceneDefinition;
   currentStepId?: string;
   hasDesc: boolean;
   descValue?: string;
-  onUpdate: (newKey: string, newVal: any) => void;
+  onUpdate: (newKey: string, newVal: unknown) => void;
   onRemove: () => void;
   onDescChange?: (desc: string) => void;
 }) {
@@ -209,10 +209,10 @@ function HeaderRow({
     ).slice(0, 8);
   }, [filter, k]);
 
-  const rawVal = typeof val === "string" ? val : JSON.stringify(val);
+  const rawVal = formatUnknownValue(val);
   const canResolve = !!scene;
   const isVar = canResolve && !!(rawVal && isVariableRef(rawVal));
-  const displayVal = isVar ? resolveVariableLabel(rawVal, scene!, currentStepId) : rawVal;
+  const displayVal = isVar ? resolveVariableLabel(rawVal, scene, currentStepId) : rawVal;
 
   return (
     <div className={cn("flex items-center gap-2", hasDesc && "grid grid-cols-[1fr_1fr_1fr_32px]")}>

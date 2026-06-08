@@ -14,6 +14,7 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 import type { IdentifierReferenceConfig } from "../common/lib/types";
+import { formatUnknownValue } from "../common/lib/value-utils";
 
 import { StatusBadge } from "./config-helpers";
 
@@ -223,7 +224,7 @@ export function IdentifierReferencesTab() {
                       >
                         <div className="font-mono text-xs">{param.name}</div>
                         <div className="text-xs text-muted-foreground">
-                          {param.required ? "必填" : `默认 ${param.defaultValue ?? "-"}`}
+                          {param.required ? "必填" : `默认 ${formatUnknownValue(param.defaultValue, "-")}`}
                         </div>
                         <div className="text-xs">{param.description}</div>
                       </div>

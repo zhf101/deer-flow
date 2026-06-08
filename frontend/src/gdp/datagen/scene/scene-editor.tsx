@@ -24,6 +24,7 @@ import {
   updateScene,
 } from "../common/lib/api";
 import { createDefaultScene, createDefaultStep } from "../common/lib/defaults";
+import { validateSceneForPublish } from "../common/lib/step-validation";
 import type {
   HttpSourceResponse,
   SceneDefinition,
@@ -32,8 +33,7 @@ import type {
   StepDefinition,
   ValidationIssue,
 } from "../common/lib/types";
-import { validateSceneDraft } from "../common/lib/validation";
-import { validateSceneForPublish } from "../common/lib/step-validation";
+import { formatUnknownValue } from "../common/lib/value-utils";
 
 import { BasicInfoPanel } from "./basic-info-panel";
 import { BatchConfigPanel } from "./batch-config-panel";
@@ -203,8 +203,8 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
       <SceneEditorSidebar
         isSidebarExpanded={isSidebarExpanded}
         setIsSidebarExpanded={setIsSidebarExpanded}
-        sceneName={scene.sceneName || null}
-        sceneCode={scene.sceneCode || null}
+        sceneName={scene.sceneName ?? null}
+        sceneCode={scene.sceneCode ?? null}
         status={scene.status}
         steps={STEPS}
         currentStep={currentStep}
@@ -220,8 +220,8 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
       {/* 主内容区域 */}
       <div className="flex-1 flex flex-col min-w-0 bg-background">
         <SceneEditorHeader
-          sceneName={scene.sceneName || null}
-          stepTitle={STEPS[currentStep]?.title || "配置中"}
+          sceneName={scene.sceneName ?? null}
+          stepTitle={STEPS[currentStep]?.title ?? "配置中"}
           currentStepIndex={currentStep}
           saving={saving}
           isPublished={persistedSceneCode !== null}
@@ -299,24 +299,24 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
 function normalizeScene(scene: SceneDefinition): SceneDefinition {
   return {
     ...scene,
-    inputSchema: (scene.inputSchema || []).map(field => ({
+    inputSchema: (scene.inputSchema ?? []).map(field => ({
       ...field,
-      children: field.children || undefined,
+      children: field.children ?? undefined,
     })),
-    batchConfig: scene.batchConfig || createDefaultScene().batchConfig,
-    resultSchema: scene.resultSchema || [],
+    batchConfig: scene.batchConfig ?? createDefaultScene().batchConfig,
+    resultSchema: scene.resultSchema ?? [],
     resultMapping: normalizeResultMapping(scene.resultMapping),
-    errorPolicy: scene.errorPolicy || "STOP_ON_ERROR",
-    steps: (scene.steps || []).map((step) => ({
+    errorPolicy: scene.errorPolicy ?? "STOP_ON_ERROR",
+    steps: (scene.steps ?? []).map((step) => ({
       ...step,
-      requestMapping: step.requestMapping || {},
-      outputMapping: step.outputMapping || {},
-      paramMapping: step.paramMapping || {},
-      sqlParamMapping: step.sqlParamMapping || {},
-      httpParamMapping: step.httpParamMapping || {},
-      assertions: step.assertions || [],
-      assignments: step.assignments || {},
-      dependsOn: step.dependsOn || [],
+      requestMapping: step.requestMapping ?? {},
+      outputMapping: step.outputMapping ?? {},
+      paramMapping: step.paramMapping ?? {},
+      sqlParamMapping: step.sqlParamMapping ?? {},
+      httpParamMapping: step.httpParamMapping ?? {},
+      assertions: step.assertions ?? [],
+      assignments: step.assignments ?? {},
+      dependsOn: step.dependsOn ?? [],
       enabled: step.enabled ?? true,
       // HTTP 快照字段兼容
       path: step.path ?? step.url ?? null,
@@ -337,6 +337,6 @@ function normalizeResultMapping(
 ): Record<string, string> {
   if (!raw) return {};
   return Object.fromEntries(
-    Object.entries(raw).map(([k, v]) => [k, typeof v === "string" ? v : String(v ?? "")]),
+    Object.entries(raw).map(([k, v]) => [k, formatUnknownValue(v)]),
   );
 }

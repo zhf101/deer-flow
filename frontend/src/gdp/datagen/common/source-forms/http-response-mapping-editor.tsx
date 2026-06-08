@@ -57,6 +57,7 @@ import type {
   InputFieldDefinition,
   StepDefinition,
 } from "../lib/types";
+import { formatUnknownValue, isRecord } from "../lib/value-utils";
 import { ConfirmDialog } from "../ui/confirm-dialog";
 
 import {
@@ -88,6 +89,18 @@ type ResponseTab = "body" | "headers" | "cookies";
 type SubView = "tree" | "preview";
 type BodyFormat = "json" | "xml" | "text";
 type ImportFormat = BodyFormat | "headers";
+
+interface ResponseRequestMapping extends Record<string, unknown> {
+  _rawResponseSample?: string;
+}
+
+interface CookieFieldDefinition extends InputFieldDefinition {
+  domain?: string;
+  path?: string;
+  expires?: string;
+  httpOnly?: boolean;
+  secure?: boolean;
+}
 
 /* ── 常见 HTTP 响应头 ── */
 
@@ -174,7 +187,7 @@ export function HttpResponseMappingEditor({
   };
 
   /* ── 原始响应体文本（存入 requestMapping 用于持久化） ── */
-  const rawResponseText = (step.requestMapping as any)._rawResponseSample ?? "";
+  const rawResponseText = (step.requestMapping as ResponseRequestMapping)._rawResponseSample ?? "";
 
   /* ── 导入处理函数 ── */
   const handleImportBody = useCallback(() => {
@@ -186,7 +199,7 @@ export function HttpResponseMappingEditor({
         const text = JSON.stringify(parsed, null, 2);
         onChange({
           responseSchema: generatedSchema,
-          requestMapping: { ...step.requestMapping, _rawResponseSample: text } as any,
+          requestMapping: { ...step.requestMapping, _rawResponseSample: text },
         });
         toast.success("JSON 响应结构已解析");
       } else if (importFormat === "xml") {
@@ -194,13 +207,13 @@ export function HttpResponseMappingEditor({
         if (tree.length === 0) throw new Error("empty");
         onChange({
           responseSchema: tree,
-          requestMapping: { ...step.requestMapping, _rawResponseSample: dialogInput } as any,
+          requestMapping: { ...step.requestMapping, _rawResponseSample: dialogInput },
         });
         toast.success("XML 响应结构已解析");
       } else {
         // 文本格式无需解析 schema，仅保存为样例
         onChange({
-          requestMapping: { ...step.requestMapping, _rawResponseSample: dialogInput } as any,
+          requestMapping: { ...step.requestMapping, _rawResponseSample: dialogInput },
         });
         toast.success("文本响应样例已保存");
       }
@@ -603,30 +616,30 @@ export function HttpResponseMappingEditor({
                         className="h-7 text-[10px] font-mono"
                       />
                       <Input
-                        value={(cookie as any).domain ?? ""}
+                        value={(cookie as CookieFieldDefinition).domain ?? ""}
                         onChange={(e) => {
                           const next = [...cookiesSchema];
-                          next[idx] = { ...cookie, domain: e.target.value } as any;
+                          next[idx] = { ...cookie, domain: e.target.value } as CookieFieldDefinition;
                           onChange({ responseCookiesSchema: next });
                         }}
                         placeholder=".example.com"
                         className="h-7 text-[10px] font-mono"
                       />
                       <Input
-                        value={(cookie as any).path ?? "/"}
+                        value={(cookie as CookieFieldDefinition).path ?? "/"}
                         onChange={(e) => {
                           const next = [...cookiesSchema];
-                          next[idx] = { ...cookie, path: e.target.value } as any;
+                          next[idx] = { ...cookie, path: e.target.value } as CookieFieldDefinition;
                           onChange({ responseCookiesSchema: next });
                         }}
                         placeholder="/"
                         className="h-7 text-[10px] font-mono"
                       />
                       <Input
-                        value={(cookie as any).expires ?? ""}
+                        value={(cookie as CookieFieldDefinition).expires ?? ""}
                         onChange={(e) => {
                           const next = [...cookiesSchema];
-                          next[idx] = { ...cookie, expires: e.target.value } as any;
+                          next[idx] = { ...cookie, expires: e.target.value } as CookieFieldDefinition;
                           onChange({ responseCookiesSchema: next });
                         }}
                         placeholder="Session"
@@ -635,10 +648,10 @@ export function HttpResponseMappingEditor({
                       <div className="flex justify-center">
                         <input
                           type="checkbox"
-                          checked={(cookie as any).httpOnly === true}
+                          checked={(cookie as CookieFieldDefinition).httpOnly === true}
                           onChange={(e) => {
                             const next = [...cookiesSchema];
-                            next[idx] = { ...cookie, httpOnly: e.target.checked } as any;
+                            next[idx] = { ...cookie, httpOnly: e.target.checked } as CookieFieldDefinition;
                             onChange({ responseCookiesSchema: next });
                           }}
                           className="h-3.5 w-3.5 rounded border-border accent-blue-600 cursor-pointer"
@@ -647,10 +660,10 @@ export function HttpResponseMappingEditor({
                       <div className="flex justify-center">
                         <input
                           type="checkbox"
-                          checked={(cookie as any).secure === true}
+                          checked={(cookie as CookieFieldDefinition).secure === true}
                           onChange={(e) => {
                             const next = [...cookiesSchema];
-                            next[idx] = { ...cookie, secure: e.target.checked } as any;
+                            next[idx] = { ...cookie, secure: e.target.checked } as CookieFieldDefinition;
                             onChange({ responseCookiesSchema: next });
                           }}
                           className="h-3.5 w-3.5 rounded border-border accent-blue-600 cursor-pointer"
@@ -698,7 +711,7 @@ export function HttpResponseMappingEditor({
                     value={rule.path}
                     onValueChange={(val) => {
                       const next = [...failureRules];
-                      const current = next[idx] as any;
+                      const current = next[idx]!;
                       next[idx] = { path: val, op: current.op ?? "EQ", value: current.value ?? "" };
                       onChange({ responseHandling: { ...responseHandling, businessFailure: { anyOf: next } } });
                     }}
@@ -716,7 +729,7 @@ export function HttpResponseMappingEditor({
                     value={rule.op}
                     onValueChange={(val: ConditionOperator) => {
                       const next = [...failureRules];
-                      const current = next[idx] as any;
+                      const current = next[idx]!;
                       next[idx] = { path: current.path ?? "", op: val, value: current.value ?? "" };
                       onChange({ responseHandling: { ...responseHandling, businessFailure: { anyOf: next } } });
                     }}
@@ -736,7 +749,7 @@ export function HttpResponseMappingEditor({
                       value={rule.value != null ? `${rule.value as string | number | boolean}` : ""}
                       onChange={(e) => {
                         const next = [...failureRules];
-                        const current = next[idx] as any;
+                        const current = next[idx]!;
                         next[idx] = { path: current.path ?? "", op: current.op ?? "EQ", value: e.target.value };
                         onChange({ responseHandling: { ...responseHandling, businessFailure: { anyOf: next } } });
                       }}
@@ -771,7 +784,7 @@ export function HttpResponseMappingEditor({
                     value={rule.path}
                     onValueChange={(val) => {
                       const next = [...successRules];
-                      const current = next[idx] as any;
+                      const current = next[idx]!;
                       next[idx] = { path: val, op: current.op ?? "EQ", value: current.value ?? "" };
                       onChange({ responseHandling: { ...responseHandling, businessSuccess: { allOf: next } } });
                     }}
@@ -789,7 +802,7 @@ export function HttpResponseMappingEditor({
                     value={rule.op}
                     onValueChange={(val: ConditionOperator) => {
                       const next = [...successRules];
-                      const current = next[idx] as any;
+                      const current = next[idx]!;
                       next[idx] = { path: current.path ?? "", op: val, value: current.value ?? "" };
                       onChange({ responseHandling: { ...responseHandling, businessSuccess: { allOf: next } } });
                     }}
@@ -809,7 +822,7 @@ export function HttpResponseMappingEditor({
                       value={rule.value != null ? `${rule.value as string | number | boolean}` : ""}
                       onChange={(e) => {
                         const next = [...successRules];
-                        const current = next[idx] as any;
+                        const current = next[idx]!;
                         next[idx] = { path: current.path ?? "", op: current.op ?? "EQ", value: e.target.value };
                         onChange({ responseHandling: { ...responseHandling, businessSuccess: { allOf: next } } });
                       }}
@@ -1187,7 +1200,11 @@ function BodyTreeNode({
   field: InputFieldDefinition;
   flatIndex: number;
   depth: number;
-  onUpdateField: (flatIndex: number, prop: "defaultValue" | "label" | "remark", value: any) => void;
+  onUpdateField: (
+    flatIndex: number,
+    prop: "defaultValue" | "label" | "remark",
+    value: unknown,
+  ) => void;
 }) {
   const [expanded, setExpanded] = useState(depth < 2);
   const isLeaf = field.type !== "object" && field.type !== "array";
@@ -1240,7 +1257,7 @@ function BodyTreeNode({
           {isLeaf ? (
             <Input
               className="h-6 text-[10px] font-mono bg-background/50 border-border/50 px-1.5"
-              value={field.defaultValue !== undefined ? String(field.defaultValue as string | number | boolean) : ""}
+              value={formatUnknownValue(field.defaultValue)}
               placeholder="示例值"
               onChange={(e) => onUpdateField(flatIndex, "defaultValue", e.target.value)}
             />
@@ -1282,8 +1299,8 @@ function BodyTreeNode({
 /* ── 工具函数 ── */
 
 /** 将 bodyTree 转为用于预览的样例 JSON 对象 */
-function treeToSample(tree: InputFieldDefinition[]): Record<string, any> {
-  const obj: Record<string, any> = {};
+function treeToSample(tree: InputFieldDefinition[]): Record<string, unknown> {
+  const obj: Record<string, unknown> = {};
   for (const field of tree) {
     if (field.type === "object" && field.children) {
       obj[field.name] = treeToSample(field.children);
@@ -1293,7 +1310,12 @@ function treeToSample(tree: InputFieldDefinition[]): Record<string, any> {
       const val = field.defaultValue;
       if (val === "" || val === null || val === undefined) {
         obj[field.name] = "";
-      } else if (typeof val === "string" && val !== "" && !isNaN(Number(val)) && !val.includes(" ")) {
+      } else if (
+        typeof val === "string" &&
+        val !== "" &&
+        !isNaN(Number(val)) &&
+        !val.includes(" ")
+      ) {
         obj[field.name] = Number(val);
       } else if (val === "true") {
         obj[field.name] = true;
@@ -1308,27 +1330,27 @@ function treeToSample(tree: InputFieldDefinition[]): Record<string, any> {
 }
 
 /** 简单的 JSON 转 XML 序列化器 */
-function jsonToXml(obj: Record<string, any>, indent = 0): string {
+function jsonToXml(obj: Record<string, unknown>, indent = 0): string {
   const pad = "  ".repeat(indent);
   const lines: string[] = [];
   if (indent === 0) lines.push('<?xml version="1.0" encoding="UTF-8"?>');
   for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    if (isRecord(value)) {
       lines.push(`${pad}<${key}>`);
       lines.push(jsonToXml(value, indent + 1));
       lines.push(`${pad}</${key}>`);
     } else if (Array.isArray(value)) {
       for (const item of value) {
-        if (typeof item === "object" && item !== null) {
+        if (isRecord(item)) {
           lines.push(`${pad}<${key}>`);
           lines.push(jsonToXml(item, indent + 1));
           lines.push(`${pad}</${key}>`);
         } else {
-          lines.push(`${pad}<${key}>${item ?? ""}</${key}>`);
+          lines.push(`${pad}<${key}>${formatUnknownValue(item)}</${key}>`);
         }
       }
     } else {
-      lines.push(`${pad}<${key}>${value ?? ""}</${key}>`);
+      lines.push(`${pad}<${key}>${formatUnknownValue(value)}</${key}>`);
     }
   }
   return lines.join("\n");

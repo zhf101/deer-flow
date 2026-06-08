@@ -226,7 +226,7 @@ def _validate_output_ref(
     *,
     allowed_step_ids: set[str] | None = None,
 ) -> None:
-    # 发布后运行期只会解析已启用步骤真实产出的 outputMapping。
+    # 发布后运行期只会解析已启用步骤真实产出的输出映射字段。
     ref_step = steps_by_id.get(ref_step_id)
     if ref_step is None:
         issues.append(ValidationIssue(field=field, message=f"变量引用的步骤不存在：{ref_step_id}。"))

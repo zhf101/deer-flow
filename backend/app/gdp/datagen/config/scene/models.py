@@ -1,4 +1,4 @@
-"""场景编排 Pydantic 数据模型。"""
+"""场景编排数据模型。"""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ class StepTemplateRef(BaseModel):
 
 
 class StepDefinition(BaseModel):
-    """场景步骤 DTO。
+    """场景步骤数据传输对象。
 
     DTO 面向前端编辑保持扁平结构；repository 层会拆到
     ``df_scene_step``、``df_scene_step_http_config``、
@@ -126,7 +126,7 @@ class StepDefinition(BaseModel):
 
 
 class SceneDefinition(BaseModel):
-    """场景定义 DTO。"""
+    """场景定义数据传输对象。"""
 
     sceneCode: str = Field(..., min_length=1, max_length=128, description="场景唯一编码。")
     sceneName: str = Field(..., min_length=1, max_length=256, description="场景名称。")
@@ -195,3 +195,42 @@ class DisableResponse(BaseModel):
     """删除、禁用类操作响应。"""
 
     success: bool = True
+
+
+class SceneRunRequest(BaseModel):
+    """场景执行请求。"""
+
+    sceneCode: str = Field(..., min_length=1, max_length=128, description="待执行的场景编码。")
+    envCode: str = Field(..., min_length=1, max_length=64, description="执行环境编码。")
+    inputs: dict[str, Any] = Field(default_factory=dict, description="场景入参。")
+
+
+class StepExecutionResult(BaseModel):
+    """单个场景步骤执行结果。"""
+
+    stepId: str
+    stepName: str | None = None
+    type: StepType
+    status: Literal["SUCCESS", "FAILED", "SKIPPED"]
+    startedAt: datetime
+    finishedAt: datetime
+    durationMs: float
+    outputs: dict[str, Any] = Field(default_factory=dict)
+    rawResponse: Any = None
+    error: str | None = None
+    statusCode: int | None = None
+
+
+class SceneExecutionResult(BaseModel):
+    """场景执行结果。"""
+
+    sceneCode: str
+    versionNo: int
+    envCode: str
+    status: Literal["SUCCESS", "FAILED", "PARTIAL"]
+    startedAt: datetime
+    finishedAt: datetime
+    durationMs: float
+    stepResults: list[StepExecutionResult] = Field(default_factory=list)
+    finalOutput: dict[str, Any] = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
