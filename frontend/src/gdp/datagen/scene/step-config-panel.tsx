@@ -2,7 +2,6 @@
 
 import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, PlayIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -371,16 +370,8 @@ export function StepConfigPanel({
           scene={scene}
           open={showTestDialog}
           onOpenChange={setShowTestDialog}
-          onTestSuccess={(result) => {
-            // 展示提取结果信息，但不自动写入 outputMapping
-            // （extractedOutputs 是基于已有 outputMapping 求值的结果，
-            //  自动回填 key=key 会污染提取表达式语义）
-            const keys = Object.keys(result.extractedOutputs ?? {});
-            if (keys.length > 0) {
-              toast.success(`已提取 ${keys.length} 个变量：${keys.join(", ")}`, {
-                description: JSON.stringify(result.extractedOutputs, null, 2).substring(0, 200),
-              });
-            }
+          onTestSuccess={() => {
+            // 测试结果已在弹窗内展示，不再弹出额外提示
           }}
         />
       )}

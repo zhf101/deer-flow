@@ -136,6 +136,26 @@ export function LogicOrchestrationStep({
     [openStep],
   );
 
+  const handleMoveStep = useCallback(
+    (stepId: string, direction: -1 | 1) => {
+      if (readOnly) return;
+      const currentIndex = scene.steps.findIndex((step) => step.stepId === stepId);
+      const targetIndex = currentIndex + direction;
+      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= scene.steps.length) return;
+
+      const nextSteps = [...scene.steps];
+      const [movedStep] = nextSteps.splice(currentIndex, 1);
+      if (!movedStep) return;
+      const targetStep = scene.steps[targetIndex];
+      if (!targetStep) return;
+      if (direction < 0 && movedStep.dependsOn.includes(targetStep.stepId)) return;
+      if (direction > 0 && targetStep.dependsOn.includes(movedStep.stepId)) return;
+      nextSteps.splice(targetIndex, 0, movedStep);
+      setScene({ ...scene, steps: assignExecutionOrders(nextSteps) });
+    },
+    [readOnly, scene, setScene],
+  );
+
   // 画布中当前被选中并高亮的步骤。
   const selectedStepId =
     activeTabId !== CANVAS_TAB && openTabs.includes(activeTabId)
@@ -231,6 +251,7 @@ export function LogicOrchestrationStep({
                 onSelectStep={handleSelectStep}
                 onDeleteStep={handleDeleteStep}
                 onAddStep={handleAddStep}
+                onMoveStep={handleMoveStep}
                 onToggleView={() => setOrchView("canvas")}
                 readOnly={readOnly}
               />
@@ -284,4 +305,8 @@ export function LogicOrchestrationStep({
       </div>
     </div>
   );
+}
+
+function assignExecutionOrders(steps: StepDefinition[]): StepDefinition[] {
+  return steps.map((step, index) => ({ ...step, executionOrder: index + 1 }));
 }

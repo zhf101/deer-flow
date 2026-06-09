@@ -76,6 +76,7 @@ class BaseStepDefinition(BaseModel):
     stepId: str = Field(..., min_length=1, max_length=128, description="步骤唯一 ID。")
     stepName: str | None = Field(default=None, max_length=256, description="步骤名称。")
     type: StepType = Field(..., description="步骤类型。")
+    executionOrder: int | None = Field(default=None, ge=1, description="步骤执行顺序，从 1 开始。后端按该字段审计和确定同级依赖的执行优先级。")
     enabled: bool = Field(default=True, description="是否启用。")
     dependsOn: list[str] = Field(default_factory=list, description="前置依赖 stepId 列表。")
     description: str | None = Field(default=None, description="步骤说明。")
@@ -256,6 +257,8 @@ class StepExecutionResult(BaseModel):
     stepId: str
     stepName: str | None = None
     type: StepType
+    stepOrder: int | None = Field(default=None, description="节点在场景编排步骤列表中的顺序，从 1 开始。")
+    timelineOrder: int | None = Field(default=None, description="节点本次执行时间线顺序，从 1 开始。")
     status: Literal["SUCCESS", "FAILED", "SKIPPED"]
     startedAt: datetime
     finishedAt: datetime
@@ -269,9 +272,11 @@ class StepExecutionResult(BaseModel):
 class SceneExecutionResult(BaseModel):
     """场景执行结果。"""
 
+    runId: str | None = Field(default=None, description="本次场景执行记录 ID。执行结果持久化后由后端生成。")
     sceneCode: str
     versionNo: int
     envCode: str
+    inputs: dict[str, Any] = Field(default_factory=dict, description="本次执行使用的场景入参。")
     status: Literal["SUCCESS", "FAILED", "PARTIAL"]
     startedAt: datetime
     finishedAt: datetime
@@ -279,3 +284,22 @@ class SceneExecutionResult(BaseModel):
     stepResults: list[StepExecutionResult] = Field(default_factory=list)
     finalOutput: dict[str, Any] = Field(default_factory=dict)
     errors: list[str] = Field(default_factory=list)
+
+
+class SceneRunSummary(BaseModel):
+    """场景执行记录摘要（列表用），不含步骤明细。"""
+
+    runId: str
+    sceneCode: str
+    versionNo: int
+    envCode: str
+    status: Literal["SUCCESS", "FAILED", "PARTIAL"]
+    startedAt: datetime
+    finishedAt: datetime
+    durationMs: float
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    finalOutput: dict[str, Any] = Field(default_factory=dict)
+    errors: list[str] = Field(default_factory=list)
+    stepCount: int = Field(default=0, description="步骤总数")
+    successCount: int = Field(default=0, description="成功步骤数")
+    failedCount: int = Field(default=0, description="失败步骤数")

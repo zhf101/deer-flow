@@ -3,6 +3,7 @@
 import {
   ArrowLeftIcon,
   CheckCircle2Icon,
+  ChevronDownIcon,
   CopyIcon,
   DatabaseIcon,
   EyeIcon,
@@ -24,6 +25,11 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -76,6 +82,10 @@ import { ConfirmDialog } from "../common/ui/confirm-dialog";
 const SQL_OPERATIONS: SqlOperation[] = ["SELECT", "INSERT", "UPDATE", "DELETE"];
 const FIELD_TYPES: InputFieldType[] = ["string", "number", "boolean", "date"];
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
+const TABLE_META_GRID = "minmax(160px, 1fr) minmax(100px, 120px) minmax(240px, 2fr)";
+const RESULT_FIELD_META_GRID = "minmax(160px, 1fr) minmax(120px, 140px) minmax(120px, 140px) minmax(240px, 2fr)";
+const CONDITION_FIELD_META_GRID = "minmax(160px, 1fr) minmax(120px, 140px) minmax(140px, 160px) minmax(240px, 2fr)";
+const PARAMETER_META_GRID = "minmax(160px, 1fr) minmax(110px, 120px) minmax(90px, 100px) minmax(160px, 1fr) minmax(240px, 2fr)";
 
 type SqlAnalysis = SqlSourceParseResponse;
 
@@ -601,6 +611,7 @@ function SqlSourceEditor({
     createInitialAnalysis(config),
   );
   const [parsing, setParsing] = useState(false);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   const [testEnvCode, setTestEnvCode] = useState("");
   const [testing, setTesting] = useState(false);
   const [testParameters, setTestParameters] = useState<Record<string, unknown>>(
@@ -789,7 +800,7 @@ function SqlSourceEditor({
       </div>
 
       <div className="flex-1 overflow-auto">
-        <div className={readOnly ? "pointer-events-none mx-auto max-w-6xl space-y-4 p-4 opacity-50" : "mx-auto max-w-6xl space-y-4 p-4"}>
+        <div className="mx-auto max-w-6xl space-y-4 p-4">
           <section className="space-y-3 rounded-lg border bg-card p-4">
             <h3 className="text-sm font-semibold text-foreground">基本信息</h3>
             <div className="grid grid-cols-4 gap-x-4 gap-y-3">
@@ -801,7 +812,7 @@ function SqlSourceEditor({
                   onChange={(e) =>
                     onChange({ ...config, sourceCode: e.target.value })
                   }
-                  disabled={!isNew}
+                  disabled={readOnly || !isNew}
                   placeholder="如: queryUserById"
                   className="h-8 text-xs font-mono"
                 />
@@ -809,6 +820,7 @@ function SqlSourceEditor({
               <div className="space-y-1">
                 <Label className="text-xs">操作类型</Label>
                 <Select
+                  disabled={readOnly}
                   value={config.operation}
                   onValueChange={(v) =>
                     onChange({ ...config, operation: v as SqlOperation })
@@ -829,6 +841,7 @@ function SqlSourceEditor({
               <div className="space-y-1">
                 <Label className="text-xs">状态</Label>
                 <Select
+                  disabled={readOnly}
                   value={config.status}
                   onValueChange={(v) =>
                     onChange({ ...config, status: v as ConfigStatus })
@@ -848,6 +861,7 @@ function SqlSourceEditor({
               <div className="col-span-2 space-y-1">
                 <Label className="text-xs">所属系统</Label>
                 <Select
+                  disabled={readOnly}
                   value={config.sysCode || "__none__"}
                   onValueChange={(v) =>
                     onChange({
@@ -873,6 +887,7 @@ function SqlSourceEditor({
               <div className="col-span-2 space-y-1">
                 <Label className="text-xs">数据源</Label>
                 <Select
+                  disabled={readOnly}
                   value={config.datasourceCode || "__none__"}
                   onValueChange={(v) =>
                     onChange({
@@ -899,6 +914,7 @@ function SqlSourceEditor({
               <div className="col-span-4 space-y-1">
                 <Label className="text-xs">描述</Label>
                 <Textarea
+                  readOnly={readOnly}
                   value={config.sourceName}
                   onChange={(e) =>
                     onChange({ ...config, sourceName: e.target.value })
@@ -921,13 +937,14 @@ function SqlSourceEditor({
                 size="sm"
                 className="h-7 gap-1.5 text-[10px]"
                 onClick={parseCurrentSql}
-                disabled={!config.sqlText.trim() || parsing}
+                disabled={readOnly || !config.sqlText.trim() || parsing}
               >
                 <ListChecksIcon className="size-3" />
                 {parsing ? "解析中..." : "解析 SQL"}
               </Button>
             </div>
             <Textarea
+              readOnly={readOnly}
               value={config.sqlText}
               onChange={(e) => updateSqlText(e.target.value)}
               placeholder={'支持直接粘贴可执行 SQL、:userId、#{userId}、${tenantId}，也支持 MyBatis XML 片段。\n\n<select id="queryUser">\n  SELECT u.id, u.name FROM user_account u WHERE u.id = #{userId}\n</select>'}
@@ -944,6 +961,35 @@ function SqlSourceEditor({
             </div>
           </section>
 
+          <Collapsible
+            open={analysisOpen}
+            onOpenChange={setAnalysisOpen}
+            className="overflow-hidden rounded-lg border bg-card"
+          >
+            <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 text-sm font-bold text-sky-600">
+                  <ListChecksIcon className="size-4" />
+                  <span>SQL 解析详情</span>
+                </div>
+                <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+                  <Badge variant="outline" className="font-mono">
+                    {analysis.operation}
+                  </Badge>
+                  <span>表 {analysis.tables.length}</span>
+                  <span>查询字段 {analysis.resultFields.length}</span>
+                  <span>条件字段 {analysis.conditionFields.length}</span>
+                </div>
+              </div>
+              <ChevronDownIcon
+                className={cn(
+                  "size-4 shrink-0 text-muted-foreground transition-transform",
+                  analysisOpen && "rotate-180",
+                )}
+              />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="border-t p-4">
+              <fieldset disabled={readOnly} className="m-0 min-w-0 space-y-3 border-0 p-0">
           <section className="space-y-3 rounded-lg border bg-card p-4">
             <div className="flex items-center justify-between border-b pb-2">
               <div className="flex items-center gap-2 text-sky-600 text-sm font-bold">
@@ -969,11 +1015,13 @@ function SqlSourceEditor({
             <EditableMetaTable
               emptyText="解析 SQL 后自动展示操作表"
               columns={["表名", "别名", "描述"]}
+              gridTemplateColumns={TABLE_META_GRID}
               rows={analysis.tables}
               renderRow={(row, index) => (
                 <div
                   key={row.id}
-                  className="grid grid-cols-[1fr_120px_2fr] gap-2 p-1.5"
+                  className="grid gap-2 p-1.5"
+                  style={{ gridTemplateColumns: TABLE_META_GRID }}
                 >
                   <Input
                     value={row.tableName}
@@ -1018,11 +1066,13 @@ function SqlSourceEditor({
             <EditableMetaTable
               emptyText="SELECT SQL 解析后自动展示查询字段"
               columns={["字段名", "来源表", "别名", "描述"]}
+              gridTemplateColumns={RESULT_FIELD_META_GRID}
               rows={analysis.resultFields}
               renderRow={(row, index) => (
                 <div
                   key={row.id}
-                  className="grid grid-cols-[1fr_140px_140px_2fr] gap-2 p-1.5"
+                  className="grid gap-2 p-1.5"
+                  style={{ gridTemplateColumns: RESULT_FIELD_META_GRID }}
                 >
                   <Input
                     value={row.fieldName}
@@ -1076,11 +1126,13 @@ function SqlSourceEditor({
             <EditableMetaTable
               emptyText="WHERE、JOIN ON 或 UPDATE 条件解析后自动展示"
               columns={["字段名", "来源表", "参数名", "描述"]}
+              gridTemplateColumns={CONDITION_FIELD_META_GRID}
               rows={analysis.conditionFields}
               renderRow={(row, index) => (
                 <div
                   key={row.id}
-                  className="grid grid-cols-[1fr_140px_160px_2fr] gap-2 p-1.5"
+                  className="grid gap-2 p-1.5"
+                  style={{ gridTemplateColumns: CONDITION_FIELD_META_GRID }}
                 >
                   <Input
                     value={row.fieldName}
@@ -1124,7 +1176,12 @@ function SqlSourceEditor({
             />
           </section>
 
+              </fieldset>
+          </CollapsibleContent>
+          </Collapsible>
+
           <section className="space-y-3 rounded-lg border bg-card p-4">
+            <fieldset disabled={readOnly} className="m-0 min-w-0 space-y-3 border-0 p-0">
             <div className="flex items-center justify-between border-b pb-2">
               <div className="flex items-center gap-2 text-violet-600 text-sm font-bold">
                 <ListChecksIcon className="size-4" />
@@ -1134,11 +1191,13 @@ function SqlSourceEditor({
             <EditableMetaTable
               emptyText="解析 SQL 后自动生成参数"
               columns={["参数名", "类型", "必填", "默认值", "描述"]}
+              gridTemplateColumns={PARAMETER_META_GRID}
               rows={analysis.parameters}
               renderRow={(row, index) => (
                 <div
                   key={row.name}
-                  className="grid grid-cols-[1fr_120px_100px_1fr_2fr] gap-2 p-1.5"
+                  className="grid gap-2 p-1.5"
+                  style={{ gridTemplateColumns: PARAMETER_META_GRID }}
                 >
                   <Input
                     value={row.name}
@@ -1200,6 +1259,7 @@ function SqlSourceEditor({
                 </div>
               )}
             />
+            </fieldset>
           </section>
 
           {!readOnly && (
@@ -1295,20 +1355,24 @@ function SqlSourceEditor({
 
 function EditableMetaTable<T>({
   columns,
+  gridTemplateColumns,
   rows,
   emptyText,
   renderRow,
 }: {
   columns: string[];
+  gridTemplateColumns?: string;
   rows: T[];
   emptyText: string;
   renderRow: (row: T, index: number) => React.ReactNode;
 }) {
+  const template = gridTemplateColumns ?? `repeat(${columns.length}, minmax(0, 1fr))`;
+
   return (
     <div className="overflow-hidden rounded-lg border bg-card">
       <div
-        className="grid gap-2 border-b bg-muted/40 px-3 py-2 text-[10px] font-bold uppercase text-muted-foreground"
-        style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}
+        className="grid gap-2 border-b bg-muted/40 p-1.5 py-2 text-[10px] font-bold uppercase text-muted-foreground"
+        style={{ gridTemplateColumns: template }}
       >
         {columns.map((column) => (
           <div key={column}>{column}</div>

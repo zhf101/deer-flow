@@ -12,6 +12,7 @@ function basePayload(step: StepDefinition) {
     stepId: step.stepId,
     stepName: step.stepName ?? null,
     type: step.type,
+    executionOrder: step.executionOrder ?? null,
     enabled: step.enabled,
     dependsOn: step.dependsOn,
     description: step.description ?? null,
@@ -22,6 +23,11 @@ function basePayload(step: StepDefinition) {
   };
 }
 
+function emptyToNull(value: string | null | undefined): string | null {
+  if (value) return value;
+  return null;
+}
+
 export function toStrictStepPayload(step: StepDefinition): StepDefinition {
   const base = basePayload(step);
 
@@ -30,9 +36,9 @@ export function toStrictStepPayload(step: StepDefinition): StepDefinition {
       ...base,
       type: "HTTP",
       sourceName: step.sourceName ?? null,
-      sysCode: step.sysCode || null,
+      sysCode: emptyToNull(step.sysCode),
       method: step.method,
-      path: step.path || null,
+      path: emptyToNull(step.path),
       timeoutConfig: step.timeoutConfig,
       requestMapping: step.requestMapping,
       httpParamMapping: step.httpParamMapping,
@@ -52,10 +58,10 @@ export function toStrictStepPayload(step: StepDefinition): StepDefinition {
       ...base,
       type: "SQL",
       sourceName: step.sourceName ?? null,
-      sysCode: step.sysCode || null,
-      datasourceCode: step.datasourceCode || null,
+      sysCode: emptyToNull(step.sysCode),
+      datasourceCode: emptyToNull(step.datasourceCode),
       operation: step.operation ?? null,
-      sqlText: step.sqlText || null,
+      sqlText: emptyToNull(step.sqlText),
       normalizedSql: step.normalizedSql ?? null,
       tables: step.tables ?? [],
       resultFields: step.resultFields ?? [],
@@ -84,6 +90,8 @@ export function toStrictStepPayload(step: StepDefinition): StepDefinition {
 export function toStrictScenePayload(scene: SceneDefinition): SceneDefinition {
   return {
     ...scene,
-    steps: scene.steps.map(toStrictStepPayload),
+    steps: scene.steps.map((step, index) =>
+      toStrictStepPayload({ ...step, executionOrder: index + 1 }),
+    ),
   };
 }

@@ -62,6 +62,22 @@ def test_parse_plain_sql_normalizes_mybatis_style_placeholders_to_named_paramete
     assert [param.name for param in result.parameters] == ["status", "tenantId"]
 
 
+def test_parse_plain_sql_condition_fields_ignore_join_column_relations():
+    result = parse_sql_source(
+        """
+        SELECT p.sku_id, p.product_name, p.sale_price, i.stock_num, i.locked_num, i.status
+        FROM product_sku p
+        JOIN inventory i ON p.sku_id = i.sku_id
+        WHERE p.sku_id = :skuId
+        """
+    )
+
+    assert [
+        (field.fieldName, field.sourceTable, field.paramName)
+        for field in result.conditionFields
+    ] == [("sku_id", "p", "skuId")]
+
+
 def test_parse_mybatis_where_if_renders_executable_sql_template():
     result = parse_sql_source(
         """

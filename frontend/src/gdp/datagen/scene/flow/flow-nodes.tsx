@@ -8,12 +8,18 @@ import { cn } from "@/lib/utils";
 
 import type { StepNodeData } from "../../common/lib/flow";
 
+function nonEmptyText(value: string | undefined, fallback: string): string {
+  if (value) return value;
+  return fallback;
+}
+
 export function HttpStepNode({ data, selected }: NodeProps) {
   const d = data as unknown as StepNodeData;
-  const rawPath = d.path || "未配置URL";
+  const rawPath = nonEmptyText(d.path, "未配置URL");
   const isDisabled = d.enabled === false;
   const outputCount = d.outputCount ?? 0;
   const hasErrors = d.hasErrors ?? false;
+  const order = typeof d.order === "number" ? d.order : null;
   let displayUrl = rawPath;
   try {
     displayUrl = displayUrl.replace(/^(?:https?:\/\/[^/]+|\$\{[^}]+})/, "");
@@ -33,6 +39,12 @@ export function HttpStepNode({ data, selected }: NodeProps) {
     )}>
       <Handle type="target" position={Position.Left} className="w-2 h-2 bg-blue-400" />
       <div className="flex items-center gap-2 mb-2 pb-2 border-b border-blue-100">
+        {order != null && (
+          <div className="flex h-7 w-8 shrink-0 flex-col items-center justify-center rounded border border-blue-200 bg-blue-50 text-blue-600" title="执行顺序">
+            <span className="text-[7px] font-medium leading-none">执行</span>
+            <span className="text-[10px] font-bold leading-none">#{order}</span>
+          </div>
+        )}
         <div className="p-1 rounded bg-blue-100 text-blue-600">
             <GlobeIcon className="size-3.5" />
         </div>
@@ -71,6 +83,7 @@ export function SqlStepNode({ data, selected }: NodeProps) {
   const isDisabled = d.enabled === false;
   const outputCount = d.outputCount ?? 0;
   const hasErrors = d.hasErrors ?? false;
+  const order = typeof d.order === "number" ? d.order : null;
   const cleanSql = sql.replace(/\s+/g, " ").trim();
   const truncatedSql = cleanSql.length > 30 ? cleanSql.substring(0, 27) + "..." : cleanSql;
 
@@ -82,6 +95,12 @@ export function SqlStepNode({ data, selected }: NodeProps) {
     )}>
       <Handle type="target" position={Position.Left} className="w-2 h-2 bg-emerald-400" />
       <div className="flex items-center gap-2 mb-2 pb-2 border-b border-emerald-100">
+        {order != null && (
+          <div className="flex h-7 w-8 shrink-0 flex-col items-center justify-center rounded border border-emerald-200 bg-emerald-50 text-emerald-600" title="执行顺序">
+            <span className="text-[7px] font-medium leading-none">执行</span>
+            <span className="text-[10px] font-bold leading-none">#{order}</span>
+          </div>
+        )}
         <div className="p-1 rounded bg-emerald-100 text-emerald-600">
             <DatabaseIcon className="size-3.5" />
         </div>

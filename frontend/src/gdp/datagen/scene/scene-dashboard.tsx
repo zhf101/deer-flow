@@ -6,6 +6,7 @@ import {
   EyeIcon,
   FilePlus2Icon,
   MoreVerticalIcon,
+  PlayIcon,
   RefreshCwIcon,
   SearchIcon,
   Trash2Icon,
@@ -48,11 +49,12 @@ import { buildDemoSceneDefinition } from "./demo-scene-fixture";
 interface SceneDashboardProps {
   onEdit: (sceneCode: string) => void;
   onView: (sceneCode: string) => void;
+  onRun: (sceneCode: string) => void;
   onCreate: () => void;
   onConfig: () => void;
 }
 
-export function SceneDashboard({ onEdit, onView, onCreate }: SceneDashboardProps) {
+export function SceneDashboard({ onEdit, onView, onRun, onCreate }: SceneDashboardProps) {
   const [scenes, setScenes] = useState<SceneSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
@@ -192,6 +194,7 @@ export function SceneDashboard({ onEdit, onView, onCreate }: SceneDashboardProps
               <th className="p-4 font-medium">业务分类</th>
               <th className="p-4 font-medium">状态</th>
               <th className="p-4 font-medium">当前版本</th>
+              <th className="p-4 font-medium">发布版本</th>
               <th className="p-4 font-medium">最后更新</th>
               <th className="p-4 font-medium text-right">操作</th>
             </tr>
@@ -199,13 +202,13 @@ export function SceneDashboard({ onEdit, onView, onCreate }: SceneDashboardProps
           <tbody>
             {loading && scenes.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                <td colSpan={7} className="p-8 text-center text-muted-foreground">
                   加载中...
                 </td>
               </tr>
             ) : scenes.length === 0 ? (
               <tr>
-                <td colSpan={6} className="p-8 text-center text-muted-foreground">
+                <td colSpan={7} className="p-8 text-center text-muted-foreground">
                   未找到匹配的场景
                 </td>
               </tr>
@@ -229,11 +232,23 @@ export function SceneDashboard({ onEdit, onView, onCreate }: SceneDashboardProps
                   <td className="p-4">
                     {scene.currentVersionNo ? `v${scene.currentVersionNo}` : "-"}
                   </td>
+                  <td className="p-4">
+                    {scene.publishedVersionNo ? `v${scene.publishedVersionNo}` : "-"}
+                  </td>
                   <td className="p-4 text-muted-foreground">
                     {new Date(scene.updatedAt).toLocaleString()}
                   </td>
                   <td className="p-4 text-right">
                     <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        disabled={scene.status !== "PUBLISHED"}
+                        onClick={(e) => { e.stopPropagation(); onRun(scene.sceneCode); }}
+                        title={scene.status === "PUBLISHED" ? "测试执行" : "仅已发布场景可执行"}
+                      >
+                        <PlayIcon className="size-4" />
+                      </Button>
                       <Button
                         variant="ghost"
                         size="icon-sm"

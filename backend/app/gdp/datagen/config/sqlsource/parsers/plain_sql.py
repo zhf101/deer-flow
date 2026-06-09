@@ -108,7 +108,7 @@ def _extract_condition_fields(
     expression: exp.Expression,
     param_names: list[str],
 ) -> list[SqlSourceConditionMeta]:
-    """从 WHERE / JOIN ON 中提取条件字段及其绑定的参数名。"""
+    """从带参数占位符的条件中提取字段及其绑定的参数名。"""
 
     fields: list[SqlSourceConditionMeta] = []
     seen: set[tuple[str, str, str]] = set()
@@ -117,6 +117,8 @@ def _extract_condition_fields(
     for predicate in _predicate_expressions(expression):
         columns = list(predicate.find_all(exp.Column))
         has_placeholder = any(isinstance(node, exp.Placeholder) for node in predicate.walk())
+        if not has_placeholder:
+            continue
         for column in columns:
             param_name = param_names[param_index] if has_placeholder and param_index < len(param_names) else ""
             key = (column.name, column.table, param_name)
@@ -130,8 +132,7 @@ def _extract_condition_fields(
                         paramName=param_name,
                     )
                 )
-        if has_placeholder:
-            param_index += 1
+        param_index += 1
     return fields
 
 

@@ -14,6 +14,7 @@ from app.gdp.datagen.config.scene.models import (
     SceneDefinition,
     SceneExecutionResult,
     SceneRunRequest,
+    SceneRunSummary,
     SceneSummary,
     SceneVersion,
     ValidationResult,
@@ -79,7 +80,21 @@ class SceneService:
         if self._executor is None:
             raise HTTPException(status_code=503, detail="Scene executor not available")
         version = await self._guard(lambda: self._repo.get_published_scene(request.sceneCode))
-        return await self._executor.run(version, request)
+        result = await self._executor.run(version, request)
+        return await self._guard(lambda: self._repo.save_scene_run(result))
+
+    async def get_scene_run(self, run_id: str) -> SceneExecutionResult:
+        return await self._guard(lambda: self._repo.get_scene_run(run_id))
+
+    async def list_scene_runs(
+        self,
+        *,
+        scene_code: str = "",
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[SceneRunSummary]:
+        return await self._repo.list_scene_runs(scene_code=scene_code, status=status, limit=limit, offset=offset)
 
     @staticmethod
     def _raise_if_invalid(result: ValidationResult) -> None:

@@ -4,7 +4,9 @@ import {
   DatabaseIcon,
   FilePlus2Icon,
   GlobeIcon,
+  HistoryIcon,
   LayoutListIcon,
+  PlayIcon,
   SettingsIcon,
   WorkflowIcon,
 } from "lucide-react";
@@ -17,6 +19,8 @@ import { TabBar, type Tab } from "./common/shell/module-tab-bar";
 import { HttpSourceManagement } from "./httpsource";
 import { SceneDashboard } from "./scene/scene-dashboard";
 import { SceneEditor } from "./scene/scene-editor";
+import { SceneExecutionPage } from "./scene/scene-execution-page";
+import { SceneRunHistory } from "./scene/scene-run-history";
 import { SqlSourceManagement } from "./sqlsource";
 import { TaskDashboard } from "./task/task-dashboard";
 import { TaskEditor } from "./task/task-editor";
@@ -26,12 +30,14 @@ import { TaskRunDialog } from "./task/task-run-dialog";
 
 type TabType =
   | "scene-list"
+  | "scene-history"
   | "task-list"
   | "config"
   | "httpsource"
   | "sqlsource"
   | "scene-edit"
   | "scene-view"
+  | "scene-run"
   | "scene-new"
   | "task-edit"
   | "task-view"
@@ -42,6 +48,7 @@ interface TabState {
   type: TabType;
   sceneCode?: string | null;
   taskCode?: string | null;
+  runId?: string | null;
   label: string;
 }
 
@@ -58,6 +65,7 @@ const NAV_ITEMS: {
   { id: "httpsource", type: "httpsource", label: "HTTP 接口", icon: GlobeIcon, group: "配置" },
   { id: "sqlsource", type: "sqlsource", label: "SQL 配置", icon: DatabaseIcon, group: "配置" },
   { id: "scene-list", type: "scene-list", label: "造数场景", icon: LayoutListIcon, group: "编排" },
+  { id: "scene-history", type: "scene-history", label: "执行历史", icon: HistoryIcon, group: "编排" },
   { id: "task-list", type: "task-list", label: "造数任务", icon: WorkflowIcon, group: "编排" },
 ];
 
@@ -128,6 +136,31 @@ export function DataFactoryPage() {
     [ensureTab],
   );
 
+  const openSceneRun = useCallback(
+    (code: string) => {
+      ensureTab({
+        id: `scene-run-${code}`,
+        type: "scene-run",
+        sceneCode: code,
+        label: `执行: ${code}`,
+      });
+    },
+    [ensureTab],
+  );
+
+  const openViewRun = useCallback(
+    (runId: string, sceneCode: string) => {
+      ensureTab({
+        id: `scene-viewrun-${runId}`,
+        type: "scene-run",
+        sceneCode,
+        runId,
+        label: `记录: ${sceneCode}`,
+      });
+    },
+    [ensureTab],
+  );
+
   const openNewScene = useCallback(() => {
     ensureTab({
       id: "scene-new",
@@ -192,8 +225,12 @@ export function DataFactoryPage() {
         <GlobeIcon className="size-3" />
       ) : t.type === "sqlsource" ? (
         <DatabaseIcon className="size-3" />
+      ) : t.type === "scene-history" ? (
+        <HistoryIcon className="size-3" />
       ) : t.type === "scene-new" || t.type === "task-new" ? (
         <FilePlus2Icon className="size-3" />
+      ) : t.type === "scene-run" ? (
+        <PlayIcon className="size-3" />
       ) : undefined,
   }));
 
@@ -210,9 +247,14 @@ export function DataFactoryPage() {
           <SceneDashboard
             onEdit={openSceneEdit}
             onView={openSceneView}
+            onRun={openSceneRun}
             onCreate={openNewScene}
             onConfig={openConfig}
           />
+        );
+      case "scene-history":
+        return (
+          <SceneRunHistory onViewRun={openViewRun} />
         );
       case "task-list":
         return (
@@ -242,6 +284,14 @@ export function DataFactoryPage() {
           <SceneEditor
             sceneCode={activeTab.sceneCode}
             readOnly={true}
+            onBack={() => closeTab(activeTab.id)}
+          />
+        );
+      case "scene-run":
+        return (
+          <SceneExecutionPage
+            sceneCode={activeTab.sceneCode ?? ""}
+            runId={activeTab.runId ?? undefined}
             onBack={() => closeTab(activeTab.id)}
           />
         );
@@ -287,6 +337,9 @@ export function DataFactoryPage() {
 
   const activeNavId = (() => {
     if (!activeTab) return "scene-list";
+    if (activeTab.type === "scene-history") return "scene-history";
+    // 从历史记录打开的执行详情也高亮执行历史
+    if (activeTab.type === "scene-run" && activeTab.runId) return "scene-history";
     // 将编辑、查看、新建标签映射回父级导航项
     if (activeTab.type.startsWith("scene")) return "scene-list";
     if (activeTab.type.startsWith("task")) return "task-list";

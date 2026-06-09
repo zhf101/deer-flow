@@ -1,6 +1,18 @@
 "use client";
 
-import { AlertTriangleIcon, CheckCircle2Icon, DatabaseIcon, GlobeIcon, ListIcon, EyeIcon, NetworkIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckCircle2Icon,
+  DatabaseIcon,
+  EyeIcon,
+  GlobeIcon,
+  ListIcon,
+  NetworkIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,12 +21,18 @@ import { cn } from "@/lib/utils";
 import { computeStepConfigStatus } from "../common/lib/step-validation";
 import type { SceneDefinition, StepDefinition } from "../common/lib/types";
 
+function nonEmptyText(value: string | null | undefined, fallback: string): string {
+  if (value) return value;
+  return fallback;
+}
+
 interface StepListViewProps {
   scene: SceneDefinition;
   steps: StepDefinition[];
   onSelectStep: (id: string) => void;
   onDeleteStep: (id: string) => void;
   onAddStep: (type: 'HTTP' | 'SQL') => void;
+  onMoveStep: (id: string, direction: -1 | 1) => void;
   onToggleView: () => void;
   readOnly?: boolean;
 }
@@ -25,6 +43,7 @@ export function StepListView({
   onSelectStep,
   onDeleteStep,
   onAddStep,
+  onMoveStep,
   onToggleView,
   readOnly,
 }: StepListViewProps) {
@@ -69,6 +88,17 @@ export function StepListView({
           <div className="space-y-3">
              {steps.map((step, idx) => {
                 const status = computeStepConfigStatus(step, scene);
+                const executionOrder = step.executionOrder ?? idx + 1;
+                const previousStep = steps[idx - 1] ?? null;
+                const nextStep = steps[idx + 1] ?? null;
+                const blockedByPreviousDependency =
+                  previousStep?.stepId != null && step.dependsOn.includes(previousStep.stepId);
+                const blockedByNextDependency =
+                  nextStep?.dependsOn.includes(step.stepId) ?? false;
+                const canMoveUp =
+                  !readOnly && previousStep != null && !blockedByPreviousDependency;
+                const canMoveDown =
+                  !readOnly && nextStep != null && !blockedByNextDependency;
                 return (
                 <div
                     key={step.stepId}
@@ -80,13 +110,14 @@ export function StepListView({
                     onClick={() => onSelectStep(step.stepId)}
                 >
                     <div className={cn(
-                        "size-10 rounded-full flex items-center justify-center shrink-0 transition-colors",
-                        !status.complete && step.enabled ? "bg-red-50" : "bg-muted group-hover:bg-primary/10"
+                        "flex h-12 w-14 shrink-0 flex-col items-center justify-center rounded-md border transition-colors",
+                        !status.complete && step.enabled ? "border-red-200 bg-red-50" : "border-border bg-muted group-hover:bg-primary/10"
                     )}>
+                        <span className="text-[9px] font-medium text-muted-foreground">执行</span>
                         <span className={cn(
-                            "text-xs font-bold",
+                            "text-sm font-bold leading-none",
                             !status.complete && step.enabled ? "text-red-500" : "text-muted-foreground group-hover:text-primary"
-                        )}>{idx + 1}</span>
+                        )}>#{executionOrder}</span>
                     </div>
 
                     <div className="flex-1 min-w-0 space-y-1">
@@ -123,14 +154,14 @@ export function StepListView({
                                 {step.type === 'HTTP' ? (
                                     <>
                                         <GlobeIcon className="size-3 shrink-0" />
-                                        <span className="font-mono text-[11px] truncate">{step.path || '未配置 URL'}</span>
+                                        <span className="font-mono text-[11px] truncate">{nonEmptyText(step.path, '未配置 URL')}</span>
                                         <span className="opacity-40 ml-1 font-bold">[{step.method}]</span>
                                     </>
                                 ) : step.type === 'SQL' ? (
                                     <>
                                         <DatabaseIcon className="size-3 shrink-0" />
                                         <span className="font-mono text-[11px] truncate">
-                                            {step.sqlText || step.normalizedSql || '未配置 SQL'}
+                                            {nonEmptyText(step.sqlText, nonEmptyText(step.normalizedSql, '未配置 SQL'))}
                                         </span>
                                     </>
                                 ) : (
@@ -139,13 +170,43 @@ export function StepListView({
                                     </span>
                                 )}
                             </div>
-                            {step.description && !step.description.startsWith('Raw SQL:') && (
+                            {step.description ? !step.description.startsWith('Raw SQL:') && (
                                 <div className="text-muted-foreground/60 truncate italic">— {step.description}</div>
-                            )}
+                            ) : null}
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center gap-1">
+                        {!readOnly && (
+                          <>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="h-8 w-8 text-muted-foreground"
+                              disabled={!canMoveUp}
+                              title={blockedByPreviousDependency ? "不能移动到依赖节点前" : "提前执行"}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onMoveStep(step.stepId, -1);
+                              }}
+                            >
+                              <ArrowUpIcon className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              className="h-8 w-8 text-muted-foreground"
+                              disabled={!canMoveDown}
+                              title={blockedByNextDependency ? "不能移动到依赖自己的节点后" : "延后执行"}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onMoveStep(step.stepId, 1);
+                              }}
+                            >
+                              <ArrowDownIcon className="size-4" />
+                            </Button>
+                          </>
+                        )}
                         <Button variant="ghost" size="icon-sm" className="h-8 w-8">
                             <EyeIcon className="size-4" />
                         </Button>

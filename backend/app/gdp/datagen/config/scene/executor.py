@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import heapq
 import json
 import logging
-from collections import defaultdict, deque
+from collections import defaultdict
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 
+from app.gdp.datagen.config.base.repository import BaseConfigNotFoundError, BaseConfigRepository
 from app.gdp.datagen.config.common.models import InputFieldType
+from app.gdp.datagen.config.httpsource.executor import execute_http_test
+from app.gdp.datagen.config.httpsource.models import HttpSourceConfig
 from app.gdp.datagen.config.scene.expression import resolve_mapping
 from app.gdp.datagen.config.scene.models import (
+    HttpStepDefinition,
     SceneDefinition,
     SceneExecutionResult,
     SceneRunRequest,
@@ -36,12 +41,17 @@ class SceneExecutionError(RuntimeError):
 class SceneExecutor:
     """执行已发布的场景定义。
 
-    第一阶段支持 SQL 步骤。HTTP、ASSERT、TRANSFORM 在运行时契约接入前
-    会返回明确的不支持信息。
+    当前支持 HTTP 和 SQL 步骤。HTTP 步骤复用接口配置执行器，SQL 步骤复用
+    SQL 运行时服务，断言和转换步骤在运行时契约接入前返回明确的不支持信息。
     """
 
-    def __init__(self, sql_execution_service: SqlExecutionService) -> None:
+    def __init__(
+        self,
+        sql_execution_service: SqlExecutionService,
+        base_repository: BaseConfigRepository,
+    ) -> None:
         self._sql = sql_execution_service
+        self._base_repo = base_repository
 
     async def run(self, version: SceneVersion, request: SceneRunRequest) -> SceneExecutionResult:
         scene = version.definition
@@ -66,6 +76,7 @@ class SceneExecutor:
         errors: list[str] = []
         step_results: list[StepExecutionResult] = []
         context = _initial_context(scene, request.inputs)
+        step_order_by_id = {step.stepId: _step_order_value(step, index) for index, step in enumerate(scene.steps, 1)}
 
         for idx, step in enumerate(_execution_order(scene.steps), 1):
             logger.info("-" * 40)
@@ -76,6 +87,7 @@ class SceneExecutor:
             if not step.enabled:
                 logger.info("  跳过原因: 步骤已禁用")
                 result = _skipped_result(step, "step disabled")
+                _apply_step_orders(result, step_order_by_id, idx)
                 step_results.append(result)
                 _add_step_context(context, result)
                 continue
@@ -83,6 +95,7 @@ class SceneExecutor:
             if _dependency_failed(step, step_results):
                 logger.warning("  跳过原因: 依赖步骤执行失败")
                 result = _skipped_result(step, "dependency failed")
+                _apply_step_orders(result, step_order_by_id, idx)
                 step_results.append(result)
                 _add_step_context(context, result)
                 if scene.errorPolicy == "STOP_ON_ERROR":
@@ -91,6 +104,7 @@ class SceneExecutor:
                 continue
 
             result = await self._execute_step(step, request.envCode, context)
+            _apply_step_orders(result, step_order_by_id, idx)
             step_results.append(result)
             _add_step_context(context, result)
 
@@ -131,6 +145,7 @@ class SceneExecutor:
             sceneCode=scene.sceneCode,
             versionNo=version.versionNo,
             envCode=request.envCode,
+            inputs=request.inputs,
             status=scene_status,
             startedAt=started_at,
             finishedAt=finished_at,
@@ -149,6 +164,22 @@ class SceneExecutor:
         started_at = _now()
         started = perf_counter()
         try:
+            if isinstance(step, HttpStepDefinition):
+                http_result = await self._execute_http_step(step, env_code, context)
+                error = http_result.error.message if http_result.error else None
+                return StepExecutionResult(
+                    stepId=step.stepId,
+                    stepName=step.stepName,
+                    type=step.type,
+                    status="SUCCESS" if http_result.success else "FAILED",
+                    startedAt=started_at,
+                    finishedAt=_now(),
+                    durationMs=round((perf_counter() - started) * 1000, 3),
+                    outputs=http_result.extractedOutputs,
+                    rawResponse=http_result.model_dump(mode="json"),
+                    error=error,
+                    statusCode=http_result.response.statusCode if http_result.response else None,
+                )
             if not isinstance(step, SqlStepDefinition):
                 raise SceneExecutionError(f"{step.type.value} step execution is not implemented yet")
             sql_result = await self._execute_sql_step(step, env_code, context)
@@ -181,6 +212,56 @@ class SceneExecutor:
                 outputs={},
                 error=safe_error,
             )
+
+    async def _execute_http_step(
+        self,
+        step: HttpStepDefinition,
+        env_code: str,
+        context: dict[str, Any],
+    ):
+        if not step.sysCode or not step.path:
+            raise SceneExecutionError("HTTP step requires sysCode and path")
+
+        logger.info("【HTTP 步骤详情】")
+        logger.info("  系统编码: %s", step.sysCode)
+        logger.info("  请求方法: %s", step.method.value)
+        logger.info("  请求路径: %s", step.path)
+
+        try:
+            endpoint = await self._base_repo.get_enabled_service_endpoint(
+                env_code=env_code,
+                sys_code=step.sysCode,
+            )
+        except BaseConfigNotFoundError as exc:
+            raise SceneExecutionError(str(exc)) from exc
+
+        request_mapping = _deep_merge(
+            resolve_mapping(step.requestMapping, context),
+            resolve_mapping(step.httpParamMapping, context),
+        )
+        logger.info("  Base URL: %s", endpoint.baseUrl)
+        logger.info("  请求映射: %s", json.dumps(request_mapping, ensure_ascii=False, default=str) if request_mapping else "无")
+
+        config = HttpSourceConfig(
+            sourceCode=step.stepId,
+            sourceName=step.sourceName or step.stepName or step.stepId,
+            sysCode=step.sysCode,
+            path=step.path,
+            method=step.method,
+            timeoutConfig=step.timeoutConfig,
+            requestMapping=request_mapping,
+            bodySchema=step.bodySchema,
+            responseSchema=step.responseSchema,
+            responseHeadersSchema=step.responseHeadersSchema,
+            responseCookiesSchema=step.responseCookiesSchema,
+            responseHandling=step.responseHandling,
+            errorMapping=step.errorMapping,
+            businessErrorMapping=step.businessErrorMapping,
+            outputMapping=step.outputMapping,
+            outputMeta=step.outputMeta,
+            retryPolicy=step.retryPolicy,
+        )
+        return await execute_http_test(config, endpoint.baseUrl, step.timeoutConfig)
 
     async def _execute_sql_step(
         self,
@@ -243,6 +324,7 @@ def _default_input_value(field) -> Any:
 
 def _execution_order(steps: list[StepDefinition]) -> list[StepDefinition]:
     enabled_by_id = {step.stepId: step for step in steps}
+    order_index = {step.stepId: (_step_order_value(step, index + 1), index) for index, step in enumerate(steps)}
     graph: dict[str, list[str]] = defaultdict(list)
     indegree = {step.stepId: 0 for step in steps}
     for step in steps:
@@ -250,18 +332,26 @@ def _execution_order(steps: list[StepDefinition]) -> list[StepDefinition]:
             if dep in enabled_by_id:
                 graph[dep].append(step.stepId)
                 indegree[step.stepId] += 1
-    queue = deque(step.stepId for step in steps if indegree[step.stepId] == 0)
+    # 依赖满足后优先执行编排列表中更靠前的节点，保证执行时间线贴近用户看到的顺序。
+    queue = [(order_index[step.stepId], step.stepId) for step in steps if indegree[step.stepId] == 0]
+    heapq.heapify(queue)
     ordered_ids: list[str] = []
     while queue:
-        step_id = queue.popleft()
+        _, step_id = heapq.heappop(queue)
         ordered_ids.append(step_id)
         for nxt in graph[step_id]:
             indegree[nxt] -= 1
             if indegree[nxt] == 0:
-                queue.append(nxt)
+                heapq.heappush(queue, (order_index[nxt], nxt))
     if len(ordered_ids) != len(steps):
         raise SceneExecutionError("scene dependencies contain a cycle")
     return [enabled_by_id[step_id] for step_id in ordered_ids]
+
+
+def _step_order_value(step: StepDefinition, fallback: int) -> int:
+    """读取步骤执行顺序，草稿旧数据缺失时回退到当前列表位置。"""
+
+    return step.executionOrder or fallback
 
 
 def _dependency_failed(step: StepDefinition, results: list[StepExecutionResult]) -> bool:
@@ -291,6 +381,30 @@ def _skipped_result(step: StepDefinition, reason: str) -> StepExecutionResult:
         outputs={},
         error=reason,
     )
+
+
+def _apply_step_orders(
+    result: StepExecutionResult,
+    step_order_by_id: dict[str, int],
+    timeline_order: int,
+) -> None:
+    """补充节点在编排列表和执行时间线中的顺序。"""
+
+    result.stepOrder = step_order_by_id.get(result.stepId)
+    result.timelineOrder = timeline_order
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """递归合并 HTTP 请求映射，后者覆盖前者。"""
+
+    merged = dict(base)
+    for key, value in override.items():
+        current = merged.get(key)
+        if isinstance(current, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(current, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _scene_status(results: list[StepExecutionResult], errors: list[str]) -> str:

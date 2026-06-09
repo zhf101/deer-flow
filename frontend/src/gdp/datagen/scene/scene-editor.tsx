@@ -8,7 +8,7 @@ import {
   Loader2Icon,
   Settings2Icon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -65,6 +65,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   const [persistedSceneCode, setPersistedSceneCode] = useState<string | null>(
     sceneCode ?? null,
   );
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
@@ -81,7 +82,9 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
       setLoading(true);
       getScene(sceneCode)
         .then((data) => {
-          setScene(normalizeScene(data));
+          const next = normalizeScene(data);
+          setScene(next);
+          setLastSavedSnapshot(buildSceneSnapshot(next));
           setPersistedSceneCode(sceneCode);
         })
         .catch((err) => {
@@ -92,6 +95,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
     } else {
       setScene(createDefaultScene());
       setPersistedSceneCode(null);
+      setLastSavedSnapshot(null);
     }
   }, [sceneCode, onBack]);
 
@@ -111,21 +115,31 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
     setIssues(validateSceneForPublish(scene));
   }, [scene]);
 
+  const currentSceneSnapshot = useMemo(() => buildSceneSnapshot(scene), [scene]);
+  const hasUnsavedChanges = persistedSceneCode === null || currentSceneSnapshot !== lastSavedSnapshot;
+
   const save = async (showToast = true): Promise<string | null> => {
     if (readOnly) return persistedSceneCode;
     if (!scene.sceneCode || !scene.sceneName) {
         if (showToast) toast.error("请先填写场景编码和名称");
         return null;
     }
+
+    const payload = toStrictScenePayload(scene);
+    const snapshot = JSON.stringify(payload);
+    if (persistedSceneCode && snapshot === lastSavedSnapshot) {
+      if (showToast) toast.info("没有需要保存的变更");
+      return persistedSceneCode;
+    }
     
     setSaving(true);
     try {
-      const payload = toStrictScenePayload(scene);
       const version = persistedSceneCode
         ? await updateScene(persistedSceneCode, payload)
         : await createScene(payload);
       const next = normalizeScene(version.definition);
       setScene(next);
+      setLastSavedSnapshot(buildSceneSnapshot(next));
       setPersistedSceneCode(version.sceneCode);
       if (showToast) toast.success(`配置已自动保存 (v${version.versionNo})`);
       return version.sceneCode;
@@ -139,14 +153,16 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
 
   const navigateToStep = async (idx: number) => {
       if (idx === currentStep) return;
-      if (!readOnly) await save(false);
+      if (!readOnly && hasUnsavedChanges) await save(false);
       setCurrentStep(idx);
   };
 
   const runPublish = async () => {
     if (readOnly) return;
-    const code = persistedSceneCode ?? (await save());
-    if (!code) return;
+    if (persistedSceneCode && scene.status === "PUBLISHED" && !hasUnsavedChanges) {
+      toast.info("当前版本已经发布，无需重复发布");
+      return;
+    }
     
     const errors = issues.filter(i => i.level === 'ERROR');
     if (errors.length > 0) {
@@ -156,8 +172,15 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
 
     setPublishing(true);
     try {
+      const code = hasUnsavedChanges ? await save(false) : persistedSceneCode;
+      if (!code) {
+        toast.error("保存失败，无法发布");
+        return;
+      }
       const version = await publishScene(code);
-      setScene(normalizeScene(version.definition));
+      const next = normalizeScene(version.definition);
+      setScene(next);
+      setLastSavedSnapshot(buildSceneSnapshot(next));
       toast.success(`已发布成功 v${version.versionNo}`);
       onBack();
     } catch (error) {
@@ -180,14 +203,14 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   const addStep = (type: 'HTTP' | 'SQL') => {
     if (readOnly) return;
     const nextStep = createDefaultStep(type, scene.steps.length);
-    setScene((curr) => ({ ...curr, steps: curr.steps.concat(nextStep) }));
+    setScene((curr) => ({ ...curr, steps: assignExecutionOrders(curr.steps.concat(nextStep)) }));
   };
 
   const deleteStep = (id: string) => {
     if (readOnly) return;
     setScene((curr) => ({
         ...curr,
-        steps: curr.steps.filter((s) => s.stepId !== id),
+        steps: assignExecutionOrders(curr.steps.filter((s) => s.stepId !== id)),
     }));
   };
 
@@ -298,6 +321,10 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   );
 }
 
+function buildSceneSnapshot(scene: SceneDefinition): string {
+  return JSON.stringify(toStrictScenePayload(scene));
+}
+
 function normalizeScene(scene: SceneDefinition): SceneDefinition {
   return {
     ...scene,
@@ -309,15 +336,27 @@ function normalizeScene(scene: SceneDefinition): SceneDefinition {
     resultSchema: scene.resultSchema ?? [],
     resultMapping: normalizeResultMapping(scene.resultMapping),
     errorPolicy: scene.errorPolicy ?? "STOP_ON_ERROR",
-    steps: (scene.steps ?? []).map(normalizeStep),
+    steps: normalizeSteps(scene.steps ?? []),
   };
 }
 
-function normalizeStep(step: StepDefinition): StepDefinition {
+function normalizeSteps(steps: StepDefinition[]): StepDefinition[] {
+  return steps
+    .map((step, index) => normalizeStep(step, index))
+    .sort((left, right) => (left.executionOrder ?? 0) - (right.executionOrder ?? 0))
+    .map((step, index) => ({ ...step, executionOrder: index + 1 }));
+}
+
+function assignExecutionOrders(steps: StepDefinition[]): StepDefinition[] {
+  return steps.map((step, index) => ({ ...step, executionOrder: index + 1 }));
+}
+
+function normalizeStep(step: StepDefinition, index: number): StepDefinition {
   const base = {
     stepId: step.stepId,
     stepName: step.stepName ?? null,
     type: step.type,
+    executionOrder: step.executionOrder ?? index + 1,
     enabled: step.enabled ?? true,
     dependsOn: step.dependsOn ?? [],
     description: step.description ?? null,

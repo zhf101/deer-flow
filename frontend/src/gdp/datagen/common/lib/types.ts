@@ -120,6 +120,7 @@ export interface BaseStepDefinition {
   stepId: string;
   stepName?: string | null;
   type: StepType;
+  executionOrder?: number | null;
   enabled: boolean;
   dependsOn: string[];
   description?: string | null;
@@ -225,6 +226,7 @@ export interface SceneSummary {
   sceneType?: string | null;
   status: SceneStatus;
   currentVersionNo?: number | null;
+  publishedVersionNo?: number | null;
   createdBy?: string | null;
   updatedBy?: string | null;
   createdAt: string;
@@ -639,6 +641,8 @@ export interface StepResult {
   stepId: string;
   stepName?: string | null;
   type: StepType;
+  stepOrder?: number | null;
+  timelineOrder?: number | null;
   status: "SUCCESS" | "FAILED" | "SKIPPED";
   startedAt: string;
   finishedAt: string;
@@ -651,9 +655,11 @@ export interface StepResult {
 
 /** 整个场景的执行结果 */
 export interface ExecutionResult {
+  runId?: string | null;
   sceneCode: string;
   versionNo: number;
   envCode: string;
+  inputs: Record<string, unknown>;
   status: "SUCCESS" | "FAILED" | "PARTIAL";
   startedAt: string;
   finishedAt: string;
@@ -661,6 +667,24 @@ export interface ExecutionResult {
   stepResults: StepResult[];
   finalOutput: Record<string, unknown>;
   errors: string[];
+}
+
+/** 场景执行记录摘要（列表用） */
+export interface SceneRunSummary {
+  runId: string;
+  sceneCode: string;
+  versionNo: number;
+  envCode: string;
+  status: "SUCCESS" | "FAILED" | "PARTIAL";
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  inputs: Record<string, unknown>;
+  finalOutput: Record<string, unknown>;
+  errors: string[];
+  stepCount: number;
+  successCount: number;
+  failedCount: number;
 }
 
 /** 任务中单个场景步骤的执行结果 */

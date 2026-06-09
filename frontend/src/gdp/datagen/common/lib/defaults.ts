@@ -105,6 +105,7 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
   const base = {
     stepId,
     stepName: stepLabel(type),
+    executionOrder: index + 1,
     enabled: true,
     dependsOn: [],
     description: "",

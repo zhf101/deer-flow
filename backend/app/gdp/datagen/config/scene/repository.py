@@ -8,7 +8,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint, delete, or_, select
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
@@ -19,10 +19,13 @@ from app.gdp.datagen.config.scene.models import (
     AssertStepDefinition,
     HttpStepDefinition,
     SceneDefinition,
+    SceneExecutionResult,
+    SceneRunSummary,
     SceneSummary,
     SceneVersion,
     SqlStepDefinition,
     StepDefinition,
+    StepExecutionResult,
     StepTemplateRef,
     TransformStepDefinition,
     ValidationResult,
@@ -86,7 +89,7 @@ class DataFactorySceneStepRow(Base):
     scene_version_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="场景版本 ID。")
     scene_code: Mapped[str] = mapped_column(String(128), nullable=False, comment="场景编码。")
     version_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="版本号。")
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, comment="步骤顺序。")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, comment="步骤执行顺序，从 1 开始。")
     step_id: Mapped[str] = mapped_column(String(128), nullable=False, comment="步骤业务 ID。")
     step_name: Mapped[str | None] = mapped_column(String(256), comment="步骤名称。")
     step_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="步骤类型。")
@@ -215,6 +218,60 @@ class DataFactorySceneStepTransformConfigRow(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="更新时间。")
 
 
+class DataFactorySceneRunRow(Base):
+    """场景执行记录主表。
+
+    一行表示一次场景测试执行，保存执行环境、版本、入参、最终输出和错误汇总。
+    节点级详情保存在 df_scene_run_step。
+    """
+
+    __tablename__ = "df_scene_run"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="执行记录 ID。")
+    scene_code: Mapped[str] = mapped_column(String(128), nullable=False, comment="场景编码。")
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="执行的场景版本号。")
+    env_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="执行环境编码。")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="执行状态。")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="场景执行开始时间。")
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="场景执行结束时间。")
+    duration_ms: Mapped[float] = mapped_column(Float, nullable=False, comment="场景执行耗时，单位毫秒。")
+    inputs_json: Mapped[str] = mapped_column(Text, nullable=False, comment="本次执行入参 JSON。")
+    final_output_json: Mapped[str] = mapped_column(Text, nullable=False, comment="最终输出 JSON。")
+    errors_json: Mapped[str] = mapped_column(Text, nullable=False, comment="错误汇总 JSON。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="记录创建时间。")
+
+
+class DataFactorySceneRunStepRow(Base):
+    """场景执行节点明细表。
+
+    一行表示一次执行中的一个节点结果，保存排序、时间、状态、输出、原始响应和错误详情。
+    """
+
+    __tablename__ = "df_scene_run_step"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="节点执行记录 ID。")
+    run_id: Mapped[str] = mapped_column(String(64), nullable=False, comment="执行记录 ID，关联 df_scene_run.id。")
+    scene_code: Mapped[str] = mapped_column(String(128), nullable=False, comment="场景编码。")
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="执行的场景版本号。")
+    env_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="执行环境编码。")
+    step_id: Mapped[str] = mapped_column(String(128), nullable=False, comment="节点业务 ID。")
+    step_name: Mapped[str | None] = mapped_column(String(256), comment="节点名称。")
+    step_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="节点类型。")
+    step_order: Mapped[int | None] = mapped_column(Integer, comment="节点在编排步骤列表中的顺序。")
+    timeline_order: Mapped[int | None] = mapped_column(Integer, comment="节点在本次执行时间线中的顺序。")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, comment="节点执行状态。")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="节点执行开始时间。")
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="节点执行结束时间。")
+    duration_ms: Mapped[float] = mapped_column(Float, nullable=False, comment="节点执行耗时，单位毫秒。")
+    outputs_json: Mapped[str] = mapped_column(Text, nullable=False, comment="节点输出变量 JSON。")
+    raw_response_json: Mapped[str | None] = mapped_column(Text, comment="节点原始执行结果 JSON。")
+    error: Mapped[str | None] = mapped_column(Text, comment="节点错误信息。")
+    status_code: Mapped[int | None] = mapped_column(Integer, comment="HTTP 节点响应状态码。")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="记录创建时间。")
+
+    __table_args__ = (UniqueConstraint("run_id", "step_id", name="uq_df_scene_run_step"),)
+
+
 class SceneNotFoundError(LookupError):
     """场景不存在。"""
 
@@ -338,6 +395,144 @@ class SceneRepository:
                 raise SceneNotFoundError(f"published scene version not found: {scene_code}")
             version_row = await self._require_version_row(session, scene_row, scene_row.published_version_no)
             return await self._to_scene_version(session, scene_row, version_row)
+
+    async def save_scene_run(self, result: SceneExecutionResult) -> SceneExecutionResult:
+        """持久化一次场景执行结果和所有节点明细。"""
+
+        run_id = result.runId or _new_id()
+        saved = result.model_copy(update={"runId": run_id})
+        now = _now()
+        async with self._sf() as session:
+            session.add(
+                DataFactorySceneRunRow(
+                    id=run_id,
+                    scene_code=saved.sceneCode,
+                    version_no=saved.versionNo,
+                    env_code=saved.envCode,
+                    status=saved.status,
+                    started_at=saved.startedAt,
+                    finished_at=saved.finishedAt,
+                    duration_ms=saved.durationMs,
+                    inputs_json=_dumps(_model_dump(saved.inputs)),
+                    final_output_json=_dumps(_model_dump(saved.finalOutput)),
+                    errors_json=_dumps(_model_dump(saved.errors)),
+                    created_at=now,
+                )
+            )
+            for index, step in enumerate(saved.stepResults, 1):
+                session.add(
+                    DataFactorySceneRunStepRow(
+                        id=_new_id(),
+                        run_id=run_id,
+                        scene_code=saved.sceneCode,
+                        version_no=saved.versionNo,
+                        env_code=saved.envCode,
+                        step_id=step.stepId,
+                        step_name=step.stepName,
+                        step_type=step.type.value,
+                        step_order=step.stepOrder,
+                        timeline_order=step.timelineOrder or index,
+                        status=step.status,
+                        started_at=step.startedAt,
+                        finished_at=step.finishedAt,
+                        duration_ms=step.durationMs,
+                        outputs_json=_dumps(_model_dump(step.outputs)),
+                        raw_response_json=_dumps(_model_dump(step.rawResponse)) if step.rawResponse is not None else None,
+                        error=step.error,
+                        status_code=step.statusCode,
+                        created_at=now,
+                    )
+                )
+            await self._commit(session)
+        return saved
+
+    async def get_scene_run(self, run_id: str) -> SceneExecutionResult:
+        """读取一次已持久化的场景执行详情。"""
+
+        async with self._sf() as session:
+            run_row = await session.get(DataFactorySceneRunRow, run_id)
+            if run_row is None:
+                raise SceneNotFoundError(f"scene run not found: {run_id}")
+            step_stmt = (
+                select(DataFactorySceneRunStepRow)
+                .where(DataFactorySceneRunStepRow.run_id == run_id)
+                .order_by(DataFactorySceneRunStepRow.timeline_order.asc(), DataFactorySceneRunStepRow.step_order.asc())
+            )
+            step_rows = (await session.execute(step_stmt)).scalars().all()
+            return SceneExecutionResult(
+                runId=run_row.id,
+                sceneCode=run_row.scene_code,
+                versionNo=run_row.version_no,
+                envCode=run_row.env_code,
+                inputs=_loads(run_row.inputs_json, {}),
+                status=run_row.status,
+                startedAt=run_row.started_at,
+                finishedAt=run_row.finished_at,
+                durationMs=run_row.duration_ms,
+                stepResults=[self._to_step_execution_result(row) for row in step_rows],
+                finalOutput=_loads(run_row.final_output_json, {}),
+                errors=_loads(run_row.errors_json, []),
+            )
+
+    async def list_scene_runs(
+        self,
+        *,
+        scene_code: str = "",
+        status: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[SceneRunSummary]:
+        """查询场景执行历史列表，聚合步骤统计信息。"""
+
+        async with self._sf() as session:
+            stmt = select(DataFactorySceneRunRow).order_by(DataFactorySceneRunRow.started_at.desc())
+            if scene_code:
+                stmt = stmt.where(DataFactorySceneRunRow.scene_code == scene_code)
+            if status:
+                stmt = stmt.where(DataFactorySceneRunRow.status == status)
+            stmt = stmt.limit(limit).offset(offset)
+            run_rows = (await session.execute(stmt)).scalars().all()
+
+            if not run_rows:
+                return []
+
+            # 批量聚合步骤统计
+            run_ids = [r.id for r in run_rows]
+            step_stats_stmt = (
+                select(
+                    DataFactorySceneRunStepRow.run_id,
+                    func.count().label("total"),
+                    func.count().filter(DataFactorySceneRunStepRow.status == "SUCCESS").label("success"),
+                    func.count().filter(DataFactorySceneRunStepRow.status == "FAILED").label("failed"),
+                )
+                .where(DataFactorySceneRunStepRow.run_id.in_(run_ids))
+                .group_by(DataFactorySceneRunStepRow.run_id)
+            )
+            step_stats_rows = (await session.execute(step_stats_stmt)).all()
+            stats_map = {
+                row.run_id: {"total": row.total, "success": row.success, "failed": row.failed}
+                for row in step_stats_rows
+            }
+
+            return [
+                SceneRunSummary(
+                    runId=row.id,
+                    sceneCode=row.scene_code,
+                    versionNo=row.version_no,
+                    envCode=row.env_code,
+                    status=row.status,
+                    startedAt=row.started_at,
+                    finishedAt=row.finished_at,
+                    durationMs=row.duration_ms,
+                    inputs=_loads(row.inputs_json, {}),
+                    finalOutput=_loads(row.final_output_json, {}),
+                    errors=_loads(row.errors_json, []),
+                    stepCount=stats_map.get(row.id, {}).get("total", 0),
+                    successCount=stats_map.get(row.id, {}).get("success", 0),
+                    failedCount=stats_map.get(row.id, {}).get("failed", 0),
+                )
+                for row in run_rows
+            ]
 
     async def update_scene(self, scene_code: str, scene: SceneDefinition, *, operator: str | None = None) -> SceneVersion:
         if scene_code != scene.sceneCode:
@@ -494,14 +689,14 @@ class SceneRepository:
         steps: list[StepDefinition],
         now: datetime,
     ) -> None:
-        for index, step in enumerate(steps):
+        for index, step in enumerate(_steps_by_execution_order(steps), 1):
             step_row = DataFactorySceneStepRow(
                 id=_new_id(),
                 scene_id=scene_row.id,
                 scene_version_id=version_row.id,
                 scene_code=scene_row.scene_code,
                 version_no=version_row.version_no,
-                sort_order=index,
+                sort_order=step.executionOrder or index,
                 step_id=step.stepId,
                 step_name=step.stepName,
                 step_type=step.type.value,
@@ -698,6 +893,7 @@ class SceneRepository:
             .order_by(DataFactorySceneStepRow.sort_order.asc(), DataFactorySceneStepRow.step_id.asc())
         )
         step_rows = (await session.execute(stmt)).scalars().all()
+        zero_based_sort_order = any(row.sort_order == 0 for row in step_rows)
         http_rows = {
             row.scene_step_id: row
             for row in (await session.execute(select(DataFactorySceneStepHttpConfigRow).where(DataFactorySceneStepHttpConfigRow.scene_version_id == scene_version_id))).scalars().all()
@@ -714,7 +910,17 @@ class SceneRepository:
             row.scene_step_id: row
             for row in (await session.execute(select(DataFactorySceneStepTransformConfigRow).where(DataFactorySceneStepTransformConfigRow.scene_version_id == scene_version_id))).scalars().all()
         }
-        return [self._to_step(row, http_rows.get(row.id), sql_rows.get(row.id), assert_rows.get(row.id), transform_rows.get(row.id)) for row in step_rows]
+        return [
+            self._to_step(
+                row,
+                http_rows.get(row.id),
+                sql_rows.get(row.id),
+                assert_rows.get(row.id),
+                transform_rows.get(row.id),
+                zero_based_sort_order,
+            )
+            for row in step_rows
+        ]
 
     @staticmethod
     def _to_step(
@@ -723,11 +929,13 @@ class SceneRepository:
         sql_row: DataFactorySceneStepSqlConfigRow | None,
         assert_row: DataFactorySceneStepAssertConfigRow | None,
         transform_row: DataFactorySceneStepTransformConfigRow | None,
+        zero_based_sort_order: bool,
     ) -> StepDefinition:
         base: dict[str, Any] = {
             "stepId": step_row.step_id,
             "stepName": step_row.step_name,
             "type": step_row.step_type,
+            "executionOrder": step_row.sort_order + 1 if zero_based_sort_order else step_row.sort_order,
             "enabled": step_row.enabled,
             "dependsOn": _loads(step_row.depends_on_json, []),
             "description": step_row.description,
@@ -796,6 +1004,24 @@ class SceneRepository:
             updatedBy=row.updated_by,
             createdAt=row.created_at,
             updatedAt=row.updated_at,
+        )
+
+    @staticmethod
+    def _to_step_execution_result(row: DataFactorySceneRunStepRow) -> StepExecutionResult:
+        return StepExecutionResult(
+            stepId=row.step_id,
+            stepName=row.step_name,
+            type=row.step_type,
+            stepOrder=row.step_order,
+            timelineOrder=row.timeline_order,
+            status=row.status,
+            startedAt=row.started_at,
+            finishedAt=row.finished_at,
+            durationMs=row.duration_ms,
+            outputs=_loads(row.outputs_json, {}),
+            rawResponse=_loads(row.raw_response_json, None),
+            error=row.error,
+            statusCode=row.status_code,
         )
 
     @staticmethod
@@ -869,6 +1095,18 @@ def _transform_hash_payload(step: TransformStepDefinition) -> dict[str, Any]:
         "outputMapping": step.outputMapping,
         "outputMeta": step.outputMeta,
     }
+
+
+def _steps_by_execution_order(steps: list[StepDefinition]) -> list[StepDefinition]:
+    """按显式执行顺序排序步骤，缺失顺序时使用请求列表位置兜底。"""
+
+    return [
+        step
+        for _, step in sorted(
+            enumerate(steps),
+            key=lambda item: (item[1].executionOrder or item[0] + 1, item[0]),
+        )
+    ]
 
 
 def _row_template_ref(row: Any, ref_type: str) -> StepTemplateRef | None:

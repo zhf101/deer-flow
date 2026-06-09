@@ -87,7 +87,7 @@ class SqlSourceConditionMeta(BaseModel):
     """SQL 条件字段元数据。"""
 
     id: str = Field(..., description="前端列表行 ID，用于稳定渲染和编辑。")
-    fieldName: str = Field(..., description="WHERE、JOIN ON、UPDATE 条件等位置涉及的字段名。")
+    fieldName: str = Field(..., description="与 SQL 参数绑定的条件字段名，通常来自 WHERE、HAVING 或带参数的 JOIN ON。")
     sourceTable: str = Field(default="", description="条件字段来源表名或表别名。")
     paramName: str = Field(default="", description="该条件绑定的参数名。")
     description: str = Field(default="", description="条件用途说明。")
@@ -111,7 +111,7 @@ class SqlSourceParseResponse(BaseModel):
     )
     conditionFields: list[SqlSourceConditionMeta] = Field(
         default_factory=list,
-        description="SQL 条件字段列表，用于辅助理解参数绑定关系。",
+        description="SQL 参数绑定条件字段列表，用于辅助理解入参与字段的对应关系。",
     )
     parameters: list[SqlSourceParameter] = Field(
         default_factory=list,

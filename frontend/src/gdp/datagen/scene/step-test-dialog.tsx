@@ -26,18 +26,15 @@ import {
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -119,10 +116,10 @@ export function StepTestDialog({
       setResult(testResult);
 
       if (testResult.success) {
-        toast.success(`请求成功 (${testResult.response?.statusCode})`);
+        toast.success("执行成功");
         if (onTestSuccess) onTestSuccess(testResult);
       } else {
-        toast.error(testResult.error?.message ?? "请求失败");
+        toast.error("执行失败");
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "测试执行失败");
@@ -133,193 +130,209 @@ export function StepTestDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <PlayIcon className="size-4 text-blue-500" />
-            {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty stepName should fall through */}
-            测试步骤：{step.stepName || step.stepId}
-          </DialogTitle>
-          <DialogDescription>
-            {step.method} {step.path}
-          </DialogDescription>
-        </DialogHeader>
-
-        <ScrollArea className="flex-1 min-h-0 pr-4">
-          <div className="space-y-4">
-            {/* 环境选择 */}
-            <div className="space-y-2">
-              <Label className="text-xs font-bold">运行环境</Label>
-              <Select value={envCode} onValueChange={setEnvCode}>
-                <SelectTrigger className="h-9">
-                  <SelectValue placeholder="选择环境..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {environments.map((env) => (
-                    <SelectItem key={env.envCode} value={env.envCode}>
-                      {env.envName} ({env.envCode})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* 输入参数 */}
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => setShowInputs(!showInputs)}
-                className="flex items-center gap-1 text-xs font-bold"
-              >
-                {showInputs ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
-                场景输入参数
-              </button>
-              {showInputs && (
-                <div className="rounded-md border p-3 space-y-2">
-                  {scene.inputSchema
-                    .filter((f) => f.name !== "env")
-                    .map((field) => (
-                      <div key={field.name} className="grid grid-cols-[120px_1fr] gap-2 items-center">
-                        <span className="text-[10px] font-mono font-bold truncate" title={field.name}>
-                          {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty label should fall through */}
-                          {field.label || field.name}
-                          {field.required && <span className="text-destructive ml-0.5">*</span>}
-                        </span>
-                        <Input
-                          className="h-7 text-[10px]"
-                          value={safeStringify(inputs[field.name])}
-                          placeholder={field.defaultValue != null ? `默认: ${safeStringify(field.defaultValue)}` : ""}
-                          onChange={(e) =>
-                            setInputs((prev) => ({ ...prev, [field.name]: e.target.value }))
-                          }
-                        />
-                      </div>
-                    ))}
-                  {scene.inputSchema.filter((f) => f.name !== "env").length === 0 && (
-                    <p className="text-[10px] text-muted-foreground italic">无输入参数</p>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* 前序步骤输出 */}
-            {step.dependsOn.length > 0 && (
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setShowDeps(!showDeps)}
-                  className="flex items-center gap-1 text-xs font-bold"
-                >
-                  {showDeps ? <ChevronDownIcon className="size-3" /> : <ChevronRightIcon className="size-3" />}
-                  前序步骤输出（{step.dependsOn.length} 个依赖）
-                </button>
-                {showDeps && (
-                  <div className="rounded-md border p-3 space-y-3">
-                    {Object.entries(depOutputs).map(([depId, outputs]) => (
-                      <div key={depId} className="space-y-1">
-                        <span className="text-[9px] font-bold text-muted-foreground uppercase">
-                          {depId}
-                        </span>
-                        {Object.entries(outputs).map(([key, val]) => (
-                          <div key={key} className="grid grid-cols-[120px_1fr] gap-2 items-center">
-                            <span className="text-[10px] font-mono truncate">{key}</span>
-                            <Input
-                              className="h-7 text-[10px]"
-                              value={safeStringify(val)}
-                              placeholder="测试值"
-                              onChange={(e) =>
-                                setDepOutputs((prev) => ({
-                                  ...prev,
-                                  [depId]: { ...prev[depId], [key]: e.target.value },
-                                }))
-                              }
-                            />
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                )}
+      <DialogContent className="!block max-w-2xl max-h-[85vh] overflow-y-auto p-0">
+        {/* 头部 */}
+        <div className="sticky top-0 z-10 bg-background border-b px-6 py-4">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <div className="flex size-7 items-center justify-center rounded-md bg-blue-500/10">
+                <PlayIcon className="size-3.5 text-blue-500" />
               </div>
-            )}
+              <div className="flex flex-col gap-0.5">
+                {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty stepName should fall through */}
+                <span>{step.stepName || step.stepId}</span>
+                <span className="text-xs font-normal text-muted-foreground">
+                  {step.method} {step.path}
+                </span>
+              </div>
+            </DialogTitle>
+          </DialogHeader>
+        </div>
 
-            {/* 测试结果 */}
-            {result && (
-              <div className="space-y-3 border-t pt-3">
-                <div className="flex items-center gap-2">
-                  {result.success ? (
-                    <CheckCircle2Icon className="size-4 text-emerald-500" />
-                  ) : (
-                    <XCircleIcon className="size-4 text-destructive" />
-                  )}
-                  <span className="text-xs font-bold">
-                    {result.success ? "测试通过" : "测试失败"}
-                  </span>
-                  {result.response?.statusCode && (
-                    <Badge
-                      variant={result.response.statusCode < 400 ? "default" : "destructive"}
-                      className="text-[9px] h-4"
-                    >
-                      {result.response.statusCode}
-                    </Badge>
-                  )}
-                  {result.response?.elapsedMs != null && (
-                    <span className="text-[9px] text-muted-foreground">
-                      {result.response.elapsedMs}ms
-                    </span>
-                  )}
-                </div>
+        {/* 内容区 */}
+        <div className="space-y-4 px-6 py-4">
+          {/* 环境选择 */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground">运行环境</Label>
+            <Select value={envCode} onValueChange={setEnvCode}>
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="选择环境..." />
+              </SelectTrigger>
+              <SelectContent>
+                {environments.map((env) => (
+                  <SelectItem key={env.envCode} value={env.envCode}>
+                    {env.envName} ({env.envCode})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
 
-                {/* 提取的变量 */}
-                {result.extractedOutputs && Object.keys(result.extractedOutputs).length > 0 && (
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase">
-                      提取的变量 ({Object.keys(result.extractedOutputs).length})
-                    </span>
-                    <div className="rounded-md border bg-muted/20 p-2 space-y-1">
-                      {Object.entries(result.extractedOutputs).map(([key, val]) => (
-                        <div key={key} className="flex items-center gap-2 text-[10px]">
-                          <span className="font-mono font-bold text-blue-600">{key}</span>
-                          <span className="text-muted-foreground">=</span>
-                          <span className="font-mono truncate max-w-[300px]" title={safeStringify(val)}>
-                            {safeStringify(val)}
-                          </span>
-                        </div>
-                      ))}
+          {/* 场景输入参数 */}
+          <div className="rounded-lg border">
+            <button
+              type="button"
+              onClick={() => setShowInputs(!showInputs)}
+              className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-medium hover:bg-muted/50 transition-colors"
+            >
+              <span>场景输入参数</span>
+              {showInputs ? <ChevronDownIcon className="size-3.5 text-muted-foreground" /> : <ChevronRightIcon className="size-3.5 text-muted-foreground" />}
+            </button>
+            {showInputs && (
+              <div className="border-t px-4 py-3 space-y-2">
+                {scene.inputSchema
+                  .filter((f) => f.name !== "env")
+                  .map((field) => (
+                    <div key={field.name} className="grid grid-cols-[130px_1fr] gap-3 items-center">
+                      <span className="text-xs font-mono truncate" title={field.name}>
+                        {/* eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing -- empty label should fall through */}
+                        {field.label || field.name}
+                        {field.required && <span className="text-destructive ml-0.5">*</span>}
+                      </span>
+                      <Input
+                        className="h-8 text-xs"
+                        value={safeStringify(inputs[field.name])}
+                        placeholder={field.defaultValue != null ? `默认: ${safeStringify(field.defaultValue)}` : ""}
+                        onChange={(e) =>
+                          setInputs((prev) => ({ ...prev, [field.name]: e.target.value }))
+                        }
+                      />
                     </div>
-                  </div>
-                )}
-
-                {/* 响应体 */}
-                {result.response?.body != null && (
-                  <div className="space-y-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase">
-                      响应体
-                    </span>
-                    <pre className="text-[9px] font-mono bg-muted/30 rounded-md p-3 max-h-[200px] overflow-auto whitespace-pre-wrap break-all">
-                      {typeof result.response.body === "object"
-                        ? JSON.stringify(result.response.body, null, 2)
-                        : safeStringify(result.response.body).substring(0, 2000)}
-                    </pre>
-                  </div>
-                )}
-
-                {/* 错误信息 */}
-                {result.error && (
-                  <div className="text-[10px] text-destructive bg-destructive/5 rounded-md p-2">
-                    {result.error.message}
-                    {result.error.detail && (
-                      <pre className="mt-1 text-[9px] whitespace-pre-wrap">{result.error.detail}</pre>
-                    )}
-                  </div>
+                  ))}
+                {scene.inputSchema.filter((f) => f.name !== "env").length === 0 && (
+                  <p className="text-xs text-muted-foreground italic py-1">无输入参数</p>
                 )}
               </div>
             )}
           </div>
-        </ScrollArea>
 
-        {/* 底部按钮 */}
-        <div className="flex justify-end gap-2 border-t pt-3 shrink-0">
+          {/* 前序步骤输出 */}
+          {step.dependsOn.length > 0 && (
+            <div className="rounded-lg border">
+              <button
+                type="button"
+                onClick={() => setShowDeps(!showDeps)}
+                className="flex w-full items-center justify-between px-4 py-2.5 text-xs font-medium hover:bg-muted/50 transition-colors"
+              >
+                <span>前序步骤输出（{step.dependsOn.length} 个依赖）</span>
+                {showDeps ? <ChevronDownIcon className="size-3.5 text-muted-foreground" /> : <ChevronRightIcon className="size-3.5 text-muted-foreground" />}
+              </button>
+              {showDeps && (
+                <div className="border-t px-4 py-3 space-y-3">
+                  {Object.entries(depOutputs).map(([depId, outputs]) => (
+                    <div key={depId} className="space-y-1.5">
+                      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                        {depId}
+                      </span>
+                      {Object.entries(outputs).map(([key, val]) => (
+                        <div key={key} className="grid grid-cols-[130px_1fr] gap-3 items-center">
+                          <span className="text-xs font-mono truncate">{key}</span>
+                          <Input
+                            className="h-8 text-xs"
+                            value={safeStringify(val)}
+                            placeholder="测试值"
+                            onChange={(e) =>
+                              setDepOutputs((prev) => ({
+                                ...prev,
+                                [depId]: { ...prev[depId], [key]: e.target.value },
+                              }))
+                            }
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 测试结果 */}
+          {result && (
+            <div className="space-y-3">
+              {/* 状态横幅 */}
+              <div
+                className={`flex items-center gap-3 rounded-lg px-4 py-3 ${
+                  result.success
+                    ? "bg-emerald-500/8 border border-emerald-500/20"
+                    : "bg-destructive/8 border border-destructive/20"
+                }`}
+              >
+                {result.success ? (
+                  <CheckCircle2Icon className="size-5 text-emerald-500 shrink-0" />
+                ) : (
+                  <XCircleIcon className="size-5 text-destructive shrink-0" />
+                )}
+                <div className="flex flex-col">
+                  <span className={`text-sm font-semibold ${result.success ? "text-emerald-700 dark:text-emerald-400" : "text-destructive"}`}>
+                    {result.success ? "测试通过" : "测试失败"}
+                  </span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    {result.response?.statusCode && (
+                      <span className="text-xs font-mono text-muted-foreground">
+                        Status: {result.response.statusCode}
+                      </span>
+                    )}
+                    {result.response?.elapsedMs != null && (
+                      <span className="text-xs text-muted-foreground">
+                        {result.response.elapsedMs}ms
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* 错误信息 */}
+              {result.error && (
+                <div className="rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3">
+                  <p className="text-sm text-destructive font-medium">{result.error.message}</p>
+                  {result.error.detail && (
+                    <pre className="mt-2 text-xs text-destructive/80 whitespace-pre-wrap font-mono">{result.error.detail}</pre>
+                  )}
+                </div>
+              )}
+
+              {/* 提取的变量 */}
+              {result.extractedOutputs && Object.keys(result.extractedOutputs).length > 0 && (
+                <div className="rounded-lg border">
+                  <div className="px-4 py-2.5 border-b bg-muted/30">
+                    <span className="text-xs font-medium">
+                      提取的变量 ({Object.keys(result.extractedOutputs).length})
+                    </span>
+                  </div>
+                  <div className="px-4 py-2 space-y-1.5">
+                    {Object.entries(result.extractedOutputs).map(([key, val]) => (
+                      <div key={key} className="flex items-center gap-2 text-xs">
+                        <span className="font-mono font-semibold text-blue-600 dark:text-blue-400">{key}</span>
+                        <span className="text-muted-foreground">=</span>
+                        <span className="font-mono truncate max-w-[320px] text-muted-foreground" title={safeStringify(val)}>
+                          {safeStringify(val)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* 响应体 */}
+              {result.response?.body != null && (
+                <div className="rounded-lg border">
+                  <div className="px-4 py-2.5 border-b bg-muted/30">
+                    <span className="text-xs font-medium">响应体</span>
+                  </div>
+                  <pre className="px-4 py-3 text-xs font-mono max-h-[240px] overflow-auto whitespace-pre-wrap break-all leading-relaxed">
+                    {typeof result.response.body === "object"
+                      ? JSON.stringify(result.response.body, null, 2)
+                      : safeStringify(result.response.body).substring(0, 2000)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* 底部按钮栏 */}
+        <div className="sticky bottom-0 border-t bg-background px-6 py-3 flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={() => onOpenChange(false)}>
             关闭
           </Button>

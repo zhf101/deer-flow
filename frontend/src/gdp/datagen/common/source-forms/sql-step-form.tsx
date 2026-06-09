@@ -21,6 +21,7 @@
 
 import {
   CheckCircleIcon,
+  ChevronDownIcon,
   DatabaseIcon,
   FileCodeIcon,
   ListChecksIcon,
@@ -33,6 +34,11 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -78,6 +84,10 @@ interface SqlStepFormProps {
 type ParseStatus = "idle" | "parsing" | "success" | "error" | "stale";
 
 const SQL_PARAMETER_TYPES = ["string", "number", "boolean", "date"] as const;
+const TABLE_META_GRID = "minmax(160px, 1fr) minmax(100px, 120px) minmax(240px, 2fr)";
+const RESULT_FIELD_META_GRID = "minmax(160px, 1fr) minmax(120px, 140px) minmax(120px, 140px) minmax(240px, 2fr)";
+const CONDITION_FIELD_META_GRID = "minmax(160px, 1fr) minmax(120px, 140px) minmax(140px, 160px) minmax(240px, 2fr)";
+const PARAMETER_META_GRID = "minmax(160px, 1fr) minmax(110px, 120px) minmax(90px, 100px) minmax(160px, 1fr) minmax(240px, 2fr)";
 
 export function SqlStepForm({ scene, step, onChange }: SqlStepFormProps) {
   const safeStringify = (val: unknown): string => {
@@ -96,6 +106,7 @@ export function SqlStepForm({ scene, step, onChange }: SqlStepFormProps) {
   const [parseError, setParseError] = useState<string | null>(null);
   const [datasources, setDatasources] = useState<DatasourceResponse[]>([]);
   const [systems, setSystems] = useState<SysResponse[]>([]);
+  const [analysisOpen, setAnalysisOpen] = useState(false);
 
   const loadDatasources = useCallback(async () => {
     try {
@@ -428,176 +439,209 @@ export function SqlStepForm({ scene, step, onChange }: SqlStepFormProps) {
         )}
       </section>
 
-      <section className="space-y-3 rounded-lg border bg-card p-4">
-        <div className="flex items-center justify-between border-b pb-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-sky-600">
-            <ListChecksIcon className="size-4" />
-            <span>格式化后SQL</span>
-          </div>
-        </div>
-        <Textarea
-          value={step.normalizedSql ?? ""}
-          readOnly
-          placeholder="请点击解析SQL按钮解析成系统规范的SQL"
-          className="min-h-24 resize-y bg-muted/30 font-mono text-xs"
-        />
-      </section>
-
-      <section className="space-y-3 rounded-lg border bg-card p-4">
-        <div className="flex items-center justify-between border-b pb-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-blue-600">
-            <TableIcon className="size-4" />
-            <span>操作表说明</span>
-          </div>
-        </div>
-        <EditableMetaTable
-          emptyText="解析 SQL 后自动展示操作表"
-          columns={["表名", "别名", "描述"]}
-          rows={tables}
-          renderRow={(row, index) => (
-            <div key={row.id} className="grid grid-cols-[1fr_120px_2fr] gap-2 p-1.5">
-              <Input
-                value={row.tableName}
-                onChange={(e) => {
-                  const next = [...tables];
-                  next[index] = { ...row, tableName: e.target.value };
-                  updateTables(next);
-                }}
-                className="h-7 text-[10px] font-mono"
-              />
-              <Input
-                value={row.alias}
-                onChange={(e) => {
-                  const next = [...tables];
-                  next[index] = { ...row, alias: e.target.value };
-                  updateTables(next);
-                }}
-                className="h-7 text-[10px] font-mono"
-              />
-              <Input
-                value={row.description}
-                onChange={(e) => {
-                  const next = [...tables];
-                  next[index] = { ...row, description: e.target.value };
-                  updateTables(next);
-                }}
-                placeholder="填写表用途说明"
-                className="h-7 text-[10px]"
-              />
+      <Collapsible
+        open={analysisOpen}
+        onOpenChange={setAnalysisOpen}
+        className="overflow-hidden rounded-lg border bg-card"
+      >
+        <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-bold text-sky-600">
+              <ListChecksIcon className="size-4" />
+              <span>SQL 解析详情</span>
             </div>
-          )}
-        />
-      </section>
-
-      <section className="space-y-3 rounded-lg border bg-card p-4">
-        <div className="flex items-center justify-between border-b pb-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-cyan-600">
-            <DatabaseIcon className="size-4" />
-            <span>查询结果字段</span>
-          </div>
-        </div>
-        <EditableMetaTable
-          emptyText="SELECT SQL 解析后自动展示查询字段"
-          columns={["字段名", "来源表", "别名", "描述"]}
-          rows={resultFields}
-          renderRow={(row, index) => (
-            <div key={row.id} className="grid grid-cols-[1fr_140px_140px_2fr] gap-2 p-1.5">
-              <Input
-                value={row.fieldName}
-                onChange={(e) => {
-                  const next = [...resultFields];
-                  next[index] = { ...row, fieldName: e.target.value };
-                  updateResultFields(next);
-                }}
-                className="h-7 text-[10px] font-mono"
-              />
-              <Input
-                value={row.sourceTable}
-                onChange={(e) => {
-                  const next = [...resultFields];
-                  next[index] = { ...row, sourceTable: e.target.value };
-                  updateResultFields(next);
-                }}
-                className="h-7 text-[10px] font-mono"
-              />
-              <Input
-                value={row.alias}
-                onChange={(e) => {
-                  const next = [...resultFields];
-                  next[index] = { ...row, alias: e.target.value };
-                  updateResultFields(next);
-                }}
-                className="h-7 text-[10px] font-mono"
-              />
-              <Input
-                value={row.description}
-                onChange={(e) => {
-                  const next = [...resultFields];
-                  next[index] = { ...row, description: e.target.value };
-                  updateResultFields(next);
-                }}
-                placeholder="填写字段含义"
-                className="h-7 text-[10px]"
-              />
+            <div className="mt-1 flex flex-wrap gap-2 text-[10px] text-muted-foreground">
+              <Badge variant="outline" className="font-mono">
+                {step.operation ?? "UPDATE"}
+              </Badge>
+              <span>表 {tables.length}</span>
+              <span>查询字段 {resultFields.length}</span>
+              <span>条件字段 {conditionFields.length}</span>
             </div>
-          )}
-        />
-      </section>
-
-      <section className="space-y-3 rounded-lg border bg-card p-4">
-        <div className="flex items-center justify-between border-b pb-2">
-          <div className="flex items-center gap-2 text-sm font-bold text-amber-600">
-            <ListChecksIcon className="size-4" />
-            <span>条件字段</span>
           </div>
-        </div>
-        <EditableMetaTable
-          emptyText="WHERE、JOIN ON 或 UPDATE 条件解析后自动展示"
-          columns={["字段名", "来源表", "参数名", "描述"]}
-          rows={conditionFields}
-          renderRow={(row, index) => (
-            <div key={row.id} className="grid grid-cols-[1fr_140px_160px_2fr] gap-2 p-1.5">
-              <Input
-                value={row.fieldName}
-                onChange={(e) => {
-                  const next = [...conditionFields];
-                  next[index] = { ...row, fieldName: e.target.value };
-                  updateConditionFields(next);
-                }}
-                className="h-7 text-[10px] font-mono"
-              />
-              <Input
-                value={row.sourceTable}
-                onChange={(e) => {
-                  const next = [...conditionFields];
-                  next[index] = { ...row, sourceTable: e.target.value };
-                  updateConditionFields(next);
-                }}
-                className="h-7 text-[10px] font-mono"
-              />
-              <Input
-                value={row.paramName}
-                onChange={(e) => {
-                  const next = [...conditionFields];
-                  next[index] = { ...row, paramName: e.target.value };
-                  updateConditionFields(next);
-                }}
-                className="h-7 text-[10px] font-mono"
-              />
-              <Input
-                value={row.description}
-                onChange={(e) => {
-                  const next = [...conditionFields];
-                  next[index] = { ...row, description: e.target.value };
-                  updateConditionFields(next);
-                }}
-                placeholder="填写条件用途"
-                className="h-7 text-[10px]"
-              />
+          <ChevronDownIcon
+            className={cn(
+              "size-4 shrink-0 text-muted-foreground transition-transform",
+              analysisOpen && "rotate-180",
+            )}
+          />
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-3 border-t p-4">
+          <section className="space-y-3 rounded-lg border bg-card p-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div className="flex items-center gap-2 text-sm font-bold text-sky-600">
+                <ListChecksIcon className="size-4" />
+                <span>格式化后SQL</span>
+              </div>
             </div>
-          )}
-        />
-      </section>
+            <Textarea
+              value={step.normalizedSql ?? ""}
+              readOnly
+              placeholder="请点击解析SQL按钮解析成系统规范的SQL"
+              className="min-h-24 resize-y bg-muted/30 font-mono text-xs"
+            />
+          </section>
+
+          <section className="space-y-3 rounded-lg border bg-card p-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div className="flex items-center gap-2 text-sm font-bold text-blue-600">
+                <TableIcon className="size-4" />
+                <span>操作表说明</span>
+              </div>
+            </div>
+            <EditableMetaTable
+              emptyText="解析 SQL 后自动展示操作表"
+              columns={["表名", "别名", "描述"]}
+              gridTemplateColumns={TABLE_META_GRID}
+              rows={tables}
+              renderRow={(row, index) => (
+                <div key={row.id} className="grid gap-2 p-1.5" style={{ gridTemplateColumns: TABLE_META_GRID }}>
+                  <Input
+                    value={row.tableName}
+                    onChange={(e) => {
+                      const next = [...tables];
+                      next[index] = { ...row, tableName: e.target.value };
+                      updateTables(next);
+                    }}
+                    className="h-7 text-[10px] font-mono"
+                  />
+                  <Input
+                    value={row.alias}
+                    onChange={(e) => {
+                      const next = [...tables];
+                      next[index] = { ...row, alias: e.target.value };
+                      updateTables(next);
+                    }}
+                    className="h-7 text-[10px] font-mono"
+                  />
+                  <Input
+                    value={row.description}
+                    onChange={(e) => {
+                      const next = [...tables];
+                      next[index] = { ...row, description: e.target.value };
+                      updateTables(next);
+                    }}
+                    placeholder="填写表用途说明"
+                    className="h-7 text-[10px]"
+                  />
+                </div>
+              )}
+            />
+          </section>
+
+          <section className="space-y-3 rounded-lg border bg-card p-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div className="flex items-center gap-2 text-sm font-bold text-cyan-600">
+                <DatabaseIcon className="size-4" />
+                <span>查询结果字段</span>
+              </div>
+            </div>
+            <EditableMetaTable
+              emptyText="SELECT SQL 解析后自动展示查询字段"
+              columns={["字段名", "来源表", "别名", "描述"]}
+              gridTemplateColumns={RESULT_FIELD_META_GRID}
+              rows={resultFields}
+              renderRow={(row, index) => (
+                <div key={row.id} className="grid gap-2 p-1.5" style={{ gridTemplateColumns: RESULT_FIELD_META_GRID }}>
+                  <Input
+                    value={row.fieldName}
+                    onChange={(e) => {
+                      const next = [...resultFields];
+                      next[index] = { ...row, fieldName: e.target.value };
+                      updateResultFields(next);
+                    }}
+                    className="h-7 text-[10px] font-mono"
+                  />
+                  <Input
+                    value={row.sourceTable}
+                    onChange={(e) => {
+                      const next = [...resultFields];
+                      next[index] = { ...row, sourceTable: e.target.value };
+                      updateResultFields(next);
+                    }}
+                    className="h-7 text-[10px] font-mono"
+                  />
+                  <Input
+                    value={row.alias}
+                    onChange={(e) => {
+                      const next = [...resultFields];
+                      next[index] = { ...row, alias: e.target.value };
+                      updateResultFields(next);
+                    }}
+                    className="h-7 text-[10px] font-mono"
+                  />
+                  <Input
+                    value={row.description}
+                    onChange={(e) => {
+                      const next = [...resultFields];
+                      next[index] = { ...row, description: e.target.value };
+                      updateResultFields(next);
+                    }}
+                    placeholder="填写字段含义"
+                    className="h-7 text-[10px]"
+                  />
+                </div>
+              )}
+            />
+          </section>
+
+          <section className="space-y-3 rounded-lg border bg-card p-4">
+            <div className="flex items-center justify-between border-b pb-2">
+              <div className="flex items-center gap-2 text-sm font-bold text-amber-600">
+                <ListChecksIcon className="size-4" />
+                <span>条件字段</span>
+              </div>
+            </div>
+            <EditableMetaTable
+              emptyText="WHERE、JOIN ON 或 UPDATE 条件解析后自动展示"
+              columns={["字段名", "来源表", "参数名", "描述"]}
+              gridTemplateColumns={CONDITION_FIELD_META_GRID}
+              rows={conditionFields}
+              renderRow={(row, index) => (
+                <div key={row.id} className="grid gap-2 p-1.5" style={{ gridTemplateColumns: CONDITION_FIELD_META_GRID }}>
+                  <Input
+                    value={row.fieldName}
+                    onChange={(e) => {
+                      const next = [...conditionFields];
+                      next[index] = { ...row, fieldName: e.target.value };
+                      updateConditionFields(next);
+                    }}
+                    className="h-7 text-[10px] font-mono"
+                  />
+                  <Input
+                    value={row.sourceTable}
+                    onChange={(e) => {
+                      const next = [...conditionFields];
+                      next[index] = { ...row, sourceTable: e.target.value };
+                      updateConditionFields(next);
+                    }}
+                    className="h-7 text-[10px] font-mono"
+                  />
+                  <Input
+                    value={row.paramName}
+                    onChange={(e) => {
+                      const next = [...conditionFields];
+                      next[index] = { ...row, paramName: e.target.value };
+                      updateConditionFields(next);
+                    }}
+                    className="h-7 text-[10px] font-mono"
+                  />
+                  <Input
+                    value={row.description}
+                    onChange={(e) => {
+                      const next = [...conditionFields];
+                      next[index] = { ...row, description: e.target.value };
+                      updateConditionFields(next);
+                    }}
+                    placeholder="填写条件用途"
+                    className="h-7 text-[10px]"
+                  />
+                </div>
+              )}
+            />
+          </section>
+        </CollapsibleContent>
+      </Collapsible>
 
       <section className="space-y-3 rounded-lg border bg-card p-4">
         <div className="flex items-center justify-between border-b pb-2">
@@ -609,9 +653,10 @@ export function SqlStepForm({ scene, step, onChange }: SqlStepFormProps) {
         <EditableMetaTable
           emptyText="解析 SQL 后自动生成参数"
           columns={["参数名", "类型", "必填", "默认值", "描述"]}
+          gridTemplateColumns={PARAMETER_META_GRID}
           rows={parameterDefinitions}
           renderRow={(row, index) => (
-            <div key={row.name} className="grid grid-cols-[1fr_120px_100px_1fr_2fr] gap-2 p-1.5">
+            <div key={row.name} className="grid gap-2 p-1.5" style={{ gridTemplateColumns: PARAMETER_META_GRID }}>
               <Input
                 value={row.name}
                 onChange={(e) => updateParameterDefinition(index, { name: e.target.value })}
@@ -621,7 +666,7 @@ export function SqlStepForm({ scene, step, onChange }: SqlStepFormProps) {
                 value={String(row.type || "string")}
                 onValueChange={(value) => updateParameterDefinition(index, { type: value })}
               >
-                <SelectTrigger className="h-7 text-[10px]">
+                <SelectTrigger className="h-7 w-full text-[10px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -638,7 +683,7 @@ export function SqlStepForm({ scene, step, onChange }: SqlStepFormProps) {
                   updateParameterDefinition(index, { required: value === "true" })
                 }
               >
-                <SelectTrigger className="h-7 text-[10px]">
+                <SelectTrigger className="h-7 w-full text-[10px]">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -763,20 +808,24 @@ export function SqlStepForm({ scene, step, onChange }: SqlStepFormProps) {
 
 function EditableMetaTable<T>({
   columns,
+  gridTemplateColumns,
   rows,
   emptyText,
   renderRow,
 }: {
   columns: string[];
+  gridTemplateColumns?: string;
   rows: T[];
   emptyText: string;
   renderRow: (row: T, index: number) => React.ReactNode;
 }) {
+  const template = gridTemplateColumns ?? `repeat(${columns.length}, minmax(0, 1fr))`;
+
   return (
     <div className="overflow-hidden rounded-lg border bg-card">
       <div
-        className="grid gap-2 border-b bg-muted/40 px-3 py-2 text-[10px] font-bold uppercase text-muted-foreground"
-        style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(0, 1fr))` }}
+        className="grid gap-2 border-b bg-muted/40 p-1.5 py-2 text-[10px] font-bold uppercase text-muted-foreground"
+        style={{ gridTemplateColumns: template }}
       >
         {columns.map((column) => (
           <div key={column}>{column}</div>

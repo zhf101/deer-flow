@@ -7,6 +7,7 @@ from app.gdp.datagen.config.common.models import HttpMethod, InputFieldDefinitio
 from app.gdp.datagen.config.scene.models import BatchConfig, HttpStepDefinition, SceneDefinition, SqlStepDefinition, ValidationResult
 from app.gdp.datagen.config.scene.repository import (
     DataFactorySceneStepHttpConfigRow,
+    DataFactorySceneStepRow,
     DataFactorySceneStepSqlConfigRow,
     DataFactorySceneVersionRow,
     SceneRepository,
@@ -34,6 +35,7 @@ async def test_custom_http_and_sql_steps_are_saved_as_scene_snapshots(scene_repo
     assert saved.versionNo == 1
     assert saved.versionStatus == "DRAFT"
     assert len(saved.definition.steps) == 2
+    assert [step.executionOrder for step in saved.definition.steps] == [1, 2]
     assert saved.definition.steps[0].templateRef is None
     assert saved.definition.steps[1].templateRef is None
 
@@ -51,7 +53,11 @@ async def test_custom_http_and_sql_steps_are_saved_as_scene_snapshots(scene_repo
     async with session_factory() as session:
         http_row = (await session.execute(select(DataFactorySceneStepHttpConfigRow))).scalar_one()
         sql_row = (await session.execute(select(DataFactorySceneStepSqlConfigRow))).scalar_one()
+        step_rows = (
+            await session.execute(select(DataFactorySceneStepRow).order_by(DataFactorySceneStepRow.sort_order.asc()))
+        ).scalars().all()
 
+    assert [(row.step_id, row.sort_order) for row in step_rows] == [("create_order", 1), ("query_order", 2)]
     assert http_row.source_code is None
     assert http_row.source_hash_snapshot is None
     assert http_row.drifted is False

@@ -13,6 +13,7 @@ import type {
   SceneDefinition,
   SceneStatus,
   SceneSummary,
+  SceneRunSummary,
   SceneVersion,
   ServiceEndpointConfig,
   ServiceEndpointResponse,
@@ -302,6 +303,28 @@ export async function runScene(
     method: "POST",
     body: JSON.stringify({ sceneCode, ...body }),
   });
+}
+
+/** 查询已持久化的场景执行详情 */
+export async function getSceneRun(runId: string): Promise<ExecutionResult> {
+  return request<ExecutionResult>(`/scenes/runs/${encodeURIComponent(runId)}`);
+}
+
+/** 查询场景执行历史列表 */
+export async function listSceneRuns(params: {
+  sceneCode?: string;
+  status?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<SceneRunSummary[]> {
+  return request<SceneRunSummary[]>(
+    `/scenes/runs${searchParams({
+      sceneCode: params.sceneCode,
+      status: params.status,
+      limit: params.limit ?? 20,
+      offset: params.offset ?? 0,
+    })}`,
+  );
 }
 
 // ── HTTP 接口配置（httpsource）───────────────────────────────────────────

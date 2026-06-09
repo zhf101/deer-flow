@@ -31,6 +31,8 @@ from app.gdp.datagen.config.httpsource.repository import DataFactoryHttpSourceRo
 from app.gdp.datagen.config.httpsource.service import HttpSourceService
 from app.gdp.datagen.config.scene.repository import (
     DataFactorySceneRow,
+    DataFactorySceneRunRow,
+    DataFactorySceneRunStepRow,
     DataFactorySceneStepAssertConfigRow,
     DataFactorySceneStepHttpConfigRow,
     DataFactorySceneStepRow,
@@ -65,6 +67,8 @@ CURRENT_ROW_CLASSES = {
     "DataFactoryHttpSourceRow": DataFactoryHttpSourceRow,
     "DataFactoryIdentifierReferenceRow": DataFactoryIdentifierReferenceRow,
     "DataFactorySceneRow": DataFactorySceneRow,
+    "DataFactorySceneRunRow": DataFactorySceneRunRow,
+    "DataFactorySceneRunStepRow": DataFactorySceneRunStepRow,
     "DataFactorySceneStepAssertConfigRow": DataFactorySceneStepAssertConfigRow,
     "DataFactorySceneStepHttpConfigRow": DataFactorySceneStepHttpConfigRow,
     "DataFactorySceneStepRow": DataFactorySceneStepRow,
@@ -139,6 +143,8 @@ def test_grouped_persistence_models_register_datagen_tables():
         "df_http_source",
         "df_identifier_reference",
         "df_scene",
+        "df_scene_run",
+        "df_scene_run_step",
         "df_scene_step",
         "df_scene_step_assert_config",
         "df_scene_step_http_config",

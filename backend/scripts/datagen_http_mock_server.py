@@ -80,6 +80,7 @@ def _important_headers(request: Request) -> dict[str, str]:
         "accept", "content-type", "authorization",
         "x-api-key", "x-api-version", "x-operator",
         "x-request-id", "x-source", "x-tenant-id", "x-trace-id",
+        "cookie",
     }
     return {k: v for k, v in request.headers.items() if k.lower() in keys}
 
@@ -449,6 +450,43 @@ timestamp=2026-06-07T12:00:00"""
         resp_headers = {"X-Trace-Id": _trace_id("oauth-token")}
         _log_response("POST", "/oauth/token", 200, f"用户 {username} 获取 Token 成功")
         return JSONResponse(response, headers=resp_headers)
+
+    # ----------------------------------------------------------
+    # 9. POST /api/v1/session/login
+    #    认证: 无
+    #    Header: Content-Type=application/json, Accept, X-Tenant-Id
+    #    Body: JSON — { username, password, tenantId }
+    #    Response: JSON + Set-Cookie(session_id, csrf_token)
+    # ----------------------------------------------------------
+
+    @app.post("/api/v1/session/login")
+    async def session_login(request: Request):
+        headers = _important_headers(request)
+        body = await _read_body_json(request)
+        _log_request("POST", "/api/v1/session/login", headers, body)
+
+        username = str((body or {}).get("username") or "demo_user")
+        tenant_id = str((body or {}).get("tenantId") or headers.get("x-tenant-id") or "T10001")
+        session_id = f"S{int(time.time()) % 100000:05d}"
+        csrf_token = f"csrf-{tenant_id.lower()}-{int(time.time()) % 100000:05d}"
+
+        response = {
+            "success": True,
+            "data": {
+                "sessionId": session_id,
+                "csrfToken": csrf_token,
+                "tenantId": tenant_id,
+                "username": username,
+                "expiresIn": 1800,
+            },
+            "errorCode": "",
+            "errorMessage": "",
+        }
+        resp = JSONResponse(response, headers={"X-Trace-Id": _trace_id("session-login")})
+        resp.set_cookie("session_id", session_id, httponly=True, samesite="Lax", path="/")
+        resp.set_cookie("csrf_token", csrf_token, httponly=False, samesite="Lax", path="/")
+        _log_response("POST", "/api/v1/session/login", 200, f"用户 {username} 登录成功，写入 Cookie")
+        return resp
 
     # ----------------------------------------------------------
     # 404 兜底 — 请求路径未匹配任何接口

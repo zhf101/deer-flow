@@ -15,25 +15,35 @@ export interface StepNodeData extends Record<string, unknown> {
   hasErrors: boolean;
 }
 
+function nonEmpty(value: string | null | undefined): string | undefined {
+  if (value) return value;
+  return undefined;
+}
+
 export function stepsToNodes(steps: StepDefinition[]): Node<StepNodeData>[] {
   return steps.map((step, index) => {
+    const executionOrder = step.executionOrder ?? index + 1;
     const outputCount = Object.keys(step.outputMapping ?? {}).length;
     const hasErrors = isHttpStep(step)
       ? !step.path || !step.sysCode
       : isSqlStep(step)
         ? !step.normalizedSql || !step.datasourceCode || !step.sysCode
         : false;
+    const nodeType = isHttpStep(step) ? "httpStep" : isSqlStep(step) ? "sqlStep" : "default";
+    const label = step.stepName ?? stepLabel(step.type);
     return {
       id: step.stepId,
-      type: isHttpStep(step) ? "httpStep" : isSqlStep(step) ? "sqlStep" : "default",
+      type: nodeType,
       position: step.position ?? { x: 120 + index * 140, y: 120 },
       data: {
-        label: step.stepName ?? stepLabel(step.type),
+        label: nodeType === "default" ? `执行 #${executionOrder} ${label}` : label,
         type: step.type,
         enabled: step.enabled,
-        order: index + 1,
-        path: isHttpStep(step) ? step.path || undefined : undefined,
-        sql: isSqlStep(step) ? step.sqlText || step.normalizedSql || undefined : undefined,
+        order: executionOrder,
+        path: isHttpStep(step) ? nonEmpty(step.path) : undefined,
+        sql: isSqlStep(step)
+          ? nonEmpty(step.sqlText) ?? nonEmpty(step.normalizedSql)
+          : undefined,
         outputCount,
         hasErrors,
       },

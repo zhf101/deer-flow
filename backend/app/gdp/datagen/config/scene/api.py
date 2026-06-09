@@ -13,6 +13,7 @@ from app.gdp.datagen.config.scene.models import (
     SceneDefinition,
     SceneExecutionResult,
     SceneRunRequest,
+    SceneRunSummary,
     SceneSummary,
     SceneVersion,
     ValidationResult,
@@ -39,12 +40,13 @@ def _get_service() -> SceneService:
     sf = get_session_factory()
     if sf is None:
         raise HTTPException(status_code=503, detail="Persistence not available")
+    base_repository = BaseConfigRepository(sf)
     sql_execution = SqlExecutionService(
-        base_repository=BaseConfigRepository(sf),
+        base_repository=base_repository,
         sql_source_repository=SqlSourceRepository(sf),
         registry=SqlExecutorRegistry(),
     )
-    return SceneService(SceneRepository(sf), SceneExecutor(sql_execution))
+    return SceneService(SceneRepository(sf), SceneExecutor(sql_execution, base_repository))
 
 
 async def _get_operator(request: Request) -> str | None:
@@ -79,6 +81,25 @@ async def run_scene(
     service: SceneService = Depends(_get_service),
 ) -> SceneExecutionResult:
     return await service.run_scene(body)
+
+
+@router.get("/scenes/runs", response_model=list[SceneRunSummary])
+async def list_scene_runs(
+    sceneCode: str = Query(default=""),
+    status: str | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    service: SceneService = Depends(_get_service),
+) -> list[SceneRunSummary]:
+    return await service.list_scene_runs(scene_code=sceneCode, status=status, limit=limit, offset=offset)
+
+
+@router.get("/scenes/runs/{runId}", response_model=SceneExecutionResult)
+async def get_scene_run(
+    runId: str,
+    service: SceneService = Depends(_get_service),
+) -> SceneExecutionResult:
+    return await service.get_scene_run(runId)
 
 
 @router.get("/scenes/{sceneCode}", response_model=SceneDefinition)

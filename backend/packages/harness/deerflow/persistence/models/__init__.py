@@ -32,6 +32,8 @@ try:
     from app.gdp.datagen.config.httpsource.repository import DataFactoryHttpSourceRow
     from app.gdp.datagen.config.scene.repository import (
         DataFactorySceneRow,
+        DataFactorySceneRunRow,
+        DataFactorySceneRunStepRow,
         DataFactorySceneStepAssertConfigRow,
         DataFactorySceneStepHttpConfigRow,
         DataFactorySceneStepRow,
@@ -47,6 +49,8 @@ except ImportError:
     DataFactoryHttpSourceRow = None
     DataFactoryIdentifierReferenceRow = None
     DataFactorySceneRow = None
+    DataFactorySceneRunRow = None
+    DataFactorySceneRunStepRow = None
     DataFactorySceneStepAssertConfigRow = None
     DataFactorySceneStepHttpConfigRow = None
     DataFactorySceneStepRow = None
@@ -69,6 +73,8 @@ __all__ = [
     "DataFactoryHttpSourceRow",
     "DataFactoryIdentifierReferenceRow",
     "DataFactorySceneRow",
+    "DataFactorySceneRunRow",
+    "DataFactorySceneRunStepRow",
     "DataFactorySceneStepAssertConfigRow",
     "DataFactorySceneStepHttpConfigRow",
     "DataFactorySceneStepRow",
