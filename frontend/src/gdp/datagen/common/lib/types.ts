@@ -161,7 +161,7 @@ export interface SqlStepDefinition extends BaseStepDefinition {
   resultFields?: SqlSourceFieldMeta[];
   conditionFields?: SqlSourceConditionMeta[];
   parameters?: SqlSourceParameter[];
-  safety?: SqlTemplateSafety;
+  safety?: SqlSafety;
   paramMapping: Record<string, unknown>;
 }
 
@@ -355,35 +355,10 @@ export interface IdentifierReferenceResponse
   updatedAt: string;
 }
 
-export interface SqlTemplateParameter {
-  name: string;
-  type: InputFieldType | string;
-  required: boolean;
-  defaultValue?: unknown;
-}
-
-export interface SqlTemplateSafety {
+/** SQL 安全策略，同时被 SqlSource 和 SqlStep 复用 */
+export interface SqlSafety {
   requireWhere: boolean;
   maxAffectedRows?: number | null;
-}
-
-export interface SqlTemplateConfig {
-  templateCode: string;
-  templateName: string;
-  operation: SqlOperation;
-  datasourceType: string;
-  sqlText: string;
-  parameters: SqlTemplateParameter[];
-  safety: SqlTemplateSafety;
-  status: ConfigStatus;
-}
-
-export interface SqlTemplateResponse extends SqlTemplateConfig {
-  id: string;
-  createdBy?: string | null;
-  updatedBy?: string | null;
-  createdAt: string;
-  updatedAt: string;
 }
 
 // ── HTTP 接口配置（httpsource）──────────────────────────────────────────
@@ -527,7 +502,7 @@ export interface SqlSourceConfig {
   resultFields: SqlSourceFieldMeta[];
   conditionFields: SqlSourceConditionMeta[];
   parameters: SqlSourceParameter[];
-  safety: SqlTemplateSafety;
+  safety: SqlSafety;
   status: ConfigStatus;
 }
 

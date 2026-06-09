@@ -185,11 +185,12 @@ export function HttpOutputExtractionEditor({
       )}
       <div className={cn("space-y-2", disabled && "pointer-events-none opacity-50")}>
         <div className="rounded-lg border bg-card overflow-hidden">
-          <div className="grid grid-cols-[90px_1fr_1fr_1fr_48px] gap-2 px-3 py-2 bg-muted/40 text-[10px] font-bold text-muted-foreground uppercase border-b">
+          <div className="grid grid-cols-[72px_minmax(120px,1fr)_minmax(120px,1fr)_110px_minmax(140px,1fr)_40px] gap-2 px-3 py-2 bg-muted/40 text-[10px] font-bold text-muted-foreground uppercase border-b">
             <div>来源</div>
             <div>响应字段</div>
             <div>下游变量名</div>
-            <div>Description</div>
+            <div>中文名</div>
+            <div>备注</div>
             <div className="text-center">操作</div>
           </div>
           <div className="p-1.5 space-y-1.5">
@@ -204,9 +205,17 @@ export function HttpOutputExtractionEditor({
 
               const matched = bodyFlatFields.find((f) => isSameMapping(bodyExpression(f.path), path));
               const meta = step.outputMeta?.[varName] ?? {};
+              const missingLabel = !(meta.label ?? "").trim();
+              const missingRemark = !(meta.remark ?? "").trim();
 
               return (
-                <div key={varName} className="grid grid-cols-[90px_1fr_1fr_1fr_48px] gap-2 px-3 items-center bg-muted/10 p-1 rounded border border-transparent hover:border-border transition-all">
+                <div
+                  key={varName}
+                  className={cn(
+                    "grid grid-cols-[72px_minmax(120px,1fr)_minmax(120px,1fr)_110px_minmax(140px,1fr)_40px] gap-2 px-3 items-center bg-muted/10 p-1 rounded border border-transparent hover:border-border transition-all",
+                    (missingLabel || missingRemark) && "bg-amber-50/35 border-amber-200",
+                  )}
+                >
                   <div className="flex justify-center">
                     <span className={cn("text-[9px] font-bold px-1.5 py-0.5 rounded", sourceColor)}>
                       {source}
@@ -239,9 +248,25 @@ export function HttpOutputExtractionEditor({
                     />
                   </div>
                   <Input
-                    className="h-7 text-xs bg-background"
+                    className={cn(
+                      "h-7 text-xs bg-background",
+                      missingLabel && "border-amber-400 bg-amber-50/40",
+                    )}
+                    value={meta.label ?? ""}
+                    placeholder="中文名"
+                    onChange={(e) => {
+                      const nextMeta = { ...(step.outputMeta ?? {}) };
+                      nextMeta[varName] = { ...nextMeta[varName], label: e.target.value };
+                      onChange({ outputMeta: nextMeta });
+                    }}
+                  />
+                  <Input
+                    className={cn(
+                      "h-7 text-xs bg-background",
+                      missingRemark && "border-amber-400 bg-amber-50/40",
+                    )}
                     value={meta.remark ?? ""}
-                    placeholder="Description"
+                    placeholder="业务说明"
                     onChange={(e) => {
                       const nextMeta = { ...(step.outputMeta ?? {}) };
                       nextMeta[varName] = { ...nextMeta[varName], remark: e.target.value };
@@ -316,7 +341,7 @@ export function HttpOutputExtractionEditor({
               }
               const header = headersSchema.find((h) => h.name === name);
               const nextMeta = { ...(step.outputMeta ?? {}) };
-              nextMeta[varName] = { label: header?.label ?? "", remark: "" };
+              nextMeta[varName] = { label: header?.label ?? "", remark: header?.remark ?? "" };
               onChange({
                 outputMapping: { ...outputMapping, [varName]: path },
                 outputMeta: nextMeta,
@@ -346,7 +371,7 @@ export function HttpOutputExtractionEditor({
               }
               const cookie = cookiesSchema.find((c) => c.name === name);
               const nextMeta = { ...(step.outputMeta ?? {}) };
-              nextMeta[varName] = { label: cookie?.label ?? "", remark: "" };
+              nextMeta[varName] = { label: cookie?.label ?? "", remark: cookie?.remark ?? "" };
               onChange({
                 outputMapping: { ...outputMapping, [varName]: path },
                 outputMeta: nextMeta,

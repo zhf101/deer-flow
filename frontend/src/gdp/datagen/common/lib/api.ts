@@ -22,8 +22,6 @@ import type {
   SqlExecutionResult,
   SqlSourceParseResponse,
   SqlSourceResponse,
-  SqlTemplateConfig,
-  SqlTemplateResponse,
   SysConfig,
   SysResponse,
   TaskDefinition,
@@ -269,28 +267,6 @@ export async function deleteDatasource(
   });
 }
 
-export async function listSqlTemplates(): Promise<SqlTemplateResponse[]> {
-  return request<SqlTemplateResponse[]>("/sql-templates");
-}
-
-export async function createSqlTemplate(
-  template: SqlTemplateConfig,
-): Promise<SqlTemplateResponse> {
-  return request<SqlTemplateResponse>("/sql-templates", {
-    method: "POST",
-    body: JSON.stringify(template),
-  });
-}
-
-export async function updateSqlTemplate(
-  templateCode: string,
-  template: SqlTemplateConfig,
-): Promise<SqlTemplateResponse> {
-  return request<SqlTemplateResponse>(
-    `/sql-templates/${encodeURIComponent(templateCode)}`,
-    { method: "PUT", body: JSON.stringify(template) },
-  );
-}
 
 // ── 场景执行 ─────────────────────────────────────────────────────────
 

@@ -19,7 +19,6 @@ import {
   getScene,
   listHttpSources,
   listSqlSources,
-  listSqlTemplates,
   publishScene,
   updateScene,
 } from "../common/lib/api";
@@ -30,7 +29,6 @@ import type {
   HttpSourceResponse,
   SceneDefinition,
   SqlSourceResponse,
-  SqlTemplateResponse,
   StepDefinition,
   ValidationIssue,
 } from "../common/lib/types";
@@ -69,7 +67,6 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
-  const [sqlTemplates, setSqlTemplates] = useState<SqlTemplateResponse[]>([]);
   const [httpSources, setHttpSources] = useState<HttpSourceResponse[]>([]);
   const [sqlSources, setSqlSources] = useState<SqlSourceResponse[]>([]);
   const [loading, setLoading] = useState(!!sceneCode);
@@ -100,9 +97,6 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   }, [sceneCode, onBack]);
 
   useEffect(() => {
-    listSqlTemplates()
-      .then(setSqlTemplates)
-      .catch(() => setSqlTemplates([]));
     listHttpSources()
       .then(setHttpSources)
       .catch(() => setHttpSources([]));
@@ -259,7 +253,6 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
                 scene={scene}
                 orchView={orchView}
                 setOrchView={setOrchView}
-                sqlTemplates={sqlTemplates}
                 httpSources={httpSources}
                 sqlSources={sqlSources}
                 issues={issues}

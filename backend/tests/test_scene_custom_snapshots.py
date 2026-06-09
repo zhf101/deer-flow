@@ -161,6 +161,41 @@ def test_publish_accepts_delete_with_where_when_required():
     assert result.valid is True
 
 
+def test_publish_reports_semantic_quality_warnings_without_blocking_publish():
+    scene = _scene("semanticWarningScene")
+    scene.sceneRemark = ""
+    scene.inputSchema.append(
+        InputFieldDefinition(
+            name="buyerId",
+            label="",
+            type=InputFieldType.STRING,
+            required=True,
+            batchEnabled=False,
+        )
+    )
+    scene.resultSchema = [
+        InputFieldDefinition(
+            name="orderNo",
+            label="",
+            type=InputFieldType.STRING,
+            required=True,
+            batchEnabled=False,
+        )
+    ]
+    scene.resultMapping = {}
+
+    result = validate_scene_publish(scene)
+
+    assert result.valid is True
+    warnings = [issue for issue in result.issues if issue.level == "WARNING"]
+    assert any(issue.field == "sceneRemark" for issue in warnings)
+    assert any(issue.field == "inputSchema[1].label" for issue in warnings)
+    assert any(issue.field == "inputSchema[1].remark" for issue in warnings)
+    assert any(issue.field == "resultSchema[0].label" for issue in warnings)
+    assert any(issue.field == "resultSchema[0].mapping" for issue in warnings)
+    assert any(issue.field == "steps[0].outputMeta.orderNo.label" for issue in warnings)
+
+
 def test_publish_rejects_missing_step_output_name():
     scene = _scene("missingOutputScene")
     sql_step = scene.steps[1]

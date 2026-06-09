@@ -6,6 +6,7 @@ import {
   XIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,6 @@ import type {
   HttpSourceResponse,
   SceneDefinition,
   SqlSourceResponse,
-  SqlTemplateResponse,
   StepDefinition,
   ValidationIssue,
 } from "../common/lib/types";
@@ -29,7 +29,6 @@ interface LogicOrchestrationStepProps {
   scene: SceneDefinition;
   orchView: "list" | "canvas";
   setOrchView: (view: "list" | "canvas") => void;
-  sqlTemplates: SqlTemplateResponse[];
   httpSources?: HttpSourceResponse[];
   sqlSources?: SqlSourceResponse[];
   issues?: ValidationIssue[];
@@ -47,7 +46,6 @@ export function LogicOrchestrationStep({
   scene,
   orchView,
   setOrchView,
-  sqlTemplates,
   httpSources,
   sqlSources,
   issues = [],
@@ -136,21 +134,29 @@ export function LogicOrchestrationStep({
     [openStep],
   );
 
-  const handleMoveStep = useCallback(
-    (stepId: string, direction: -1 | 1) => {
-      if (readOnly) return;
-      const currentIndex = scene.steps.findIndex((step) => step.stepId === stepId);
-      const targetIndex = currentIndex + direction;
-      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= scene.steps.length) return;
-
+  // 拖拽重排序：将步骤从 fromIndex 移动到 toIndex，重新赋值 executionOrder。
+  // 校验依赖关系：不允许将步骤拖到其依赖项之前。
+  const handleReorderSteps = useCallback(
+    (fromIndex: number, toIndex: number) => {
+      if (readOnly || fromIndex === toIndex) return;
       const nextSteps = [...scene.steps];
-      const [movedStep] = nextSteps.splice(currentIndex, 1);
-      if (!movedStep) return;
-      const targetStep = scene.steps[targetIndex];
-      if (!targetStep) return;
-      if (direction < 0 && movedStep.dependsOn.includes(targetStep.stepId)) return;
-      if (direction > 0 && targetStep.dependsOn.includes(movedStep.stepId)) return;
-      nextSteps.splice(targetIndex, 0, movedStep);
+      const [moved] = nextSteps.splice(fromIndex, 1);
+      if (!moved) return;
+      nextSteps.splice(toIndex, 0, moved);
+
+      // 检查重排序后是否违反依赖关系（步骤不能出现在其依赖项之前）
+      const idToIndex = new Map(nextSteps.map((s, i) => [s.stepId, i]));
+      const violation = nextSteps.find((step, idx) =>
+        step.dependsOn.some((depId) => {
+          const depIdx = idToIndex.get(depId);
+          return depIdx !== undefined && depIdx > idx;
+        }),
+      );
+      if (violation) {
+        toast.error(`无法移动：步骤「${violation.stepName || violation.stepId}」不能出现在其依赖项之前`);
+        return;
+      }
+
       setScene({ ...scene, steps: assignExecutionOrders(nextSteps) });
     },
     [readOnly, scene, setScene],
@@ -251,7 +257,7 @@ export function LogicOrchestrationStep({
                 onSelectStep={handleSelectStep}
                 onDeleteStep={handleDeleteStep}
                 onAddStep={handleAddStep}
-                onMoveStep={handleMoveStep}
+                onReorderSteps={handleReorderSteps}
                 onToggleView={() => setOrchView("canvas")}
                 readOnly={readOnly}
               />
@@ -286,7 +292,6 @@ export function LogicOrchestrationStep({
                 scene={scene}
                 step={activeStep}
                 steps={scene.steps}
-                sqlTemplates={sqlTemplates}
                 httpSources={httpSources}
                 sqlSources={sqlSources}
                 stepIssues={issues.filter((i) => i.field.startsWith(`step:${activeStep.stepId}`))}

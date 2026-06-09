@@ -5,6 +5,9 @@ import { basicLightInit } from "@uiw/codemirror-theme-basic";
 import { monokaiInit } from "@uiw/codemirror-theme-monokai";
 import CodeMirror from "@uiw/react-codemirror";
 import {
+  AlertTriangleIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
   CodeIcon,
   PlusIcon,
   Settings2Icon,
@@ -96,6 +99,7 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
       scene.inputSchema.concat({
         name: "",
         label: "",
+        remark: "",
         type: "string",
         required: false,
         batchEnabled: false,
@@ -109,10 +113,10 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
       const { cleanJson, labels } = parseJsonWithComments(jsonInput);
       const parsed = JSON.parse(cleanJson) as unknown;
       if (!isRecord(parsed)) throw new Error("root must be object");
-      
+
       // 2. 递归生成带标签的字段
       const generated = jsonToFields(parsed, labels);
-      
+
       // 3. 保留已有的 "env" 字段
       const envField = scene.inputSchema.find((f) => f.name === "env") ?? createEnvField();
       updateFields([envField, ...generated]);
@@ -164,6 +168,7 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
               onDelete={() => {
                 updateFields(scene.inputSchema.filter((_, i) => i !== index));
               }}
+              skipSemanticWarning={field.name === scene.environmentField}
             />
           ))}
           {scene.inputSchema.length === 0 && (
@@ -232,23 +237,35 @@ function InputFieldTreeItem({
   field,
   onUpdate,
   onDelete,
+  skipSemanticWarning = false,
   depth = 0,
 }: {
   field: InputFieldDefinition;
   onUpdate: (field: InputFieldDefinition) => void;
   onDelete: () => void;
+  skipSemanticWarning?: boolean;
   depth?: number;
 }) {
+  const [expanded, setExpanded] = useState(depth < 2);
+  const isContainer = field.type === "object" || field.type === "array";
+  const hasChildren = isContainer && (field.children?.length ?? 0) > 0;
+  const isSemanticTarget = !skipSemanticWarning && !isContainer;
+  const ownSemanticIssueCount = isSemanticTarget ? countOwnSemanticIssues(field) : 0;
+  const childSemanticIssueCount = countSemanticIssues(field.children ?? []);
+  const semanticIssueCount = ownSemanticIssueCount + childSemanticIssueCount;
+
   const addChild = () => {
     const children = field.children ?? [];
+    setExpanded(true);
     onUpdate({
       ...field,
-      type: field.type === "object" || field.type === "array" ? field.type : "object",
+      type: isContainer ? field.type : "object",
       children: [
         ...children,
         {
           name: "",
           label: "",
+          remark: "",
           type: "string",
           required: false,
           batchEnabled: false,
@@ -261,17 +278,50 @@ function InputFieldTreeItem({
     <div className={cn("space-y-2", depth > 0 && "ml-6 border-l pl-4")}>
       <div className="flex items-center gap-3">
         <div className="grid flex-1 grid-cols-4 gap-2">
-          <Input
-            value={field.name}
-            onChange={(e) => onUpdate({ ...field, name: e.target.value })}
-            placeholder="参数编码"
-            className={cn("h-8 font-mono text-xs", !field.name.trim() && "border-destructive")}
-          />
+          <div className="flex min-w-0 items-center gap-1">
+            {hasChildren ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => setExpanded((current) => !current)}
+                aria-label={expanded ? "折叠子参数" : "展开子参数"}
+                className="text-muted-foreground h-7 w-7 shrink-0"
+              >
+                {expanded ? (
+                  <ChevronDownIcon className="size-4" />
+                ) : (
+                  <ChevronRightIcon className="size-4" />
+                )}
+              </Button>
+            ) : (
+              <span className="h-7 w-7 shrink-0" />
+            )}
+            <div className="min-w-0 flex-1 space-y-1">
+              <Input
+                value={field.name}
+                onChange={(e) => onUpdate({ ...field, name: e.target.value })}
+                placeholder="参数编码"
+                className={cn(
+                  "h-8 min-w-0 font-mono text-xs",
+                  !field.name.trim() && "border-destructive",
+                )}
+              />
+              {semanticIssueCount > 0 && (
+                <SemanticWarningBadge count={semanticIssueCount} ownCount={ownSemanticIssueCount} />
+              )}
+            </div>
+          </div>
           <Input
             value={field.label ?? ""}
             onChange={(e) => onUpdate({ ...field, label: e.target.value })}
             placeholder="中文描述"
-            className="h-8 text-xs"
+            className={cn(
+              "h-8 text-xs",
+              isSemanticTarget &&
+                !(field.label ?? "").trim() &&
+                "border-amber-400 bg-amber-50/40",
+            )}
           />
           <Select
             value={field.type}
@@ -307,16 +357,33 @@ function InputFieldTreeItem({
             </Button>
           </div>
         </div>
-        {(field.type === "object" || field.type === "array") && (
+        {isContainer && (
           <Button variant="ghost" size="icon-sm" onClick={addChild} title="添加子参数">
             <PlusIcon className="size-4" />
           </Button>
         )}
       </div>
 
-      {field.children && field.children.length > 0 && (
+      {!skipSemanticWarning && (
+        <div className="ml-10 grid grid-cols-[88px_1fr] items-center gap-2">
+          <span className="text-[10px] text-muted-foreground">业务备注</span>
+          <Input
+            value={field.remark ?? ""}
+            onChange={(e) => onUpdate({ ...field, remark: e.target.value })}
+            placeholder="说明字段业务含义、来源或填写约束"
+            className={cn(
+              "h-8 text-xs",
+              isSemanticTarget &&
+                !(field.remark ?? "").trim() &&
+                "border-amber-400 bg-amber-50/40",
+            )}
+          />
+        </div>
+      )}
+
+      {hasChildren && expanded && (
         <div className="space-y-2 mt-2">
-          {field.children.map((child, idx) => (
+          {field.children!.map((child, idx) => (
             <InputFieldTreeItem
               key={idx}
               field={child}
@@ -340,8 +407,40 @@ function InputFieldTreeItem({
   );
 }
 
+function SemanticWarningBadge({
+  count,
+  ownCount,
+}: {
+  count: number;
+  ownCount: number;
+}) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+      title={ownCount > 0 ? "当前字段缺少中文名或业务备注" : "子字段缺少中文名或业务备注"}
+    >
+      <AlertTriangleIcon className="size-3 shrink-0" />
+      <span className="truncate">语义待补{count > 1 ? ` ${count}` : ""}</span>
+    </span>
+  );
+}
+
+function countOwnSemanticIssues(field: InputFieldDefinition): number {
+  let count = 0;
+  if (!(field.label ?? "").trim()) count += 1;
+  if (!(field.remark ?? "").trim()) count += 1;
+  return count;
+}
+
+function countSemanticIssues(fields: InputFieldDefinition[]): number {
+  return fields.reduce((total, field) => {
+    const isContainer = field.type === "object" || field.type === "array";
+    const ownCount = isContainer ? 0 : countOwnSemanticIssues(field);
+    return total + ownCount + countSemanticIssues(field.children ?? []);
+  }, 0);
+}
+
 function jsonToFields(obj: Record<string, unknown>, labels: Record<string, string> = {}): InputFieldDefinition[] {
-  
   return Object.entries(obj).map(([key, value]) => {
     let type: InputFieldType = "string";
     let children: InputFieldDefinition[] | undefined;
@@ -363,6 +462,7 @@ function jsonToFields(obj: Record<string, unknown>, labels: Record<string, strin
     return {
       name: key,
       label: labels[key] ?? "",
+      remark: labels[key] ?? "",
       type,
       required: false,
       batchEnabled: false,

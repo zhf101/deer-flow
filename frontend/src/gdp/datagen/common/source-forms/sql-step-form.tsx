@@ -77,7 +77,6 @@ import { SqlOutputExtractionSection } from "./sql-output-extraction-editor";
 interface SqlStepFormProps {
   scene: SceneDefinition;
   step: SqlStepDefinition;
-  sqlTemplates?: unknown[];
   onChange: (step: SqlStepDefinition) => void;
 }
 

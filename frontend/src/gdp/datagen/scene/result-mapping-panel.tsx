@@ -163,6 +163,7 @@ export function ResultMappingPanel({
       {
         name: "",
         label: "",
+        remark: "",
         type: "string" as InputFieldType,
         required: false,
         batchEnabled: false,
@@ -202,6 +203,7 @@ export function ResultMappingPanel({
     field.children.push({
       name: "",
       label: "",
+      remark: "",
       type: "string",
       required: false,
       batchEnabled: false,
@@ -251,7 +253,6 @@ export function ResultMappingPanel({
                   field={field}
                   flatIndex={getFlatIndex(schema, idx)}
                   depth={0}
-                  flatFields={flatFields}
                   onUpdateField={handleUpdateField}
                   onDeleteField={handleDeleteField}
                   onAddChild={handleAddChildField}
@@ -300,16 +301,28 @@ export function ResultMappingPanel({
                 const displayLabel = rawValue
                   ? resolveVariableLabel(rawValue, scene)
                   : "";
+                const issueMessages = getResultMappingIssueMessages(f, rawValue);
                 return (
                   <div
                     key={f.path}
-                    className="grid grid-cols-[1fr_100px_1fr_48px] gap-2 items-center px-4 py-2"
+                    className={cn(
+                      "grid grid-cols-[1fr_100px_1fr_48px] gap-2 items-center px-4 py-2",
+                      issueMessages.length > 0 && "bg-amber-50/35",
+                    )}
                   >
                     <div
-                      className="font-mono text-[11px] truncate"
+                      className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]"
                       title={f.path}
                     >
-                      {f.label}
+                      {issueMessages.length > 0 && (
+                        <AlertTriangleIcon
+                          className="size-3.5 shrink-0 text-amber-500"
+                          aria-label="语义提醒"
+                        >
+                          <title>{issueMessages.join("\n")}</title>
+                        </AlertTriangleIcon>
+                      )}
+                      <span className="truncate">{f.label}</span>
                     </div>
                     <div className="text-[10px] text-muted-foreground truncate">
                       {f.fieldLabel || "-"}
@@ -323,6 +336,8 @@ export function ResultMappingPanel({
                               "flex-1 h-7 px-2 text-left text-xs rounded-md border transition-colors",
                               rawValue
                                 ? "bg-blue-50/50 text-blue-700 border-blue-200"
+                                : issueMessages.length > 0
+                                  ? "bg-amber-50 text-amber-700 border-amber-300 hover:border-amber-400"
                                 : "bg-background text-muted-foreground border-dashed hover:border-primary/40",
                             )}
                           >
@@ -479,13 +494,40 @@ export function ResultMappingPanel({
   );
 }
 
+function getResultSchemaIssueMessages(field: InputFieldDefinition): string[] {
+  const messages: string[] = [];
+  if (!(field.label ?? "").trim()) {
+    messages.push(`结果字段 ${field.name || "(未命名)"} 缺少中文名`);
+  }
+  if (!(field.remark ?? "").trim()) {
+    messages.push(`结果字段 ${field.name || "(未命名)"} 缺少业务说明`);
+  }
+  return messages;
+}
+
+function getResultMappingIssueMessages(
+  field: ReturnType<typeof flattenSchema>[number],
+  rawValue: string,
+): string[] {
+  const messages: string[] = [];
+  if (!field.fieldLabel.trim()) {
+    messages.push(`结果字段 ${field.path} 缺少中文名`);
+  }
+  if (!field.fieldRemark.trim()) {
+    messages.push(`结果字段 ${field.path} 缺少业务说明`);
+  }
+  if (!rawValue.trim()) {
+    messages.push(`结果字段 ${field.path} 尚未配置输出映射`);
+  }
+  return messages;
+}
+
 /* ── 结果 schema 行（递归） ── */
 
 function ResultSchemaRow({
   field,
   flatIndex,
   depth,
-  flatFields,
   onUpdateField,
   onDeleteField,
   onAddChild,
@@ -493,7 +535,6 @@ function ResultSchemaRow({
   field: InputFieldDefinition;
   flatIndex: number;
   depth: number;
-  flatFields: ReturnType<typeof flattenSchema>;
   onUpdateField: (
     flatIndex: number,
     prop: "defaultValue" | "label" | "remark" | "name" | "type",
@@ -504,6 +545,7 @@ function ResultSchemaRow({
   onAddChild: (flatIndex: number) => void;
 }) {
   const isContainer = field.type === "object" || field.type === "array";
+  const issueMessages = isContainer ? [] : getResultSchemaIssueMessages(field);
 
   let childFlatIndex = flatIndex + 1;
 
@@ -524,10 +566,21 @@ function ResultSchemaRow({
               {field.type === "array" ? "[*]" : "{}"}
             </span>
           )}
+          {issueMessages.length > 0 && (
+            <AlertTriangleIcon
+              className="size-3.5 shrink-0 text-amber-500"
+              aria-label="语义提醒"
+            >
+              <title>{issueMessages.join("\n")}</title>
+            </AlertTriangleIcon>
+          )}
         </div>
         <div className="w-[120px]">
           <Input
-            className="h-6 text-[10px] bg-background/50 border-border/50 px-1.5"
+            className={cn(
+              "h-6 text-[10px] bg-background/50 border-border/50 px-1.5",
+              !isContainer && !(field.label ?? "").trim() && "border-amber-400 bg-amber-50/40",
+            )}
             value={field.label ?? ""}
             placeholder="中文名"
             onChange={(e) => onUpdateField(flatIndex, "label", e.target.value)}
@@ -574,7 +627,10 @@ function ResultSchemaRow({
         </div>
         <div className="flex-1">
           <Input
-            className="h-6 text-[10px] bg-background/50 border-border/50 px-1.5"
+            className={cn(
+              "h-6 text-[10px] bg-background/50 border-border/50 px-1.5",
+              !isContainer && !(field.remark ?? "").trim() && "border-amber-400 bg-amber-50/40",
+            )}
             value={field.remark ?? ""}
             placeholder="备注"
             onChange={(e) => onUpdateField(flatIndex, "remark", e.target.value)}
@@ -612,7 +668,6 @@ function ResultSchemaRow({
             field={child}
             flatIndex={currentIndex}
             depth={depth + 1}
-            flatFields={flatFields}
             onUpdateField={onUpdateField}
             onDeleteField={onDeleteField}
             onAddChild={onAddChild}

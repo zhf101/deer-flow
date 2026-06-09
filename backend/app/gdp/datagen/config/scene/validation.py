@@ -60,6 +60,7 @@ def validate_scene_publish(scene: SceneDefinition) -> ValidationResult:
         _validate_step_variable_refs(field, step, steps_by_id, issues)
 
     _validate_result_mapping(scene.resultMapping, steps_by_id, issues)
+    _warn_semantic_quality(scene, issues)
     return ValidationResult(valid=not _has_errors(issues), issues=issues)
 
 
@@ -204,6 +205,118 @@ def _validate_result_mapping(
 ) -> None:
     for ref_step_id, output_name in _extract_step_output_refs(result_mapping):
         _validate_output_ref("resultMapping", ref_step_id, output_name, steps_by_id, issues)
+
+
+def _warn_semantic_quality(scene: SceneDefinition, issues: list[ValidationIssue]) -> None:
+    if not (scene.sceneRemark or "").strip():
+        issues.append(
+            ValidationIssue(
+                field="sceneRemark",
+                message="建议填写场景备注，说明场景能做什么、产出什么以及适用范围。",
+                level="WARNING",
+            )
+        )
+    elif len(scene.sceneRemark.strip()) < 20:
+        issues.append(
+            ValidationIssue(
+                field="sceneRemark",
+                message="场景备注过短，建议说明场景用途、主要产出和执行副作用。",
+                level="WARNING",
+            )
+        )
+
+    _warn_schema_semantics(
+        scene.inputSchema,
+        "inputSchema",
+        issues,
+        skip_names={scene.environmentField},
+    )
+    if scene.resultSchema:
+        _warn_schema_semantics(
+            scene.resultSchema,
+            "resultSchema",
+            issues,
+            result_mapping=scene.resultMapping,
+        )
+    for index, step in enumerate(scene.steps):
+        if not step.enabled:
+            continue
+        _warn_step_output_semantics(f"steps[{index}]", step, issues)
+
+
+def _warn_schema_semantics(
+    fields: list,
+    prefix: str,
+    issues: list[ValidationIssue],
+    *,
+    skip_names: set[str] | None = None,
+    result_mapping: dict[str, str] | None = None,
+    path_prefix: str = "$",
+) -> None:
+    skip_names = skip_names or set()
+    for index, field in enumerate(fields):
+        field_prefix = f"{prefix}[{index}]"
+        if field.name in skip_names:
+            continue
+        is_container = field.type.value in {"object", "array"}
+        current_path = f"{path_prefix}.{field.name}"
+        if field.type.value == "array":
+            current_path = f"{current_path}[*]"
+        if not is_container:
+            if not (field.label or "").strip():
+                issues.append(
+                    ValidationIssue(
+                        field=f"{field_prefix}.label",
+                        message=f"建议为字段 {field.name} 填写中文名，方便 AI 理解字段含义。",
+                        level="WARNING",
+                    )
+                )
+            if not (field.remark or "").strip():
+                issues.append(
+                    ValidationIssue(
+                        field=f"{field_prefix}.remark",
+                        message=f"建议为字段 {field.name} 填写备注，说明业务含义、来源或填写约束。",
+                        level="WARNING",
+                    )
+                )
+            if result_mapping is not None and current_path not in result_mapping:
+                issues.append(
+                    ValidationIssue(
+                        field=f"{field_prefix}.mapping",
+                        message=f"结果字段 {current_path} 尚未配置输出映射，AI 会误判该场景产出。",
+                        level="WARNING",
+                    )
+                )
+        if field.children:
+            _warn_schema_semantics(
+                field.children,
+                f"{field_prefix}.children",
+                issues,
+                result_mapping=result_mapping,
+                path_prefix=current_path,
+            )
+
+
+def _warn_step_output_semantics(field: str, step: StepDefinition, issues: list[ValidationIssue]) -> None:
+    output_meta = step.outputMeta or {}
+    for output_name in step.outputMapping:
+        meta = output_meta.get(output_name) or {}
+        if not (meta.get("label") or "").strip():
+            issues.append(
+                ValidationIssue(
+                    field=f"{field}.outputMeta.{output_name}.label",
+                    message=f"建议为步骤输出 {step.stepId}.{output_name} 填写中文名，方便后续场景接龙。",
+                    level="WARNING",
+                )
+            )
+        if not (meta.get("remark") or "").strip():
+            issues.append(
+                ValidationIssue(
+                    field=f"{field}.outputMeta.{output_name}.remark",
+                    message=f"建议为步骤输出 {step.stepId}.{output_name} 填写备注，说明输出业务含义。",
+                    level="WARNING",
+                )
+            )
 
 
 def _dependency_closure(step: StepDefinition, steps_by_id: dict[str, StepDefinition]) -> set[str]:

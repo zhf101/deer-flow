@@ -1,7 +1,8 @@
 "use client";
 
-import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, PlayIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { CheckCircleIcon, ChevronDownIcon, ChevronRightIcon, DownloadIcon, PlayIcon, PlusIcon, RefreshCwIcon, Trash2Icon, UnlinkIcon } from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,16 +21,21 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import {
+  checkDrift,
+  detachTemplateRef,
+  resyncStepFromSource,
+} from "../common/lib/template-utils";
 import type {
   HttpSourceResponse,
   SceneDefinition,
   SqlSourceResponse,
-  SqlTemplateResponse,
   StepDefinition,
   ValidationIssue,
 } from "../common/lib/types";
 import { HttpStepForm } from "../common/source-forms/http-step-form";
 import { SqlStepForm } from "../common/source-forms/sql-step-form";
+import { TemplateImportDialog } from "../common/source-forms/template-import-dialog";
 
 import { AssertStepForm } from "./assert-step-form";
 import { StepTestDialog } from "./step-test-dialog";
@@ -39,7 +45,6 @@ interface StepConfigPanelProps {
   scene: SceneDefinition;
   step: StepDefinition | null;
   steps: StepDefinition[];
-  sqlTemplates: SqlTemplateResponse[];
   httpSources?: HttpSourceResponse[];
   sqlSources?: SqlSourceResponse[];
   stepIssues?: ValidationIssue[];
@@ -52,9 +57,8 @@ export function StepConfigPanel({
   scene,
   step,
   steps,
-  sqlTemplates,
-  httpSources: _httpSources = [],
-  sqlSources: _sqlSources = [],
+  httpSources = [],
+  sqlSources = [],
   stepIssues = [],
   onChange,
   onDelete,
@@ -63,6 +67,7 @@ export function StepConfigPanel({
   const [basicOpen, setBasicOpen] = useState(false);
   const [depsOpen, setDepsOpen] = useState(true);
   const [showTestDialog, setShowTestDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
   if (!step) {
     return (
@@ -266,7 +271,72 @@ export function StepConfigPanel({
         </CollapsibleContent>
       </Collapsible>
 
-      {/* 3. 详细逻辑配置 */}
+      {/* 3. 模板导入与来源展示 */}
+      {(step.type === "HTTP" || step.type === "SQL") && (
+        <div className="flex items-center gap-2 border-b pb-2">
+          {!readOnly && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-[10px] gap-1.5"
+              onClick={() => setShowImportDialog(true)}
+            >
+              <DownloadIcon className="size-3" />
+              从模板导入
+            </Button>
+          )}
+          {step.templateRef && (() => {
+            const ref = step.templateRef;
+            const currentSource = ref.type === "HTTP_SOURCE"
+              ? httpSources.find((s) => s.sourceCode === ref.sourceCode) ?? null
+              : sqlSources.find((s) => s.sourceCode === ref.sourceCode) ?? null;
+            const drifted = currentSource ? checkDrift(step, currentSource) : false;
+            return (
+              <div className="flex items-center gap-1.5 text-[10px]">
+                <Badge
+                  variant={drifted ? "destructive" : "secondary"}
+                  className="text-[8px] h-4 gap-1"
+                >
+                  {ref.type === "HTTP_SOURCE" ? "HTTP" : "SQL"}
+                  : {ref.sourceNameAtSnapshot ?? ref.sourceCode}
+                  {drifted && " (已偏离)"}
+                </Badge>
+                {!readOnly && drifted && currentSource && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-1.5 text-[9px] gap-1"
+                    onClick={() => {
+                      const resynced = resyncStepFromSource(step, currentSource);
+                      onChange(resynced);
+                      toast.success("已从模板重新同步配置");
+                    }}
+                  >
+                    <RefreshCwIcon className="size-3" />
+                    重新同步
+                  </Button>
+                )}
+                {!readOnly && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-5 px-1.5 text-[9px] gap-1"
+                    onClick={() => {
+                      onChange(detachTemplateRef(step));
+                      toast.success("已断开与模板的关联");
+                    }}
+                  >
+                    <UnlinkIcon className="size-3" />
+                    断开关联
+                  </Button>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* 4. 详细逻辑配置 */}
       <div>
         {step.type === "HTTP" ? (
           <HttpStepForm scene={scene} step={step} onChange={onChange} />
@@ -275,7 +345,6 @@ export function StepConfigPanel({
           <SqlStepForm
             scene={scene}
             step={step}
-            sqlTemplates={sqlTemplates}
             onChange={onChange}
           />
         ) : null}
@@ -287,7 +356,7 @@ export function StepConfigPanel({
         ) : null}
       </div>
 
-      {/* 4. 校验问题展示 */}
+      {/* 5. 校验问题展示 */}
       {stepIssues.length > 0 && (
         <div className="space-y-2 border-t pt-3">
           <h4 className="text-[10px] font-bold text-muted-foreground uppercase">发布校验问题</h4>
@@ -372,6 +441,21 @@ export function StepConfigPanel({
           onOpenChange={setShowTestDialog}
           onTestSuccess={() => {
             // 测试结果已在弹窗内展示，不再弹出额外提示
+          }}
+        />
+      )}
+
+      {/* 模板导入对话框 */}
+      {(step.type === "HTTP" || step.type === "SQL") && (
+        <TemplateImportDialog
+          open={showImportDialog}
+          onOpenChange={setShowImportDialog}
+          step={step}
+          httpSources={httpSources}
+          sqlSources={sqlSources}
+          onImport={(updatedStep) => {
+            onChange(updatedStep);
+            toast.success("已从模板导入配置");
           }}
         />
       )}

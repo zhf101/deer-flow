@@ -38,6 +38,7 @@ export function jsonToFields(
     return {
       name: key,
       label: labels[key] ?? "",
+      remark: labels[key] ?? "",
       type,
       required: false,
       batchEnabled: false,

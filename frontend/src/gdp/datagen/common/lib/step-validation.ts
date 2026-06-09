@@ -8,6 +8,7 @@
  */
 
 import type {
+  InputFieldDefinition,
   SceneDefinition,
   StepDefinition,
   ValidationIssue,
@@ -366,5 +367,108 @@ export function validateSceneForPublish(scene: SceneDefinition): ValidationIssue
     }
   }
 
+  addSemanticQualityWarnings(scene, issues);
+
   return issues;
+}
+
+function addSemanticQualityWarnings(
+  scene: SceneDefinition,
+  issues: ValidationIssue[],
+): void {
+  const remark = scene.sceneRemark?.trim() ?? "";
+  if (!remark) {
+    issues.push({
+      field: "sceneRemark",
+      message: "建议填写场景备注，说明场景能做什么、产出什么以及适用范围。",
+      level: "WARNING",
+    });
+  } else if (remark.length < 20) {
+    issues.push({
+      field: "sceneRemark",
+      message: "场景备注过短，建议说明场景用途、主要产出和执行副作用。",
+      level: "WARNING",
+    });
+  }
+
+  addSchemaSemanticWarnings(scene.inputSchema, "inputSchema", issues, {
+    skipNames: new Set([scene.environmentField]),
+  });
+  addSchemaSemanticWarnings(scene.resultSchema ?? [], "resultSchema", issues, {
+    resultMapping: scene.resultMapping ?? {},
+  });
+
+  scene.steps.forEach((step, index) => {
+    if (!step.enabled) return;
+    const outputMeta = step.outputMeta ?? {};
+    Object.keys(step.outputMapping ?? {}).forEach((outputName) => {
+      const meta = outputMeta[outputName] ?? {};
+      if (!meta.label?.trim()) {
+        issues.push({
+          field: `steps[${index}].outputMeta.${outputName}.label`,
+          message: `建议为步骤输出 ${step.stepId}.${outputName} 填写中文名，方便后续场景接龙。`,
+          level: "WARNING",
+        });
+      }
+      if (!meta.remark?.trim()) {
+        issues.push({
+          field: `steps[${index}].outputMeta.${outputName}.remark`,
+          message: `建议为步骤输出 ${step.stepId}.${outputName} 填写备注，说明输出业务含义。`,
+          level: "WARNING",
+        });
+      }
+    });
+  });
+}
+
+function addSchemaSemanticWarnings(
+  fields: InputFieldDefinition[],
+  prefix: string,
+  issues: ValidationIssue[],
+  options: {
+    skipNames?: Set<string>;
+    resultMapping?: Record<string, string>;
+    pathPrefix?: string;
+  } = {},
+): void {
+  const pathPrefix = options.pathPrefix ?? "$";
+  fields.forEach((field, index) => {
+    if (options.skipNames?.has(field.name)) return;
+    const fieldPrefix = `${prefix}[${index}]`;
+    const isContainer = field.type === "object" || field.type === "array";
+    const currentPath = field.type === "array"
+      ? `${pathPrefix}.${field.name}[*]`
+      : `${pathPrefix}.${field.name}`;
+
+    if (!isContainer) {
+      if (!field.label?.trim()) {
+        issues.push({
+          field: `${fieldPrefix}.label`,
+          message: `建议为字段 ${field.name} 填写中文名，方便 AI 理解字段含义。`,
+          level: "WARNING",
+        });
+      }
+      if (!field.remark?.trim()) {
+        issues.push({
+          field: `${fieldPrefix}.remark`,
+          message: `建议为字段 ${field.name} 填写备注，说明业务含义、来源或填写约束。`,
+          level: "WARNING",
+        });
+      }
+      if (options.resultMapping && !(currentPath in options.resultMapping)) {
+        issues.push({
+          field: `${fieldPrefix}.mapping`,
+          message: `结果字段 ${currentPath} 尚未配置输出映射，AI 会误判该场景产出。`,
+          level: "WARNING",
+        });
+      }
+    }
+
+    if (field.children?.length) {
+      addSchemaSemanticWarnings(field.children, `${fieldPrefix}.children`, issues, {
+        resultMapping: options.resultMapping,
+        pathPrefix: currentPath,
+      });
+    }
+  });
 }

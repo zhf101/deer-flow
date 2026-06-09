@@ -161,8 +161,16 @@ export function SqlOutputExtractionEditor({
           <div className="p-2 space-y-2">
             {Object.entries(step.outputMapping ?? {}).map(([varName, field]) => {
               const meta = step.outputMeta?.[varName] ?? {};
+              const missingLabel = !(meta.label ?? "").trim();
+              const missingRemark = !(meta.remark ?? "").trim();
               return (
-                <div key={varName} className="grid grid-cols-[120px_1fr_120px_1fr_48px] gap-2 px-4 items-center bg-muted/10 p-1.5 rounded">
+                <div
+                  key={varName}
+                  className={cn(
+                    "grid grid-cols-[120px_1fr_120px_1fr_48px] gap-2 px-4 items-center bg-muted/10 p-1.5 rounded border border-transparent",
+                    (missingLabel || missingRemark) && "bg-amber-50/35 border-amber-200",
+                  )}
+                >
                   <Input
                     className="h-7 text-[10px] font-mono bg-background"
                     value={field}
@@ -180,7 +188,10 @@ export function SqlOutputExtractionEditor({
                     />
                   </div>
                   <Input
-                    className="h-7 text-[10px] bg-background"
+                    className={cn(
+                      "h-7 text-[10px] bg-background",
+                      missingLabel && "border-amber-400 bg-amber-50/40",
+                    )}
                     value={meta.label ?? ""}
                     placeholder="中文名"
                     onChange={(e) => {
@@ -190,7 +201,10 @@ export function SqlOutputExtractionEditor({
                     }}
                   />
                   <Input
-                    className="h-7 text-[10px] bg-background"
+                    className={cn(
+                      "h-7 text-[10px] bg-background",
+                      missingRemark && "border-amber-400 bg-amber-50/40",
+                    )}
                     value={meta.remark ?? ""}
                     placeholder="备注"
                     onChange={(e) => {
@@ -218,8 +232,13 @@ export function SqlOutputExtractionEditor({
               className="w-full h-8 text-[10px] border border-dashed"
               onClick={() => {
                 const idx = Object.keys(step.outputMapping ?? {}).length + 1;
-                const next = { ...step.outputMapping, [`field_${idx}`]: "column_name" };
-                onChange({ ...step, outputMapping: next });
+                const varName = `field_${idx}`;
+                const next = { ...step.outputMapping, [varName]: "column_name" };
+                const nextMeta = {
+                  ...(step.outputMeta ?? {}),
+                  [varName]: { label: "", remark: "" },
+                };
+                onChange({ ...step, outputMapping: next, outputMeta: nextMeta });
               }}
             >
               <PlusIcon className="mr-1 size-3" />
