@@ -8,6 +8,8 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.gdp.datagen.config.common.models import (
+    CapabilitySideEffect,
+    CapabilityType,
     ConfigStatus,
     InputFieldType,
     SqlOperation,
@@ -138,6 +140,11 @@ class SqlSourceConfig(BaseModel):
         max_length=256,
         description="SQL 名称或用途说明，用于列表展示和人工识别。",
     )
+    tags: list[str] = Field(default_factory=list, description="SQL 配置业务标签，用于 Agent 检索和能力聚类。")
+    capabilityType: CapabilityType = Field(default=CapabilityType.QUERY, description="SQL 配置提供的业务能力类型。")
+    businessDomain: str | None = Field(default=None, max_length=128, description="SQL 配置所属业务域，例如交易、支付、库存。")
+    sideEffects: list[CapabilitySideEffect] = Field(default_factory=list, description="SQL 执行会造成的业务副作用，用于写操作确认和审计。")
+    agentDescription: str | None = Field(default=None, description="面向 Agent 的 SQL 能力说明，描述查询或写入目的、适用范围和关键产出。")
     sysCode: str = Field(
         ...,
         min_length=1,

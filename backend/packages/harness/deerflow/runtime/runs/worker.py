@@ -128,7 +128,7 @@ async def run_agent(
     *,
     ctx: RunContext,
     agent_factory: Any,
-    graph_input: dict,
+    graph_input: Any,
     config: dict,
     stream_modes: list[str] | None = None,
     stream_subgraphs: bool = False,

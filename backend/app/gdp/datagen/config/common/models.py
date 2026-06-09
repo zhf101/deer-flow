@@ -82,6 +82,32 @@ class SqlOperation(StrEnum):
     DELETE = "DELETE"
 
 
+class CapabilityType(StrEnum):
+    """Agent 可理解的业务能力类型。"""
+
+    CREATE = "CREATE"
+    UPDATE = "UPDATE"
+    QUERY = "QUERY"
+    ASSERT = "ASSERT"
+    COMPOSITE = "COMPOSITE"
+
+
+class CapabilityCondition(BaseModel):
+    """业务能力前置条件。"""
+
+    semanticType: str | None = Field(default=None, description="前置条件涉及的业务语义类型，例如 USER_ID、ORDER_ID。")
+    description: str = Field(..., min_length=1, description="前置条件的人类可读说明，用于 Agent 判断是否已满足。")
+    required: bool = Field(default=True, description="该条件是否为执行或编排该能力的必需条件。")
+
+
+class CapabilitySideEffect(BaseModel):
+    """业务能力副作用说明。"""
+
+    effectType: str = Field(..., min_length=1, max_length=128, description="副作用类型，例如 CREATE_ORDER、UPDATE_STATUS、WRITE_DB。")
+    target: str | None = Field(default=None, max_length=256, description="副作用影响的业务对象、表或外部资源。")
+    description: str | None = Field(default=None, description="副作用说明，用于执行前确认和审计。")
+
+
 class RetryErrorType(StrEnum):
     """触发 HTTP 重试的错误类型。"""
 
@@ -113,6 +139,9 @@ class InputFieldDefinition(BaseModel):
     type: InputFieldType = Field(..., description="字段类型。")
     required: bool = Field(default=True, description="是否必填。")
     defaultValue: Any = Field(default=None, description="默认值。")
+    semanticType: str | None = Field(default=None, max_length=128, description="字段业务语义类型，例如 USER_ID、ORDER_ID、SKU_ID，用于 Agent 变量绑定。")
+    aliases: list[str] = Field(default_factory=list, description="字段业务别名列表，用于自然语言检索和跨系统字段匹配。")
+    exampleValue: Any = Field(default=None, description="字段示例值，用于 Agent 理解字段格式，不参与运行时默认取值。")
     optionsSource: str | None = Field(default=None, description="枚举选项来源或静态选项配置。")
     validation: InputFieldValidation | None = Field(default=None, description="字段校验规则。")
     batchEnabled: bool = Field(default=False, description="是否支持批量输入。")

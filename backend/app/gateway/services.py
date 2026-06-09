@@ -17,6 +17,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from langchain_core.messages import BaseMessage
 from langchain_core.messages.utils import convert_to_messages
+from langgraph.types import Command
 
 from app.gateway.deps import get_run_context, get_run_manager, get_stream_bridge
 from app.gateway.utils import sanitize_log_param
@@ -112,7 +113,25 @@ def normalize_input(raw_input: dict[str, Any] | None) -> dict[str, Any]:
     return raw_input
 
 
+def build_graph_input(raw_input: dict[str, Any] | None, raw_command: Mapping[str, Any] | None = None) -> Any:
+    """构造传给 LangGraph 的输入。
+
+    普通运行使用规范化后的 input；恢复 interrupt 时使用 LangGraph
+    ``Command(resume=...)``。当两者同时存在时，command 优先，因为恢复
+    checkpoint 必须由 Command 驱动。
+    """
+
+    if raw_command is None:
+        return normalize_input(raw_input)
+    try:
+        return Command(**dict(raw_command))
+    except TypeError as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid command: {exc}") from exc
+
+
 _DEFAULT_ASSISTANT_ID = "lead_agent"
+_GDP_ASSISTANT_NAME = "gdp_agent"
+_GDP_ASSISTANT_NORMALIZED = "gdp-agent"
 
 
 # Whitelist of run-context keys that the langgraph-compat layer forwards from
@@ -178,11 +197,24 @@ def resolve_agent_factory(assistant_id: str | None):
     injected into ``configurable`` or ``context`` — see
     :func:`build_run_config`.  All ``assistant_id`` values therefore map to the
     same factory; the routing happens inside ``make_lead_agent`` when it reads
-    ``cfg["agent_name"]``.
+    ``cfg["agent_name"]``. ``gdp_agent`` 是独立业务图，直接返回 GDP 图工厂。
     """
+    if _is_gdp_assistant(assistant_id):
+        from app.gdp.agent.graph import make_gdp_agent
+
+        return make_gdp_agent
+
     from deerflow.agents.lead_agent.agent import make_lead_agent
 
     return make_lead_agent
+
+
+def _normalize_assistant_id(assistant_id: str) -> str:
+    return assistant_id.strip().lower().replace("_", "-")
+
+
+def _is_gdp_assistant(assistant_id: str | None) -> bool:
+    return bool(assistant_id and _normalize_assistant_id(assistant_id) == _GDP_ASSISTANT_NORMALIZED)
 
 
 def build_run_config(
@@ -239,8 +271,10 @@ def build_run_config(
 
     # Inject custom agent name when the caller specified a non-default assistant.
     # Honour an explicit agent_name in the active runtime options container.
-    if assistant_id and assistant_id != _DEFAULT_ASSISTANT_ID:
-        normalized = assistant_id.strip().lower().replace("_", "-")
+    if _is_gdp_assistant(assistant_id):
+        config.setdefault("run_name", _GDP_ASSISTANT_NAME)
+    elif assistant_id and assistant_id != _DEFAULT_ASSISTANT_ID:
+        normalized = _normalize_assistant_id(assistant_id)
         if not normalized or not re.fullmatch(r"[a-z0-9-]+", normalized):
             raise ValueError(f"Invalid assistant_id {assistant_id!r}: must contain only letters, digits, and hyphens after normalization.")
         if "configurable" in config:
@@ -308,7 +342,7 @@ async def start_run(
             body.assistant_id,
             on_disconnect=disconnect,
             metadata=body.metadata or {},
-            kwargs={"input": body.input, "config": body.config},
+            kwargs={"input": body.input, "command": body.command, "config": body.config},
             multitask_strategy=body.multitask_strategy,
             model_name=model_name,
         )
@@ -334,7 +368,7 @@ async def start_run(
         logger.warning("Failed to upsert thread_meta for %s (non-fatal)", sanitize_log_param(thread_id))
 
     agent_factory = resolve_agent_factory(body.assistant_id)
-    graph_input = normalize_input(body.input)
+    graph_input = build_graph_input(body.input, body.command)
     config = build_run_config(thread_id, body.config, body.metadata, assistant_id=body.assistant_id)
 
     # Merge DeerFlow-specific context overrides into both ``configurable`` and ``context``.

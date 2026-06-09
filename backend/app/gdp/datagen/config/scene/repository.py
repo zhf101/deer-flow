@@ -44,6 +44,12 @@ class DataFactorySceneRow(Base):
     scene_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="场景名称。")
     scene_type: Mapped[str | None] = mapped_column(String(128), comment="场景分类。")
     scene_remark: Mapped[str | None] = mapped_column(Text, comment="场景备注。")
+    tags_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景业务标签 JSON。")
+    capability_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="场景业务能力类型。")
+    business_domain: Mapped[str | None] = mapped_column(String(128), comment="场景所属业务域。")
+    preconditions_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景业务前置条件 JSON。")
+    side_effects_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景执行副作用 JSON。")
+    agent_description: Mapped[str | None] = mapped_column(Text, comment="面向 Agent 的能力说明。")
     status: Mapped[str] = mapped_column(String(32), nullable=False, comment="场景状态。")
     current_version_no: Mapped[int | None] = mapped_column(Integer, comment="当前编辑版本号。")
     published_version_no: Mapped[int | None] = mapped_column(Integer, comment="当前发布版本号。")
@@ -64,6 +70,12 @@ class DataFactorySceneVersionRow(Base):
     version_no: Mapped[int] = mapped_column(Integer, nullable=False, comment="版本号。")
     version_status: Mapped[str] = mapped_column(String(32), nullable=False, comment="版本状态。")
     input_schema_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景入参定义 JSON。")
+    tags_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景业务标签 JSON。")
+    capability_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="场景业务能力类型。")
+    business_domain: Mapped[str | None] = mapped_column(String(128), comment="场景所属业务域。")
+    preconditions_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景业务前置条件 JSON。")
+    side_effects_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景执行副作用 JSON。")
+    agent_description: Mapped[str | None] = mapped_column(Text, comment="面向 Agent 的能力说明。")
     result_schema_json: Mapped[str | None] = mapped_column(Text, comment="场景出参定义 JSON。")
     result_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景结果映射 JSON。")
     batch_config_json: Mapped[str] = mapped_column(Text, nullable=False, comment="批量执行配置 JSON。")
@@ -365,6 +377,12 @@ class SceneRepository:
                 scene_name=scene.sceneName,
                 scene_type=scene.sceneType,
                 scene_remark=scene.sceneRemark,
+                tags_json=_dumps(scene.tags),
+                capability_type=scene.capabilityType.value,
+                business_domain=scene.businessDomain,
+                preconditions_json=_dumps(_model_dump(scene.preconditions)),
+                side_effects_json=_dumps(_model_dump(scene.sideEffects)),
+                agent_description=scene.agentDescription,
                 status=SceneStatus.DRAFT.value,
                 current_version_no=1,
                 published_version_no=None,
@@ -545,6 +563,12 @@ class SceneRepository:
             scene_row.scene_name = scene.sceneName
             scene_row.scene_type = scene.sceneType
             scene_row.scene_remark = scene.sceneRemark
+            scene_row.tags_json = _dumps(scene.tags)
+            scene_row.capability_type = scene.capabilityType.value
+            scene_row.business_domain = scene.businessDomain
+            scene_row.preconditions_json = _dumps(_model_dump(scene.preconditions))
+            scene_row.side_effects_json = _dumps(_model_dump(scene.sideEffects))
+            scene_row.agent_description = scene.agentDescription
             scene_row.status = SceneStatus.DRAFT.value
             scene_row.updated_by = operator
             scene_row.updated_at = now
@@ -643,6 +667,12 @@ class SceneRepository:
             version_no=version_no,
             version_status=VersionStatus.DRAFT.value,
             input_schema_json=_dumps(_model_dump(scene.inputSchema)),
+            tags_json=_dumps(scene.tags),
+            capability_type=scene.capabilityType.value,
+            business_domain=scene.businessDomain,
+            preconditions_json=_dumps(_model_dump(scene.preconditions)),
+            side_effects_json=_dumps(_model_dump(scene.sideEffects)),
+            agent_description=scene.agentDescription,
             result_schema_json=_dumps(_model_dump(scene.resultSchema)) if scene.resultSchema else None,
             result_mapping_json=_dumps(scene.resultMapping),
             batch_config_json=_dumps(_model_dump(scene.batchConfig)),
@@ -665,6 +695,12 @@ class SceneRepository:
         now: datetime,
     ) -> None:
         row.input_schema_json = _dumps(_model_dump(scene.inputSchema))
+        row.tags_json = _dumps(scene.tags)
+        row.capability_type = scene.capabilityType.value
+        row.business_domain = scene.businessDomain
+        row.preconditions_json = _dumps(_model_dump(scene.preconditions))
+        row.side_effects_json = _dumps(_model_dump(scene.sideEffects))
+        row.agent_description = scene.agentDescription
         row.result_schema_json = _dumps(_model_dump(scene.resultSchema)) if scene.resultSchema else None
         row.result_mapping_json = _dumps(scene.resultMapping)
         row.batch_config_json = _dumps(_model_dump(scene.batchConfig))
@@ -861,6 +897,12 @@ class SceneRepository:
             sceneName=scene_row.scene_name,
             sceneRemark=scene_row.scene_remark,
             sceneType=scene_row.scene_type,
+            tags=_loads(version_row.tags_json, []),
+            capabilityType=version_row.capability_type,
+            businessDomain=version_row.business_domain,
+            preconditions=_loads(version_row.preconditions_json, []),
+            sideEffects=_loads(version_row.side_effects_json, []),
+            agentDescription=version_row.agent_description,
             inputSchema=_loads(version_row.input_schema_json, []),
             steps=steps,
             resultSchema=_loads(version_row.result_schema_json, None),
@@ -994,6 +1036,11 @@ class SceneRepository:
             sceneName=row.scene_name,
             sceneRemark=row.scene_remark,
             sceneType=row.scene_type,
+            tags=_loads(row.tags_json, []),
+            capabilityType=row.capability_type,
+            businessDomain=row.business_domain,
+            sideEffects=_loads(row.side_effects_json, []),
+            agentDescription=row.agent_description,
             status=row.status,
             currentVersionNo=row.current_version_no,
             publishedVersionNo=row.published_version_no,

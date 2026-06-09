@@ -8,6 +8,9 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from app.gdp.datagen.config.common.models import (
+    CapabilityCondition,
+    CapabilitySideEffect,
+    CapabilityType,
     ErrorMapping,
     HttpMethod,
     HttpTimeoutConfig,
@@ -170,6 +173,12 @@ class SceneDefinition(BaseModel):
     sceneName: str = Field(..., min_length=1, max_length=256, description="场景名称。")
     sceneRemark: str | None = Field(default=None, description="场景备注。")
     sceneType: str | None = Field(default=None, max_length=128, description="场景分类。")
+    tags: list[str] = Field(default_factory=list, description="场景业务标签，用于 Agent 检索和能力聚类。")
+    capabilityType: CapabilityType = Field(default=CapabilityType.QUERY, description="场景对外提供的业务能力类型。")
+    businessDomain: str | None = Field(default=None, max_length=128, description="场景所属业务域，例如交易、支付、库存。")
+    preconditions: list[CapabilityCondition] = Field(default_factory=list, description="执行该场景前需要满足的业务前置条件。")
+    sideEffects: list[CapabilitySideEffect] = Field(default_factory=list, description="场景执行会造成的业务副作用，用于写操作确认和审计。")
+    agentDescription: str | None = Field(default=None, description="面向 Agent 的能力说明，描述场景能完成什么任务、适用范围和关键产出。")
     environmentField: Literal["env"] = Field(default="env", description="环境字段名。")
     inputSchema: list[InputFieldDefinition] = Field(default_factory=list, description="场景入参定义。")
     steps: list[StepDefinition] = Field(default_factory=list, description="场景步骤。")
@@ -188,6 +197,11 @@ class SceneSummary(BaseModel):
     sceneName: str
     sceneRemark: str | None = None
     sceneType: str | None = None
+    tags: list[str] = Field(default_factory=list, description="场景业务标签。")
+    capabilityType: CapabilityType = Field(default=CapabilityType.QUERY, description="场景业务能力类型。")
+    businessDomain: str | None = Field(default=None, description="场景所属业务域。")
+    sideEffects: list[CapabilitySideEffect] = Field(default_factory=list, description="场景执行副作用摘要。")
+    agentDescription: str | None = Field(default=None, description="面向 Agent 的能力说明。")
     status: SceneStatus
     currentVersionNo: int | None = None
     publishedVersionNo: int | None = None

@@ -13,6 +13,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.gdp.datagen.config.common.models import (
+    CapabilitySideEffect,
+    CapabilityType,
     ConfigStatus,
     ErrorMapping,
     HttpMethod,
@@ -42,6 +44,11 @@ class HttpSourceConfig(BaseModel):
         max_length=256,
         description="接口名称或用途说明，用于列表展示和人工识别。",
     )
+    tags: list[str] = Field(default_factory=list, description="HTTP 接口业务标签，用于 Agent 检索和能力聚类。")
+    capabilityType: CapabilityType = Field(default=CapabilityType.QUERY, description="HTTP 接口提供的业务能力类型。")
+    businessDomain: str | None = Field(default=None, max_length=128, description="HTTP 接口所属业务域，例如交易、支付、库存。")
+    sideEffects: list[CapabilitySideEffect] = Field(default_factory=list, description="HTTP 接口调用会造成的业务副作用，用于写操作确认和审计。")
+    agentDescription: str | None = Field(default=None, description="面向 Agent 的接口能力说明，描述接口用途、适用范围和关键产出。")
     sysCode: str = Field(
         ...,
         min_length=1,

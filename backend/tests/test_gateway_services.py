@@ -169,6 +169,38 @@ def test_normalize_input_handles_non_human_roles():
     assert result["messages"][2].tool_call_id == "call-1"
 
 
+def test_build_graph_input_uses_normalized_input_without_command():
+    from langchain_core.messages import HumanMessage
+
+    from app.gateway.services import build_graph_input
+
+    result = build_graph_input({"messages": [{"role": "user", "content": "hi"}]})
+
+    assert isinstance(result["messages"][0], HumanMessage)
+
+
+def test_build_graph_input_command_takes_priority_over_input():
+    from langgraph.types import Command
+
+    from app.gateway.services import build_graph_input
+
+    result = build_graph_input({"messages": [{"role": "user", "content": "hi"}]}, {"resume": {"approved": True}})
+
+    assert isinstance(result, Command)
+    assert result.resume == {"approved": True}
+
+
+def test_build_graph_input_rejects_invalid_command():
+    import pytest
+    from fastapi import HTTPException
+
+    from app.gateway.services import build_graph_input
+
+    with pytest.raises(HTTPException) as excinfo:
+        build_graph_input(None, {"unknown": "bad"})
+    assert excinfo.value.status_code == 400
+
+
 def test_build_run_config_basic():
     from app.gateway.services import build_run_config
 
@@ -252,8 +284,19 @@ def test_build_run_config_context_custom_agent_injects_agent_name():
     assert "configurable" not in config
 
 
-def test_resolve_agent_factory_returns_make_lead_agent():
-    """resolve_agent_factory always returns make_lead_agent regardless of assistant_id."""
+def test_build_run_config_gdp_agent_does_not_inject_agent_name():
+    """gdp_agent 是独立业务图，不应走自定义 Lead Agent 的 agent_name 注入。"""
+    from app.gateway.services import build_run_config
+
+    config = build_run_config("thread-1", None, None, assistant_id="gdp_agent")
+
+    assert config["configurable"]["thread_id"] == "thread-1"
+    assert "agent_name" not in config["configurable"]
+    assert config["run_name"] == "gdp_agent"
+
+
+def test_resolve_agent_factory_returns_make_lead_agent_for_default_and_custom():
+    """默认和普通自定义 assistant 继续走 make_lead_agent。"""
     from app.gateway.services import resolve_agent_factory
     from deerflow.agents.lead_agent.agent import make_lead_agent
 
@@ -261,6 +304,15 @@ def test_resolve_agent_factory_returns_make_lead_agent():
     assert resolve_agent_factory("lead_agent") is make_lead_agent
     assert resolve_agent_factory("finalis") is make_lead_agent
     assert resolve_agent_factory("custom-agent-123") is make_lead_agent
+
+
+def test_resolve_agent_factory_returns_gdp_agent_factory():
+    """gdp_agent assistant_id 直接走 GDP 业务图。"""
+    from app.gateway.services import resolve_agent_factory
+    from app.gdp.agent.graph import make_gdp_agent
+
+    assert resolve_agent_factory("gdp_agent") is make_gdp_agent
+    assert resolve_agent_factory("gdp-agent") is make_gdp_agent
 
 
 # ---------------------------------------------------------------------------

@@ -194,6 +194,11 @@ async def _create_stop_order_scene(client: AsyncClient) -> None:
         json={
             "sceneCode": "stopOrderScene",
             "sceneName": "Stop on error follows scene order",
+            "sceneRemark": "测试 STOP_ON_ERROR 策略按场景步骤顺序停止执行。",
+            "tags": ["order", "error-policy"],
+            "capabilityType": "QUERY",
+            "businessDomain": "trade",
+            "agentDescription": "验证 HTTP 步骤失败后，场景按 STOP_ON_ERROR 策略停止后续步骤。",
             "inputSchema": [
                 {
                     "name": "userId",
@@ -309,6 +314,11 @@ async def _create_http_sql_scene(client: AsyncClient) -> None:
         json={
             "sceneCode": "httpSqlScene",
             "sceneName": "HTTP and SQLite SQL scene",
+            "sceneRemark": "先调用认证接口获取 Token，再查询库存数据。",
+            "tags": ["auth", "inventory"],
+            "capabilityType": "QUERY",
+            "businessDomain": "trade",
+            "agentDescription": "根据用户和商品信息获取访问令牌并查询库存数量。",
             "inputSchema": [
                 {
                     "name": "userId",
@@ -405,6 +415,11 @@ async def _create_sql_scene(client: AsyncClient) -> None:
         json={
             "sceneCode": "sqliteScene",
             "sceneName": "SQLite SQL scene",
+            "sceneRemark": "按商品 SKU 查询 SQLite 库存数据。",
+            "tags": ["inventory"],
+            "capabilityType": "QUERY",
+            "businessDomain": "trade",
+            "agentDescription": "根据商品 SKU 查询库存数量。",
             "inputSchema": [
                 {
                     "name": "skuId",

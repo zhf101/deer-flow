@@ -42,6 +42,11 @@ try:
         DataFactorySceneVersionRow,
     )
     from app.gdp.datagen.config.sqlsource.repository import DataFactorySqlSourceRow
+    from app.gdp.datagen.config.task.repository import (
+        DataFactoryDatagenTaskEventRow,
+        DataFactoryDatagenTaskRunRow,
+        DataFactoryDatagenTaskStepRow,
+    )
 except ImportError:
     DataFactoryConfigAuditRow = None
     DataFactoryDatasourceRow = None
@@ -60,6 +65,9 @@ except ImportError:
     DataFactoryServiceEndpointRow = None
     DataFactorySqlSourceRow = None
     DataFactorySystemRow = None
+    DataFactoryDatagenTaskEventRow = None
+    DataFactoryDatagenTaskRunRow = None
+    DataFactoryDatagenTaskStepRow = None
 
 __all__ = [
     "FeedbackRow",
@@ -84,4 +92,7 @@ __all__ = [
     "DataFactoryServiceEndpointRow",
     "DataFactorySqlSourceRow",
     "DataFactorySystemRow",
+    "DataFactoryDatagenTaskEventRow",
+    "DataFactoryDatagenTaskRunRow",
+    "DataFactoryDatagenTaskStepRow",
 ]

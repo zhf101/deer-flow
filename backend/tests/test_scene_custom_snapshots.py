@@ -47,6 +47,11 @@ async def test_custom_http_and_sql_steps_are_saved_as_scene_snapshots(scene_repo
     assert http_step.requestMapping["headers"]["Trace-Id"] == "${system.uuid}"
     assert sql_step.normalizedSql == "select * from orders where id = :orderId"
     assert sql_step.paramMapping == {"orderId": "${steps.create_order.outputs.orderNo}"}
+    assert loaded.definition.tags == ["order"]
+    assert loaded.definition.capabilityType == "CREATE"
+    assert loaded.definition.businessDomain == "trade"
+    assert loaded.definition.sideEffects[0].effectType == "CREATE_ORDER"
+    assert loaded.definition.agentDescription == "创建订单并查询订单信息，返回订单号。"
 
     session_factory = get_session_factory()
     assert session_factory is not None
@@ -79,6 +84,8 @@ async def test_editing_published_scene_creates_new_draft_version(scene_repo: Sce
 
     updated = _scene("versionedScene")
     updated.sceneName = "Updated custom scene"
+    updated.tags = ["updated-order"]
+    updated.agentDescription = "更新后的订单场景能力说明。"
     updated.steps[0].path = "/orders/v2"
     draft = await scene_repo.update_scene("versionedScene", updated)
 
@@ -86,11 +93,13 @@ async def test_editing_published_scene_creates_new_draft_version(scene_repo: Sce
     assert draft.versionStatus == "DRAFT"
     assert draft.definition.status == SceneStatus.DRAFT
     assert draft.definition.steps[0].path == "/orders/v2"
+    assert draft.definition.tags == ["updated-order"]
 
     published = await scene_repo.get_scene("versionedScene", version_no=1)
     assert published.versionStatus == "PUBLISHED"
     assert published.definition.status == SceneStatus.PUBLISHED
     assert published.definition.steps[0].path == "/orders"
+    assert published.definition.tags == ["order"]
 
 
 @pytest.mark.anyio
@@ -196,6 +205,18 @@ def test_publish_reports_semantic_quality_warnings_without_blocking_publish():
     assert any(issue.field == "steps[0].outputMeta.orderNo.label" for issue in warnings)
 
 
+def test_publish_rejects_missing_agent_capability_contract():
+    scene = _scene("missingCapabilityScene")
+    scene.tags = []
+    scene.agentDescription = ""
+
+    result = validate_scene_publish(scene)
+
+    assert result.valid is False
+    assert any(issue.field == "tags" for issue in result.issues)
+    assert any(issue.field == "agentDescription" for issue in result.issues)
+
+
 def test_publish_rejects_missing_step_output_name():
     scene = _scene("missingOutputScene")
     sql_step = scene.steps[1]
@@ -233,6 +254,18 @@ def _scene(scene_code: str) -> SceneDefinition:
     return SceneDefinition(
         sceneCode=scene_code,
         sceneName="Custom scene",
+        sceneRemark="创建订单后查询订单信息，验证订单号可被后续步骤使用。",
+        tags=["order"],
+        capabilityType="CREATE",
+        businessDomain="trade",
+        sideEffects=[
+            {
+                "effectType": "CREATE_ORDER",
+                "target": "orders",
+                "description": "调用创建订单接口会新增一笔测试订单。",
+            }
+        ],
+        agentDescription="创建订单并查询订单信息，返回订单号。",
         inputSchema=[
             InputFieldDefinition(
                 name="env",

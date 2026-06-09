@@ -8,7 +8,7 @@ from typing import Any
 
 from sqlglot import parse_one
 
-from app.gdp.datagen.config.common.models import SqlOperation
+from app.gdp.datagen.config.common.models import CapabilityType, SqlOperation
 from app.gdp.datagen.config.scene.models import (
     AssertStepDefinition,
     HttpStepDefinition,
@@ -60,6 +60,7 @@ def validate_scene_publish(scene: SceneDefinition) -> ValidationResult:
         _validate_step_variable_refs(field, step, steps_by_id, issues)
 
     _validate_result_mapping(scene.resultMapping, steps_by_id, issues)
+    _validate_scene_capability(scene, issues)
     _warn_semantic_quality(scene, issues)
     return ValidationResult(valid=not _has_errors(issues), issues=issues)
 
@@ -205,6 +206,15 @@ def _validate_result_mapping(
 ) -> None:
     for ref_step_id, output_name in _extract_step_output_refs(result_mapping):
         _validate_output_ref("resultMapping", ref_step_id, output_name, steps_by_id, issues)
+
+
+def _validate_scene_capability(scene: SceneDefinition, issues: list[ValidationIssue]) -> None:
+    if not scene.tags:
+        issues.append(ValidationIssue(field="tags", message="发布场景前必须填写至少一个业务标签，供 Agent 检索使用。"))
+    if not (scene.agentDescription or "").strip():
+        issues.append(ValidationIssue(field="agentDescription", message="发布场景前必须填写 Agent 能力说明，描述场景用途、适用范围和关键产出。"))
+    if scene.capabilityType in {CapabilityType.CREATE, CapabilityType.UPDATE, CapabilityType.COMPOSITE} and not scene.sideEffects:
+        issues.append(ValidationIssue(field="sideEffects", message="写入或复合能力场景发布前必须说明业务副作用，用于执行前确认。"))
 
 
 def _warn_semantic_quality(scene: SceneDefinition, issues: list[ValidationIssue]) -> None:

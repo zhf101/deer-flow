@@ -44,6 +44,7 @@ from app.gdp.datagen.config.scene.repository import (
 from app.gdp.datagen.config.sqlsource.models import SqlSourceConfig
 from app.gdp.datagen.config.sqlsource.repository import DataFactorySqlSourceRow, SqlSourceRepository
 from app.gdp.datagen.config.sqlsource.service import SqlSourceService
+from app.gdp.datagen.config.task.repository import DataFactoryDatagenTaskEventRow, DataFactoryDatagenTaskRunRow, DataFactoryDatagenTaskStepRow
 from deerflow.persistence import models as grouped_persistence_models
 from deerflow.persistence.base import Base
 from deerflow.persistence.engine import close_engine, get_session_factory, init_engine
@@ -78,6 +79,9 @@ CURRENT_ROW_CLASSES = {
     "DataFactoryServiceEndpointRow": DataFactoryServiceEndpointRow,
     "DataFactorySqlSourceRow": DataFactorySqlSourceRow,
     "DataFactorySystemRow": DataFactorySystemRow,
+    "DataFactoryDatagenTaskEventRow": DataFactoryDatagenTaskEventRow,
+    "DataFactoryDatagenTaskRunRow": DataFactoryDatagenTaskRunRow,
+    "DataFactoryDatagenTaskStepRow": DataFactoryDatagenTaskStepRow,
 }
 
 
@@ -154,6 +158,9 @@ def test_grouped_persistence_models_register_datagen_tables():
         "df_service_endpoint",
         "df_sql_source",
         "df_system",
+        "df_datagen_task_event",
+        "df_datagen_task_run",
+        "df_datagen_task_step",
     }
 
     assert table_names.issubset(Base.metadata.tables)
@@ -228,6 +235,11 @@ async def test_http_source_accepts_enabled_system(datagen_services):
     saved = await http.upsert_http_source(_http_source("order"))
 
     assert saved.sysCode == "order"
+    assert saved.tags == ["user"]
+    assert saved.capabilityType == "CREATE"
+    assert saved.businessDomain == "account"
+    assert saved.sideEffects[0].effectType == "CREATE_USER"
+    assert saved.agentDescription == "创建测试用户并返回用户标识。"
 
 
 @pytest.mark.anyio
@@ -283,6 +295,11 @@ async def test_sql_source_accepts_enabled_datasource(datagen_services):
 
     assert saved.sysCode == "trade"
     assert saved.datasourceCode == "tradeDb"
+    assert saved.tags == ["user"]
+    assert saved.capabilityType == "QUERY"
+    assert saved.businessDomain == "account"
+    assert saved.sideEffects == []
+    assert saved.agentDescription == "按用户标识查询用户信息。"
 
 
 @pytest.mark.anyio
@@ -354,6 +371,17 @@ def _http_source(sys_code: str) -> HttpSourceConfig:
     return HttpSourceConfig(
         sourceCode="createUserApi",
         sourceName="Create user API",
+        tags=["user"],
+        capabilityType="CREATE",
+        businessDomain="account",
+        sideEffects=[
+            {
+                "effectType": "CREATE_USER",
+                "target": "users",
+                "description": "调用接口会新增测试用户。",
+            }
+        ],
+        agentDescription="创建测试用户并返回用户标识。",
         sysCode=sys_code,
         path="/users",
         method=HttpMethod.POST,
@@ -367,6 +395,10 @@ def _sql_source(sys_code: str, datasource_code: str) -> SqlSourceConfig:
     return SqlSourceConfig(
         sourceCode="queryUserSql",
         sourceName="Query user SQL",
+        tags=["user"],
+        capabilityType="QUERY",
+        businessDomain="account",
+        agentDescription="按用户标识查询用户信息。",
         sysCode=sys_code,
         datasourceCode=datasource_code,
         operation=SqlOperation.SELECT,

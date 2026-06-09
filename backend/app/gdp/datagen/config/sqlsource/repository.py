@@ -31,6 +31,11 @@ class DataFactorySqlSourceRow(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, comment="主键 ID。")
     source_code: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, comment="SQL 配置唯一编码。")
     source_name: Mapped[str] = mapped_column(String(256), nullable=False, comment="SQL 配置名称。")
+    tags_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 配置业务标签 JSON。")
+    capability_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="SQL 配置业务能力类型。")
+    business_domain: Mapped[str | None] = mapped_column(String(128), comment="SQL 配置所属业务域。")
+    side_effects_json: Mapped[str] = mapped_column(Text, nullable=False, comment="SQL 执行副作用 JSON。")
+    agent_description: Mapped[str | None] = mapped_column(Text, comment="面向 Agent 的 SQL 能力说明。")
 
     # 所属系统与数据源引用
     sys_code: Mapped[str] = mapped_column(String(64), nullable=False, comment="所属系统编码，关联 df_system.sys_code。")
@@ -116,6 +121,11 @@ class SqlSourceRepository:
                     id=_new_id(),
                     source_code=config.sourceCode,
                     source_name=config.sourceName,
+                    tags_json=_dumps(config.tags),
+                    capability_type=config.capabilityType.value,
+                    business_domain=config.businessDomain,
+                    side_effects_json=_dumps([item.model_dump(mode="json") for item in config.sideEffects]),
+                    agent_description=config.agentDescription,
                     sys_code=config.sysCode,
                     datasource_code=config.datasourceCode,
                     operation=config.operation.value,
@@ -136,6 +146,11 @@ class SqlSourceRepository:
                 action = "CREATE_SQL_SOURCE"
             else:
                 row.source_name = config.sourceName
+                row.tags_json = _dumps(config.tags)
+                row.capability_type = config.capabilityType.value
+                row.business_domain = config.businessDomain
+                row.side_effects_json = _dumps([item.model_dump(mode="json") for item in config.sideEffects])
+                row.agent_description = config.agentDescription
                 row.sys_code = config.sysCode
                 row.datasource_code = config.datasourceCode
                 row.operation = config.operation.value
@@ -211,6 +226,11 @@ class SqlSourceRepository:
             id=row.id,
             sourceCode=row.source_code,
             sourceName=row.source_name,
+            tags=_loads(row.tags_json, []),
+            capabilityType=row.capability_type,
+            businessDomain=row.business_domain,
+            sideEffects=_loads(row.side_effects_json, []),
+            agentDescription=row.agent_description,
             sysCode=row.sys_code,
             datasourceCode=row.datasource_code,
             operation=row.operation,
