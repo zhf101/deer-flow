@@ -71,7 +71,6 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   const [sqlSources, setSqlSources] = useState<SqlSourceResponse[]>([]);
   const [loading, setLoading] = useState(!!sceneCode);
   const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
-  const [orchView, setOrchView] = useState<"list" | "canvas">("list");
   const [showRunDialog, setShowRunDialog] = useState(false);
 
   useEffect(() => {
@@ -108,6 +107,30 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   useEffect(() => {
     setIssues(validateSceneForPublish(scene));
   }, [scene]);
+
+  // 将校验问题按步骤分组，供侧边栏导航显示 ERROR 红点
+  const stepIssueCounts = useMemo(() => {
+    const counts = Array.from({ length: STEPS.length }, () => ({ errors: 0, warnings: 0 }));
+    for (const issue of issues) {
+      let stepIdx = -1;
+      if (issue.field === "sceneCode" || issue.field === "sceneName" || issue.field === "sceneRemark") {
+        stepIdx = 0;
+      } else if (issue.field.startsWith("inputSchema")) {
+        stepIdx = 1;
+      } else if (issue.field.startsWith("step:") || issue.field.startsWith("steps[")) {
+        stepIdx = 2;
+      } else if (issue.field.startsWith("resultMapping") || issue.field.startsWith("resultSchema")) {
+        stepIdx = 3;
+      } else if (issue.field.startsWith("batchConfig")) {
+        stepIdx = 4;
+      }
+      if (stepIdx >= 0 && stepIdx < counts.length) {
+        if (issue.level === "ERROR") counts[stepIdx]!.errors++;
+        else if (issue.level === "WARNING") counts[stepIdx]!.warnings++;
+      }
+    }
+    return counts;
+  }, [issues]);
 
   const currentSceneSnapshot = useMemo(() => buildSceneSnapshot(scene), [scene]);
   const hasUnsavedChanges = persistedSceneCode === null || currentSceneSnapshot !== lastSavedSnapshot;
@@ -234,6 +257,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
         runPublish={runPublish}
         onRun={persistedSceneCode && scene.status === "PUBLISHED" ? () => setShowRunDialog(true) : undefined}
         readOnly={readOnly}
+        stepIssueCounts={stepIssueCounts}
       />
 
       {/* 主内容区域 */}
@@ -251,8 +275,6 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
             <div className="h-full p-4">
               <LogicOrchestrationStep
                 scene={scene}
-                orchView={orchView}
-                setOrchView={setOrchView}
                 httpSources={httpSources}
                 sqlSources={sqlSources}
                 issues={issues}
@@ -353,7 +375,6 @@ function normalizeStep(step: StepDefinition, index: number): StepDefinition {
     enabled: step.enabled ?? true,
     dependsOn: step.dependsOn ?? [],
     description: step.description ?? null,
-    position: step.position ?? null,
     templateRef: step.templateRef ?? null,
     outputMapping: step.outputMapping ?? {},
     outputMeta: step.outputMeta ?? null,

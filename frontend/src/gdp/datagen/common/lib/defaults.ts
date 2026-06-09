@@ -109,7 +109,6 @@ export function createDefaultStep(type: StepType, index: number): StepDefinition
     enabled: true,
     dependsOn: [],
     description: "",
-    position: { x: 120 + index * 120, y: 120 + index * 36 },
     outputMapping: {},
     outputMeta: null,
   };

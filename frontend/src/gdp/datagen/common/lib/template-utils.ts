@@ -64,7 +64,7 @@ const SOURCE_AUDIT_KEYS = [
 /** Step 配置中不参与 configHash 的字段 */
 const STEP_NON_CONFIG_KEYS = [
   "stepId", "stepName", "executionOrder", "enabled", "dependsOn",
-  "description", "position", "templateRef", "type",
+  "description", "templateRef", "type",
   "sourceName", // 仅用于展示，不参与配置对比
 ];
 
@@ -106,7 +106,6 @@ export function httpSourceToStep(
     dependsOn: [],
     description: `从模板 ${source.sourceName} 导入`,
     executionOrder: existingSteps.length + 1,
-    position: null,
     outputMapping: source.outputMapping ?? {},
     outputMeta: source.outputMeta ?? null,
 
@@ -175,7 +174,6 @@ export function sqlSourceToStep(
     dependsOn: [],
     description: `从模板 ${source.sourceName} 导入`,
     executionOrder: existingSteps.length + 1,
-    position: null,
     outputMapping: {},
     outputMeta: null,
 

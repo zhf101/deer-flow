@@ -95,7 +95,6 @@ class DataFactorySceneStepRow(Base):
     step_type: Mapped[str] = mapped_column(String(32), nullable=False, comment="步骤类型。")
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, comment="是否启用。")
     depends_on_json: Mapped[str] = mapped_column(Text, nullable=False, comment="步骤依赖 JSON。")
-    position_json: Mapped[str | None] = mapped_column(Text, comment="画布坐标 JSON。")
     description: Mapped[str | None] = mapped_column(Text, comment="步骤说明。")
     output_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="输出映射 JSON。")
     output_meta_json: Mapped[str | None] = mapped_column(Text, comment="输出变量元数据 JSON。")
@@ -702,7 +701,6 @@ class SceneRepository:
                 step_type=step.type.value,
                 enabled=step.enabled,
                 depends_on_json=_dumps(step.dependsOn),
-                position_json=_dumps(_model_dump(step.position)) if step.position else None,
                 description=step.description,
                 output_mapping_json=_dumps(step.outputMapping),
                 output_meta_json=_dumps(step.outputMeta) if step.outputMeta else None,
@@ -939,7 +937,6 @@ class SceneRepository:
             "enabled": step_row.enabled,
             "dependsOn": _loads(step_row.depends_on_json, []),
             "description": step_row.description,
-            "position": _loads(step_row.position_json, None),
             "outputMapping": _loads(step_row.output_mapping_json, {}),
             "outputMeta": _loads(step_row.output_meta_json, None),
         }

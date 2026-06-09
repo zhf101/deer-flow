@@ -2,14 +2,12 @@ import {
   DatabaseIcon,
   GlobeIcon,
   ListIcon,
-  NetworkIcon,
   XIcon,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 
@@ -21,14 +19,11 @@ import type {
   ValidationIssue,
 } from "../common/lib/types";
 
-import { FlowCanvas } from "./flow/flow-canvas";
 import { StepConfigPanel } from "./step-config-panel";
 import { StepListView } from "./step-list-view";
 
 interface LogicOrchestrationStepProps {
   scene: SceneDefinition;
-  orchView: "list" | "canvas";
-  setOrchView: (view: "list" | "canvas") => void;
   httpSources?: HttpSourceResponse[];
   sqlSources?: SqlSourceResponse[];
   issues?: ValidationIssue[];
@@ -39,13 +34,11 @@ interface LogicOrchestrationStepProps {
   readOnly?: boolean;
 }
 
-/** 表示“显示画布/列表视图”的哨兵值。 */
-const CANVAS_TAB = "__canvas__";
+/** 表示“显示步骤列表”的哨兵值。 */
+const LIST_TAB = "__list__";
 
 export function LogicOrchestrationStep({
   scene,
-  orchView,
-  setOrchView,
   httpSources,
   sqlSources,
   issues = [],
@@ -57,25 +50,27 @@ export function LogicOrchestrationStep({
 }: LogicOrchestrationStepProps) {
   // 已打开步骤标签的有序 ID 列表（stepId 字符串）。
   const [openTabs, setOpenTabs] = useState<string[]>([]);
-  // 当前激活的标签：stepId 或 CANVAS_TAB。
-  const [activeTabId, setActiveTabId] = useState<string>(CANVAS_TAB);
+  // 当前激活的标签：stepId 或 LIST_TAB。
+  const [activeTabId, setActiveTabId] = useState<string>(LIST_TAB);
 
   // 解析当前激活的步骤定义（当步骤标签激活时）。
   const activeStep = useMemo(
     () =>
-      activeTabId === CANVAS_TAB
+      activeTabId === LIST_TAB
         ? null
         : scene.steps.find((s) => s.stepId === activeTabId) ?? null,
     [scene.steps, activeTabId],
   );
 
   // 打开或激活步骤标签。
-  const openStep = useCallback((stepId: string) => {
+  const openStep = useCallback((stepId: string, options: { activate?: boolean } = { activate: true }) => {
     setOpenTabs((prev) => (prev.includes(stepId) ? prev : [...prev, stepId]));
-    setActiveTabId(stepId);
+    if (options.activate !== false) {
+      setActiveTabId(stepId);
+    }
   }, []);
 
-  // 关闭步骤标签，并激活相邻标签或回退到画布。
+  // 关闭步骤标签，并激活相邻标签或回退到步骤列表。
   const closeTab = useCallback(
     (stepId: string) => {
       setOpenTabs((prev) => {
@@ -84,13 +79,13 @@ export function LogicOrchestrationStep({
         const next = [...prev];
         next.splice(idx, 1);
 
-        // 如果关闭的是当前标签，则激活相邻标签或画布。
+        // 如果关闭的是当前标签，则激活相邻标签或步骤列表。
         if (activeTabId === stepId) {
           if (next.length > 0) {
-            const neighbor = next[Math.min(idx, next.length - 1)] ?? CANVAS_TAB;
+            const neighbor = next[Math.min(idx, next.length - 1)] ?? LIST_TAB;
             setActiveTabId(neighbor);
           } else {
-            setActiveTabId(CANVAS_TAB);
+            setActiveTabId(LIST_TAB);
           }
         }
         return next;
@@ -104,7 +99,7 @@ export function LogicOrchestrationStep({
     (id: string) => {
       setOpenTabs((prev) => prev.filter((t) => t !== id));
       if (activeTabId === id) {
-        setActiveTabId(CANVAS_TAB);
+        setActiveTabId(LIST_TAB);
       }
       deleteStep(id);
     },
@@ -124,12 +119,10 @@ export function LogicOrchestrationStep({
     [addStep, scene.steps.length, openStep],
   );
 
-  // 点击画布或列表中的节点时，打开或激活对应标签。
+  // 点击列表中的步骤时，打开并激活对应配置标签。
   const handleSelectStep = useCallback(
-    (stepId: string | null) => {
-      if (stepId) {
-        openStep(stepId);
-      }
+    (stepId: string) => {
+      openStep(stepId);
     },
     [openStep],
   );
@@ -153,7 +146,8 @@ export function LogicOrchestrationStep({
         }),
       );
       if (violation) {
-        toast.error(`无法移动：步骤「${violation.stepName || violation.stepId}」不能出现在其依赖项之前`);
+        const violationName = violation.stepName?.trim() ? violation.stepName : violation.stepId;
+        toast.error(`无法移动：步骤「${violationName}」不能出现在其依赖项之前`);
         return;
       }
 
@@ -162,31 +156,25 @@ export function LogicOrchestrationStep({
     [readOnly, scene, setScene],
   );
 
-  // 画布中当前被选中并高亮的步骤。
-  const selectedStepId =
-    activeTabId !== CANVAS_TAB && openTabs.includes(activeTabId)
-      ? activeTabId
-      : null;
-
   return (
     <div className="h-full animate-in fade-in slide-in-from-left-2 duration-300 flex flex-col overflow-hidden rounded-lg border bg-card">
       {/* ── 标签栏 ── */}
       <div className="flex items-center border-b bg-muted/5 shrink-0">
-        {/* 画布标签（始终存在） */}
+        {/* 步骤列表标签（始终存在） */}
         <button
           type="button"
-          onClick={() => setActiveTabId(CANVAS_TAB)}
+          onClick={() => setActiveTabId(LIST_TAB)}
           className={cn(
             "flex items-center gap-2 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors shrink-0",
-            activeTabId === CANVAS_TAB
+            activeTabId === LIST_TAB
               ? "border-primary text-foreground bg-background"
               : "border-transparent text-muted-foreground hover:text-foreground hover:bg-muted/50",
           )}
         >
-          <NetworkIcon className="size-3.5" />
-          编排画布
+          <ListIcon className="size-3.5" />
+          步骤列表
           <Badge variant="secondary" className="text-[9px] h-4 px-1.5 ml-0.5">
-            {orchView === "canvas" ? "画布" : "列表"}
+            {scene.steps.length}
           </Badge>
         </button>
 
@@ -247,42 +235,18 @@ export function LogicOrchestrationStep({
 
       {/* ── 内容区域 ── */}
       <div className="flex-1 min-h-0 overflow-hidden relative">
-        {activeTabId === CANVAS_TAB ? (
-          /* 画布或列表视图 */
+        {activeTabId === LIST_TAB ? (
+          /* 步骤列表视图 */
           <div className="h-full">
-            {orchView === "list" ? (
-              <StepListView
-                scene={scene}
-                steps={scene.steps}
-                onSelectStep={handleSelectStep}
-                onDeleteStep={handleDeleteStep}
-                onAddStep={handleAddStep}
-                onReorderSteps={handleReorderSteps}
-                onToggleView={() => setOrchView("canvas")}
-                readOnly={readOnly}
-              />
-            ) : (
-              <div className="h-full relative">
-                <FlowCanvas
-                  scene={scene}
-                  selectedStepId={selectedStepId}
-                  onSceneChange={setScene}
-                  onSelectStep={handleSelectStep}
-                  readOnly={readOnly}
-                />
-                <div className="absolute top-4 right-4 z-10">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setOrchView("list")}
-                    className="gap-2 shadow-md"
-                  >
-                    <ListIcon className="size-3.5" />
-                    切换到列表
-                  </Button>
-                </div>
-              </div>
-            )}
+            <StepListView
+              scene={scene}
+              steps={scene.steps}
+              onSelectStep={handleSelectStep}
+              onDeleteStep={handleDeleteStep}
+              onAddStep={handleAddStep}
+              onReorderSteps={handleReorderSteps}
+              readOnly={readOnly}
+            />
           </div>
         ) : activeStep ? (
           /* 步骤配置面板 */

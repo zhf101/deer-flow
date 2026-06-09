@@ -5,7 +5,6 @@ import { basicLightInit } from "@uiw/codemirror-theme-basic";
 import { monokaiInit } from "@uiw/codemirror-theme-monokai";
 import CodeMirror from "@uiw/react-codemirror";
 import {
-  AlertTriangleIcon,
   ChevronDownIcon,
   ChevronRightIcon,
   CodeIcon,
@@ -72,6 +71,25 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
   const [jsonInput, setJsonInput] = useState("");
   const extensions = useMemo(() => [json()], []);
 
+  // 统计语义完整度：非容器字段中同时有 label 和 remark 的占比
+  const semanticStats = useMemo(() => {
+    let total = 0;
+    let complete = 0;
+    const walk = (fields: InputFieldDefinition[]) => {
+      for (const f of fields) {
+        if (f.name === scene.environmentField) continue;
+        const isContainer = f.type === "object" || f.type === "array";
+        if (!isContainer) {
+          total++;
+          if ((f.label ?? "").trim() && (f.remark ?? "").trim()) complete++;
+        }
+        if (f.children) walk(f.children);
+      }
+    };
+    walk(scene.inputSchema);
+    return { total, complete };
+  }, [scene.inputSchema, scene.environmentField]);
+
   const previewJson = useMemo(() => {
     const build = (fields: InputFieldDefinition[]) => {
       const obj: Record<string, unknown> = {};
@@ -135,6 +153,24 @@ export function InputSchemaPanel({ scene, onChange, readOnly }: InputSchemaPanel
         <div className="flex items-center gap-2">
           <Settings2Icon className="text-muted-foreground size-4" />
           <span className="text-sm font-medium">参数结构</span>
+          {semanticStats.total > 0 && (
+            <div className="flex items-center gap-2 ml-2">
+              <div className="h-1.5 w-16 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    semanticStats.complete / semanticStats.total >= 0.5
+                      ? "bg-emerald-500"
+                      : "bg-amber-400",
+                  )}
+                  style={{ width: `${(semanticStats.complete / semanticStats.total) * 100}%` }}
+                />
+              </div>
+              <span className="text-[10px] text-muted-foreground tabular-nums">
+                语义 {semanticStats.complete}/{semanticStats.total}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <Button
@@ -249,10 +285,7 @@ function InputFieldTreeItem({
   const [expanded, setExpanded] = useState(depth < 2);
   const isContainer = field.type === "object" || field.type === "array";
   const hasChildren = isContainer && (field.children?.length ?? 0) > 0;
-  const isSemanticTarget = !skipSemanticWarning && !isContainer;
-  const ownSemanticIssueCount = isSemanticTarget ? countOwnSemanticIssues(field) : 0;
-  const childSemanticIssueCount = countSemanticIssues(field.children ?? []);
-  const semanticIssueCount = ownSemanticIssueCount + childSemanticIssueCount;
+  const showSemanticHint = !skipSemanticWarning && !isContainer;
 
   const addChild = () => {
     const children = field.children ?? [];
@@ -297,7 +330,7 @@ function InputFieldTreeItem({
             ) : (
               <span className="h-7 w-7 shrink-0" />
             )}
-            <div className="min-w-0 flex-1 space-y-1">
+            <div className="min-w-0 flex-1">
               <Input
                 value={field.name}
                 onChange={(e) => onUpdate({ ...field, name: e.target.value })}
@@ -307,9 +340,6 @@ function InputFieldTreeItem({
                   !field.name.trim() && "border-destructive",
                 )}
               />
-              {semanticIssueCount > 0 && (
-                <SemanticWarningBadge count={semanticIssueCount} ownCount={ownSemanticIssueCount} />
-              )}
             </div>
           </div>
           <Input
@@ -318,9 +348,9 @@ function InputFieldTreeItem({
             placeholder="中文描述"
             className={cn(
               "h-8 text-xs",
-              isSemanticTarget &&
+              showSemanticHint &&
                 !(field.label ?? "").trim() &&
-                "border-amber-400 bg-amber-50/40",
+                "border-l-2 border-l-amber-400",
             )}
           />
           <Select
@@ -364,8 +394,7 @@ function InputFieldTreeItem({
         )}
       </div>
 
-      {!skipSemanticWarning && (
-        <div className="ml-10 grid grid-cols-[88px_1fr] items-center gap-2">
+      <div className="ml-10 grid grid-cols-[88px_1fr] items-center gap-2">
           <span className="text-[10px] text-muted-foreground">业务备注</span>
           <Input
             value={field.remark ?? ""}
@@ -373,13 +402,12 @@ function InputFieldTreeItem({
             placeholder="说明字段业务含义、来源或填写约束"
             className={cn(
               "h-8 text-xs",
-              isSemanticTarget &&
+              showSemanticHint &&
                 !(field.remark ?? "").trim() &&
-                "border-amber-400 bg-amber-50/40",
+                "border-l-2 border-l-amber-400",
             )}
           />
         </div>
-      )}
 
       {hasChildren && expanded && (
         <div className="space-y-2 mt-2">
@@ -405,39 +433,6 @@ function InputFieldTreeItem({
       )}
     </div>
   );
-}
-
-function SemanticWarningBadge({
-  count,
-  ownCount,
-}: {
-  count: number;
-  ownCount: number;
-}) {
-  return (
-    <span
-      className="inline-flex max-w-full items-center gap-1 rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
-      title={ownCount > 0 ? "当前字段缺少中文名或业务备注" : "子字段缺少中文名或业务备注"}
-    >
-      <AlertTriangleIcon className="size-3 shrink-0" />
-      <span className="truncate">语义待补{count > 1 ? ` ${count}` : ""}</span>
-    </span>
-  );
-}
-
-function countOwnSemanticIssues(field: InputFieldDefinition): number {
-  let count = 0;
-  if (!(field.label ?? "").trim()) count += 1;
-  if (!(field.remark ?? "").trim()) count += 1;
-  return count;
-}
-
-function countSemanticIssues(fields: InputFieldDefinition[]): number {
-  return fields.reduce((total, field) => {
-    const isContainer = field.type === "object" || field.type === "array";
-    const ownCount = isContainer ? 0 : countOwnSemanticIssues(field);
-    return total + ownCount + countSemanticIssues(field.children ?? []);
-  }, 0);
 }
 
 function jsonToFields(obj: Record<string, unknown>, labels: Record<string, string> = {}): InputFieldDefinition[] {

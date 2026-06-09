@@ -68,7 +68,7 @@ export function ResultMappingPanel({
   const [rawJsonInput, setRawJsonInput] = useState("");
 
   const schema = useMemo(() => scene.resultSchema ?? [], [scene.resultSchema]);
-  const mapping = scene.resultMapping ?? {};
+  const mapping = useMemo(() => scene.resultMapping ?? {}, [scene.resultMapping]);
   const errorPolicy = scene.errorPolicy ?? "STOP_ON_ERROR";
 
   const flatFields = useMemo(() => flattenSchema(schema), [schema]);
@@ -76,6 +76,22 @@ export function ResultMappingPanel({
     () => flatFields.filter((f) => f.type !== "object" && f.type !== "array"),
     [flatFields],
   );
+
+  // 结果结构语义完整度：叶子字段中 label+remark 齐全的占比
+  const semanticStats = useMemo(() => {
+    const total = leafFields.length;
+    const complete = leafFields.filter(
+      (f) => f.fieldLabel.trim() && f.fieldRemark.trim(),
+    ).length;
+    return { total, complete };
+  }, [leafFields]);
+
+  // 映射完成度：已配置映射值的叶子字段占比
+  const mappingStats = useMemo(() => {
+    const total = leafFields.length;
+    const mapped = leafFields.filter((f) => (mapping[f.path] ?? "").trim()).length;
+    return { total, mapped };
+  }, [leafFields, mapping]);
 
   const handleImportJson = () => {
     try {
@@ -219,6 +235,16 @@ export function ResultMappingPanel({
           <div className="flex items-center gap-2 text-primary font-bold">
             <CodeIcon className="size-4" />
             <span>1. 结果结构定义</span>
+            {semanticStats.total > 0 && (
+              <span className={cn(
+                "text-[10px] font-normal tabular-nums",
+                semanticStats.complete === semanticStats.total
+                  ? "text-emerald-600"
+                  : "text-amber-600",
+              )}>
+                语义 {semanticStats.complete}/{semanticStats.total}
+              </span>
+            )}
           </div>
           <Button
             variant="outline"
@@ -278,6 +304,16 @@ export function ResultMappingPanel({
           <div className="flex items-center gap-2 text-blue-600 font-bold">
             <LinkIcon className="size-4" />
             <span>2. 字段值映射</span>
+            {mappingStats.total > 0 && (
+              <span className={cn(
+                "text-[10px] font-normal tabular-nums",
+                mappingStats.mapped === mappingStats.total
+                  ? "text-emerald-600"
+                  : "text-amber-600",
+              )}>
+                已映射 {mappingStats.mapped}/{mappingStats.total}
+              </span>
+            )}
           </div>
         </div>
         <p className="text-xs text-muted-foreground">
@@ -307,7 +343,7 @@ export function ResultMappingPanel({
                     key={f.path}
                     className={cn(
                       "grid grid-cols-[1fr_100px_1fr_48px] gap-2 items-center px-4 py-2",
-                      issueMessages.length > 0 && "bg-amber-50/35",
+                      issueMessages.length > 0 && "border-l-2 border-l-amber-400",
                     )}
                   >
                     <div
@@ -316,7 +352,7 @@ export function ResultMappingPanel({
                     >
                       {issueMessages.length > 0 && (
                         <AlertTriangleIcon
-                          className="size-3.5 shrink-0 text-amber-500"
+                          className="size-3 shrink-0 text-amber-500"
                           aria-label="语义提醒"
                         >
                           <title>{issueMessages.join("\n")}</title>
@@ -337,7 +373,7 @@ export function ResultMappingPanel({
                               rawValue
                                 ? "bg-blue-50/50 text-blue-700 border-blue-200"
                                 : issueMessages.length > 0
-                                  ? "bg-amber-50 text-amber-700 border-amber-300 hover:border-amber-400"
+                                  ? "border-l-2 border-l-amber-400 text-muted-foreground hover:border-primary/40"
                                 : "bg-background text-muted-foreground border-dashed hover:border-primary/40",
                             )}
                           >
@@ -579,7 +615,7 @@ function ResultSchemaRow({
           <Input
             className={cn(
               "h-6 text-[10px] bg-background/50 border-border/50 px-1.5",
-              !isContainer && !(field.label ?? "").trim() && "border-amber-400 bg-amber-50/40",
+              !isContainer && !(field.label ?? "").trim() && "border-l-2 border-l-amber-400",
             )}
             value={field.label ?? ""}
             placeholder="中文名"
@@ -629,7 +665,7 @@ function ResultSchemaRow({
           <Input
             className={cn(
               "h-6 text-[10px] bg-background/50 border-border/50 px-1.5",
-              !isContainer && !(field.remark ?? "").trim() && "border-amber-400 bg-amber-50/40",
+              !isContainer && !(field.remark ?? "").trim() && "border-l-2 border-l-amber-400",
             )}
             value={field.remark ?? ""}
             placeholder="备注"

@@ -49,6 +49,8 @@ import {
     runPublish: () => void;
     onRun?: () => void;
     readOnly?: boolean;
+    /** 每个步骤对应的 ERROR / WARNING 计数，用于在导航图标上显示红点 */
+    stepIssueCounts?: Array<{ errors: number; warnings: number }>;
   }
 
   export function SceneEditorSidebar({
@@ -66,6 +68,7 @@ import {
     runPublish,
     onRun,
     readOnly,
+    stepIssueCounts = [],
   }: SceneEditorSidebarProps) {
     return (
       <aside
@@ -114,10 +117,13 @@ import {
                             >
                                 {isActive && <div className="absolute left-0 top-2 bottom-2 w-1 bg-primary rounded-full" />}
                                 <div className={cn(
-                                    "size-8 rounded-full flex items-center justify-center shrink-0 transition-colors",
+                                    "size-8 rounded-full flex items-center justify-center shrink-0 transition-colors relative",
                                     isActive ? "bg-primary text-primary-foreground" : isCompleted ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground"
                                 )}>
                                     {isCompleted ? <CheckCircle2Icon className="size-4" /> : <Icon className="size-4" />}
+                                    {(stepIssueCounts[idx]?.errors ?? 0) > 0 && (
+                                        <span className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full bg-destructive border-2 border-card" />
+                                    )}
                                 </div>
                                 {isSidebarExpanded && (
                                     <div className="min-w-0 animate-in fade-in slide-in-from-left-2 duration-300">

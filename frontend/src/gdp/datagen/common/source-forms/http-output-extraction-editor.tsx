@@ -213,7 +213,7 @@ export function HttpOutputExtractionEditor({
                   key={varName}
                   className={cn(
                     "grid grid-cols-[72px_minmax(120px,1fr)_minmax(120px,1fr)_110px_minmax(140px,1fr)_40px] gap-2 px-3 items-center bg-muted/10 p-1 rounded border border-transparent hover:border-border transition-all",
-                    (missingLabel || missingRemark) && "bg-amber-50/35 border-amber-200",
+                    (missingLabel || missingRemark) && "border-l-2 border-l-amber-400",
                   )}
                 >
                   <div className="flex justify-center">
@@ -250,7 +250,7 @@ export function HttpOutputExtractionEditor({
                   <Input
                     className={cn(
                       "h-7 text-xs bg-background",
-                      missingLabel && "border-amber-400 bg-amber-50/40",
+                      missingLabel && "border-l-2 border-l-amber-400",
                     )}
                     value={meta.label ?? ""}
                     placeholder="中文名"
@@ -263,7 +263,7 @@ export function HttpOutputExtractionEditor({
                   <Input
                     className={cn(
                       "h-7 text-xs bg-background",
-                      missingRemark && "border-amber-400 bg-amber-50/40",
+                      missingRemark && "border-l-2 border-l-amber-400",
                     )}
                     value={meta.remark ?? ""}
                     placeholder="业务说明"

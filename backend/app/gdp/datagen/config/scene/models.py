@@ -22,13 +22,6 @@ from app.gdp.datagen.config.common.models import (
 )
 
 
-class Position(BaseModel):
-    """编排画布中的节点坐标。"""
-
-    x: float = Field(..., description="横向坐标。")
-    y: float = Field(..., description="纵向坐标。")
-
-
 class BatchConfig(BaseModel):
     """场景批量执行配置。"""
 
@@ -67,7 +60,7 @@ class StepTemplateRef(BaseModel):
 class BaseStepDefinition(BaseModel):
     """场景编排步骤公共数据。
 
-    保存所有步骤类型共同具备的身份、展示、依赖、启停、画布位置和输出映射信息。
+    保存所有步骤类型共同具备的身份、展示、依赖、启停和输出映射信息。
     具体执行配置由 HTTP、SQL、断言、转换等子模型分别声明。
     """
 
@@ -80,7 +73,6 @@ class BaseStepDefinition(BaseModel):
     enabled: bool = Field(default=True, description="是否启用。")
     dependsOn: list[str] = Field(default_factory=list, description="前置依赖 stepId 列表。")
     description: str | None = Field(default=None, description="步骤说明。")
-    position: Position | None = Field(default=None, description="画布坐标。")
 
     templateRef: StepTemplateRef | None = Field(default=None, description="模板来源快照信息。")
     outputMapping: dict[str, str] = Field(default_factory=dict, description="步骤输出映射。")

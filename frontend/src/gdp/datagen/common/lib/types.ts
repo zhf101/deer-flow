@@ -55,11 +55,6 @@ export interface InputFieldDefinition {
   children?: InputFieldDefinition[] | null;
 }
 
-export interface Position {
-  x: number;
-  y: number;
-}
-
 export interface ConditionRule {
   path: string;
   op: ConditionOperator;
@@ -124,7 +119,6 @@ export interface BaseStepDefinition {
   enabled: boolean;
   dependsOn: string[];
   description?: string | null;
-  position?: Position | null;
   templateRef?: StepTemplateRef | null;
   outputMapping: Record<string, string>;
   outputMeta?: Record<string, { label?: string; remark?: string }> | null;

@@ -22,7 +22,6 @@ import {
   GlobeIcon,
   GripVerticalIcon,
   ListIcon,
-  NetworkIcon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -46,7 +45,6 @@ interface StepListViewProps {
   onDeleteStep: (id: string) => void;
   onAddStep: (type: 'HTTP' | 'SQL') => void;
   onReorderSteps: (fromIndex: number, toIndex: number) => void;
-  onToggleView: () => void;
   readOnly?: boolean;
 }
 
@@ -57,7 +55,6 @@ export function StepListView({
   onDeleteStep,
   onAddStep,
   onReorderSteps,
-  onToggleView,
   readOnly,
 }: StepListViewProps) {
   const sensors = useSensors(
@@ -84,13 +81,8 @@ export function StepListView({
             <Badge variant="secondary" className="text-[10px] ml-2">{steps.length} 个节点</Badge>
         </div>
         <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={onToggleView} className="h-8 text-xs gap-2">
-                <NetworkIcon className="size-3.5" />
-                切换到画布
-            </Button>
             {!readOnly && (
               <>
-                <div className="w-px h-4 bg-border mx-1" />
                 <Button size="sm" onClick={() => onAddStep('HTTP')} className="h-8 text-xs gap-1.5 bg-blue-600 hover:bg-blue-700">
                     <PlusIcon className="size-3.5" />
                     添加 HTTP

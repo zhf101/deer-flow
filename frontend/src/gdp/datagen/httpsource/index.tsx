@@ -92,7 +92,6 @@ function configToHttpStep(config: HttpSourceConfig): HttpStepDefinition {
     enabled: true,
     dependsOn: [],
     description: "",
-    position: null,
     templateRef: null,
     httpParamMapping: {},
     method: config.method,

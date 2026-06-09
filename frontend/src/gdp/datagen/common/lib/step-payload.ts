@@ -16,7 +16,6 @@ function basePayload(step: StepDefinition) {
     enabled: step.enabled,
     dependsOn: step.dependsOn,
     description: step.description ?? null,
-    position: step.position ?? null,
     templateRef: step.templateRef ?? null,
     outputMapping: step.outputMapping ?? {},
     outputMeta: step.outputMeta ?? null,

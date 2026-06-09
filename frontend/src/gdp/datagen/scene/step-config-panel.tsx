@@ -72,7 +72,7 @@ export function StepConfigPanel({
   if (!step) {
     return (
       <div className="text-muted-foreground rounded-md border border-dashed p-8 text-center text-sm">
-        选择画布中的步骤进行配置
+        选择步骤列表中的步骤进行配置
       </div>
     );
   }
