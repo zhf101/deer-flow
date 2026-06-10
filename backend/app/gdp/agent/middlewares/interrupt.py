@@ -21,13 +21,12 @@ def wrap_gdp_interrupt(
     node_name: str,
     node: GDPNodeCallable,
     task_service: DatagenTaskService,
-    enabled: bool,
 ) -> GDPNodeCallable:
     """规范节点返回的等待用户状态，确保 checkpoint 与 TaskRun 中断语义一致。"""
 
     async def interrupt_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         result = await node(state, config)
-        if not enabled or not isinstance(result, dict) or not _is_waiting_user_result(result):
+        if not isinstance(result, dict) or not _is_waiting_user_result(result):
             return result
 
         task_run_id = _resolve_task_run_id(result, state)

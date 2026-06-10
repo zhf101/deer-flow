@@ -25,6 +25,14 @@ from langgraph.graph.message import add_messages
 
 BOUNDED_LIST_LIMIT = 50
 
+# 进度环硬上限：单个业务节点在整条任务生命周期内被重复进入的次数上限。
+# 超过即判定为阶段振荡，由 progress_reflection 终止任务，避免无界循环
+# （也作为 LangGraph recursion_limit 之外更具业务语义的兜底）。
+# human_confirm 不计入：它是中断节点，每次 resume 都会合法地重入一次，
+# 其计数随用户交互轮次线性增长，不代表振荡。
+NODE_ATTEMPT_CAP = 12
+_CAP_EXEMPT_NODES = frozenset({"human_confirm"})
+
 
 class GDPRuntimeContext(TypedDict, total=False):
     """本次图运行的外部运行时上下文。"""
@@ -103,6 +111,27 @@ class GDPState(TypedDict, total=False):
     last_result_ref: GDPResultRef | None
     result_refs: Annotated[list[GDPResultRef], append_bounded_dedupe]
     errors: Annotated[list[dict[str, Any]], append_bounded]
+
+
+def node_attempt_cap_exceeded(state: GDPState) -> str | None:
+    """检测是否有业务节点重复进入次数超过硬上限。
+
+    返回超限的节点名（用于诊断），未超限返回 None。``human_confirm`` 不计入
+    （见 ``NODE_ATTEMPT_CAP`` 说明）。
+    """
+
+    attempts = state.get("node_attempts") or {}
+    if not isinstance(attempts, dict):
+        return None
+    for node_name, count in attempts.items():
+        if node_name in _CAP_EXEMPT_NODES:
+            continue
+        try:
+            if int(count) > NODE_ATTEMPT_CAP:
+                return str(node_name)
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def merge_dict(existing: dict | None, new: dict | None) -> dict:

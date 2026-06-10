@@ -19,7 +19,6 @@ def wrap_gdp_progress_loop_detection(
     node_name: str,
     node: GDPNodeCallable,
     task_service: DatagenTaskService,
-    enabled: bool,
     warn_threshold: int = 3,
     window_size: int = 8,
 ) -> GDPNodeCallable:
@@ -27,7 +26,7 @@ def wrap_gdp_progress_loop_detection(
 
     async def progress_loop_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         result = await node(state, config)
-        if not enabled or not isinstance(result, dict):
+        if not isinstance(result, dict):
             return result
 
         phase = str(result.get("current_phase") or state.get("current_phase") or "")

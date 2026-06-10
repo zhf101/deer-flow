@@ -22,14 +22,10 @@ def wrap_gdp_task_recovery(
     node_name: str,
     node: GDPNodeCallable,
     task_service: DatagenTaskService,
-    enabled: bool,
 ) -> GDPNodeCallable:
     """在每次图运行中至多恢复一次遗留的 PENDING/RUNNING 任务步骤。"""
 
     async def task_recovery_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
-        if not enabled:
-            return await node(state, config)
-
         recovery_summary = await recover_task_steps_once(
             task_service,
             state,

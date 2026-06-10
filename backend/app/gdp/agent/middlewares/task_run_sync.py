@@ -30,14 +30,10 @@ def wrap_gdp_task_run_sync(
     *,
     node: GDPNodeCallable,
     task_service: DatagenTaskService,
-    enabled: bool,
 ) -> GDPNodeCallable:
     """在节点前后刷新 TaskRun 权威上下文，并把运行绑定同步回业务表。"""
 
     async def task_run_sync_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
-        if not enabled:
-            return await node(state, config)
-
         prepared_state = await _refresh_state_from_task_run(task_service, state)
         result = await node(prepared_state, config)
         if not isinstance(result, dict):

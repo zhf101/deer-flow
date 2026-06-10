@@ -19,9 +19,12 @@ from app.gdp.agent.graph import (
     _build_services,
     _get_gdp_runtime_config,
     _route_after_progress_reflection,
+    _route_after_scene_fulfillment,
     make_gdp_agent,
     make_gdp_graph,
 )
+from app.gdp.agent.nodes.progress_reflection import build_progress_reflection_node
+from app.gdp.agent.state import NODE_ATTEMPT_CAP, node_attempt_cap_exceeded
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
 from app.gdp.datagen.config.base.models import EnvironmentConfig, ServiceEndpointConfig, SysConfig
 from app.gdp.datagen.config.base.repository import BaseConfigRepository
@@ -137,23 +140,13 @@ def test_gdp_agent_factory_extracts_runtime_policy_and_metadata():
     assert runtime.run_id == "run-runtime"
     assert runtime.user_id == "user-runtime"
     assert runtime.model_name == "gdp-model"
-    assert policy.audit_enabled is True
     assert policy.memory_enabled is True
     assert policy.checkpointer_enabled is True
     assert metadata.log_level == "debug"
     assert metadata.policy == {
         "llmDecisionEnabled": True,
-        "auditEnabled": True,
-        "goalGuardEnabled": True,
         "memoryEnabled": True,
-        "skillsEnabled": True,
-        "progressLoopEnabled": True,
         "checkpointerEnabled": True,
-        "runtimeContextEnabled": True,
-        "taskRunSyncEnabled": True,
-        "interruptEnabled": True,
-        "errorHandlingEnabled": True,
-        "recoveryEnabled": True,
     }
 
 
@@ -212,6 +205,48 @@ def test_phase_to_node_table_covers_all_routable_phases():
         DatagenTaskPhase.FAILED,
     }
     assert set(_PHASE_TO_NODE) == routable
+
+
+def test_node_attempt_cap_exceeded_returns_capped_node_name():
+    """进度环硬上限检测：返回超限节点名；human_confirm 豁免（中断节点合法重入）。"""
+
+    assert node_attempt_cap_exceeded({}) is None
+    assert node_attempt_cap_exceeded({"node_attempts": {"scene_fulfillment": NODE_ATTEMPT_CAP}}) is None
+    assert node_attempt_cap_exceeded({"node_attempts": {"scene_fulfillment": NODE_ATTEMPT_CAP + 1}}) == "scene_fulfillment"
+    assert node_attempt_cap_exceeded({"node_attempts": {"human_confirm": NODE_ATTEMPT_CAP + 5}}) is None
+
+
+def test_phase_routing_redirects_to_progress_reflection_when_attempts_capped():
+    """任一业务节点超过硬上限时，常规路由强制改道 progress_reflection 收口。"""
+
+    capped = {"current_phase": "SCENE_DESIGN", "node_attempts": {"scene_design": NODE_ATTEMPT_CAP + 1}}
+    assert _route_after_scene_fulfillment(capped) == "progress_reflection"
+    # progress_reflection 自身出口不再套上限改道，capped 任务落 FAILED 后查表走向 end
+    assert _route_after_progress_reflection({**capped, "current_phase": "FAILED"}) == "end"
+
+
+@pytest.mark.anyio
+async def test_progress_reflection_fails_task_when_node_attempts_capped(gdp_services):
+    """进度环硬上限收口：超限即判定阶段振荡，任务落 FAILED 并记录 TASK_FAILED 事件。"""
+
+    task_service = gdp_services["task_service"]
+    task_run = await task_service.create_task_run(DatagenTaskRunCreateRequest(userIntent="查询订单"))
+    node = build_progress_reflection_node(task_service)
+
+    result = await node(
+        {
+            "task_run_id": task_run.taskRunId,
+            "node_attempts": {"scene_fulfillment": NODE_ATTEMPT_CAP + 1},
+        }
+    )
+
+    assert result["current_phase"] == "FAILED"
+    failed = await task_service.get_task_run(task_run.taskRunId)
+    assert failed.status == DatagenTaskStatus.FAILED
+    assert failed.failureType == "PROGRESS_LOOP_DETECTED"
+    assert str(NODE_ATTEMPT_CAP) in (failed.failureMessage or "")
+    events = await task_service.list_events(task_run.taskRunId)
+    assert "TASK_FAILED" in [event.eventType for event in events]
 
 
 @pytest.mark.anyio

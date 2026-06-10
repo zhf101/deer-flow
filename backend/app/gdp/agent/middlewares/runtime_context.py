@@ -17,13 +17,12 @@ def wrap_gdp_runtime_context(
     *,
     node: GDPNodeCallable,
     metadata: Any | None = None,
-    enabled: bool,
 ) -> GDPNodeCallable:
     """在节点出口注入本次运行上下文，避免运行时标识只停留在入口节点。"""
 
     async def runtime_context_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         result = await node(state, config)
-        if not enabled or not isinstance(result, dict):
+        if not isinstance(result, dict):
             return result
         runtime_context = build_gdp_runtime_context(config, metadata)
         if not runtime_context:

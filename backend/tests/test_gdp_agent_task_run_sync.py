@@ -111,7 +111,7 @@ async def test_task_run_sync_wrapper_refreshes_task_context_before_and_after_nod
             "nodeValue": 1,
         }
 
-    wrapped = wrap_gdp_task_run_sync(node=node, task_service=task_service, enabled=True)
+    wrapped = wrap_gdp_task_run_sync(node=node, task_service=task_service)
     result = await wrapped(
         {
             "task_run_id": "task_sync_1",
@@ -154,7 +154,7 @@ async def test_task_run_sync_wrapper_fails_open_when_refresh_layer_fails():
             "current_phase": DatagenTaskPhase.SCENE_DESIGN.value,
         }
 
-    wrapped = wrap_gdp_task_run_sync(node=node, task_service=_FailingTaskService(), enabled=True)
+    wrapped = wrap_gdp_task_run_sync(node=node, task_service=_FailingTaskService())
     result = await wrapped({"task_run_id": "task_missing"}, {"configurable": {"thread_id": "thread-1"}})
 
     assert result == {

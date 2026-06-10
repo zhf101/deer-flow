@@ -51,7 +51,6 @@ async def test_runtime_context_wrapper_injects_context_without_dropping_node_res
     node = wrap_gdp_runtime_context(
         node=_plain_node,
         metadata=SimpleNamespace(assistant_id="gdp_agent", user_id="user-meta"),
-        enabled=True,
     )
 
     result = await node(

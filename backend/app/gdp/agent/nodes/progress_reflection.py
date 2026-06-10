@@ -10,7 +10,7 @@ from app.gdp.agent.llm.decision import reflect_gdp_scene_result
 from app.gdp.agent.llm.events import llm_decision_payload, llm_failure_payload
 from app.gdp.agent.llm.schemas import GDPReflectionDecision
 from app.gdp.agent.middlewares.context_compression import load_gdp_context_summary
-from app.gdp.agent.state import GDPState
+from app.gdp.agent.state import NODE_ATTEMPT_CAP, GDPState, node_attempt_cap_exceeded
 from app.gdp.agent.tools.scene_tools import reflect_scene_result
 from app.gdp.datagen.config.task.models import (
     DatagenTaskPhase,
@@ -44,6 +44,16 @@ def build_progress_reflection_node(
                 subtask_service,
                 task_run_id,
                 {"current_phase": task_run.phase.value},
+            )
+
+        capped_node = node_attempt_cap_exceeded(state)
+        if capped_node is not None:
+            return await _fail_on_progress_loop(
+                task_service,
+                subtask_service,
+                task_run_id,
+                node_name=capped_node,
+                attempts=state.get("node_attempts") or {},
             )
 
         scene_result = decision_context.get("lastSceneResult")
@@ -138,6 +148,37 @@ async def _with_context_summary(
         **result,
         "context_summary": await load_gdp_context_summary(task_service, subtask_service, task_run_id),
     }
+
+
+async def _fail_on_progress_loop(
+    task_service: DatagenTaskService,
+    subtask_service: DatagenTaskSubtaskService | None,
+    task_run_id: str,
+    *,
+    node_name: str,
+    attempts: dict[str, Any],
+) -> GDPState:
+    """进度环硬上限收口：节点重复进入超限即判定阶段振荡，任务直接失败。"""
+
+    failure_message = f"业务节点 {node_name} 累计进入 {attempts.get(node_name)} 次，超过硬上限 {NODE_ATTEMPT_CAP}，判定为阶段振荡，任务终止。"
+    await task_service.fail_task(
+        task_run_id,
+        failure_type="PROGRESS_LOOP_DETECTED",
+        failure_message=failure_message,
+    )
+    return await _with_context_summary(
+        task_service,
+        subtask_service,
+        task_run_id,
+        {
+            "current_phase": DatagenTaskPhase.FAILED.value,
+            "task_context": {
+                "task_run_id": task_run_id,
+                "status": DatagenTaskStatus.FAILED.value,
+                "phase": DatagenTaskPhase.FAILED.value,
+            },
+        },
+    )
 
 
 async def _record_reflection_step(

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
@@ -26,7 +26,7 @@ from app.gdp.agent.nodes.scene_execute import build_scene_execute_node
 from app.gdp.agent.nodes.scene_fulfillment import build_scene_fulfillment_node
 from app.gdp.agent.nodes.source_config import build_source_config_node
 from app.gdp.agent.observability import configure_gdp_observability
-from app.gdp.agent.state import GDPState
+from app.gdp.agent.state import GDPState, node_attempt_cap_exceeded
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
 from app.gdp.datagen.agent_memory.repository import GDPAgentMemoryRepository
 from app.gdp.datagen.agent_memory.service import GDPAgentMemoryService
@@ -83,43 +83,27 @@ class GDPAgentRuntimeConfig:
 class GDPAgentPolicy:
     """GDP Agent 运行策略开关。
 
-    可配置开关只有三个：``llm_decision_enabled``（config.yaml ``gdp_agent.llm_decision_enabled``）、
-    ``memory_enabled``（config.yaml ``memory.enabled``）、``checkpointer_enabled``（由运行时决定）。
-    **其余字段是内部常量**：生产路径恒为 True，仅供测试注入关闭，不通过 config.yaml
-    暴露，前端/运维不应将其视为可配置能力。字段默认值即生产默认策略，构造方只需
-    显式传入与默认不同的开关，避免字段清单多处手抄。
+    只有三个可配置开关：``llm_decision_enabled``（config.yaml
+    ``gdp_agent.llm_decision_enabled``）、``memory_enabled``（config.yaml
+    ``memory.enabled``）、``checkpointer_enabled``（由运行时决定）。其余运行时
+    wrapper（审计 / 目标锚点 / 技能 / 进度环检测 / 运行时上下文 / TaskRun 同步 /
+    中断规范化 / 错误处理 / 任务恢复）生产路径恒为开启，不再以伪开关暴露——
+    测试若需绕过某层，请直接测裸节点或局部 mock，而不是翻转生产配置对象。
     """
 
     llm_decision_enabled: bool = False
-    audit_enabled: bool = True
-    goal_guard_enabled: bool = True
     memory_enabled: bool = False
-    skills_enabled: bool = True
-    progress_loop_enabled: bool = True
     checkpointer_enabled: bool = False
-    runtime_context_enabled: bool = True
-    task_run_sync_enabled: bool = True
-    interrupt_enabled: bool = True
-    error_handling_enabled: bool = True
-    recovery_enabled: bool = True
 
     def as_metadata_dict(self) -> dict[str, Any]:
-        """policy → metadata 的唯一序列化出口，避免字段映射多处手抄。"""
+        """policy → metadata 的唯一序列化出口，字段名按 dataclass 自动转 camelCase。"""
 
-        return {
-            "llmDecisionEnabled": self.llm_decision_enabled,
-            "auditEnabled": self.audit_enabled,
-            "goalGuardEnabled": self.goal_guard_enabled,
-            "memoryEnabled": self.memory_enabled,
-            "skillsEnabled": self.skills_enabled,
-            "progressLoopEnabled": self.progress_loop_enabled,
-            "checkpointerEnabled": self.checkpointer_enabled,
-            "runtimeContextEnabled": self.runtime_context_enabled,
-            "taskRunSyncEnabled": self.task_run_sync_enabled,
-            "interruptEnabled": self.interrupt_enabled,
-            "errorHandlingEnabled": self.error_handling_enabled,
-            "recoveryEnabled": self.recovery_enabled,
-        }
+        return {_snake_to_camel(key): value for key, value in asdict(self).items()}
+
+
+def _snake_to_camel(name: str) -> str:
+    head, *rest = name.split("_")
+    return head + "".join(part.title() for part in rest)
 
 
 @dataclass(frozen=True)
@@ -195,7 +179,6 @@ def make_gdp_graph(
                 llm_enabled=policy.llm_decision_enabled,
             ),
             services,
-            policy,
             metadata,
         ),
     )
@@ -211,7 +194,6 @@ def make_gdp_graph(
                 llm_enabled=policy.llm_decision_enabled,
             ),
             services,
-            policy,
             metadata,
         ),
     )
@@ -229,13 +211,12 @@ def make_gdp_graph(
                 llm_enabled=policy.llm_decision_enabled,
             ),
             services,
-            policy,
             metadata,
         ),
     )
     workflow.add_node(
         "human_confirm",
-        _wrap_node("human_confirm", build_human_confirm_node(services.task_service), services, policy, metadata),
+        _wrap_node("human_confirm", build_human_confirm_node(services.task_service), services, metadata),
     )
     workflow.add_node(
         "source_config",
@@ -250,7 +231,6 @@ def make_gdp_graph(
                 llm_enabled=policy.llm_decision_enabled,
             ),
             services,
-            policy,
             metadata,
         ),
     )
@@ -263,7 +243,6 @@ def make_gdp_graph(
                 base_repository=services.base_repository,
             ),
             services,
-            policy,
             metadata,
         ),
     )
@@ -277,7 +256,6 @@ def make_gdp_graph(
                 scene_service=services.scene_service,
             ),
             services,
-            policy,
             metadata,
         ),
     )
@@ -292,7 +270,6 @@ def make_gdp_graph(
                 llm_enabled=policy.llm_decision_enabled,
             ),
             services,
-            policy,
             metadata,
         ),
     )
@@ -371,65 +348,60 @@ def _wrap_node(
     node_name: str,
     node,
     services: GDPAgentServices,
-    policy: GDPAgentPolicy,
     metadata: GDPAgentMetadata,
 ):
-    """按 GDP 策略给图节点套用运行时 wrapper。"""
+    """给图节点套用运行时 wrapper。
+
+    这些 wrapper（运行时上下文 / 任务恢复 / TaskRun 同步 / 中断规范化 / 技能 /
+    目标锚点 / 进度环检测 / 审计 / 错误处理）生产路径恒为开启，故在此无条件套用，
+    不再受 policy 伪开关控制（见 ``GDPAgentPolicy`` 文档）。
+    """
 
     node = wrap_gdp_runtime_context(
         node=node,
         metadata=metadata,
-        enabled=policy.runtime_context_enabled,
     )
     node = wrap_gdp_task_recovery(
         node_name=node_name,
         node=node,
         task_service=services.task_service,
-        enabled=policy.recovery_enabled,
     )
     node = wrap_gdp_task_run_sync(
         node=node,
         task_service=services.task_service,
-        enabled=policy.task_run_sync_enabled,
     )
     node = wrap_gdp_interrupt(
         node_name=node_name,
         node=node,
         task_service=services.task_service,
-        enabled=policy.interrupt_enabled,
     )
     node = wrap_gdp_skill_context(
         node_name=node_name,
         node=node,
         task_service=services.task_service,
-        enabled=policy.skills_enabled,
     )
     node = wrap_gdp_goal_guard(
         node_name=node_name,
         node=node,
         task_service=services.task_service,
         subtask_service=services.subtask_service,
-        enabled=policy.goal_guard_enabled,
     )
     node = wrap_gdp_progress_loop_detection(
         node_name=node_name,
         node=node,
         task_service=services.task_service,
-        enabled=policy.progress_loop_enabled,
     )
-    if policy.audit_enabled:
-        node = wrap_gdp_node_audit(
-            node_name=node_name,
-            node=node,
-            task_service=services.task_service,
-            metadata=metadata,
-        )
+    node = wrap_gdp_node_audit(
+        node_name=node_name,
+        node=node,
+        task_service=services.task_service,
+        metadata=metadata,
+    )
     return wrap_gdp_error_handling(
         node_name=node_name,
         node=node,
         task_service=services.task_service,
         metadata=metadata,
-        enabled=policy.error_handling_enabled,
     )
 
 
@@ -516,8 +488,15 @@ def _normalize_phase(value: Any) -> DatagenTaskPhase | None:
 
 
 def _route_by_phase(state: GDPState, *, allowed: frozenset[str], default: str) -> str:
-    """按 current_phase 查表路由；目标不在当前节点出边集合内时走默认分支。"""
+    """按 current_phase 查表路由；目标不在当前节点出边集合内时走默认分支。
 
+    路由前先做进度环硬上限检查：任一业务节点在整条任务生命周期内重复进入
+    超过 ``NODE_ATTEMPT_CAP`` 时，强制改道 ``progress_reflection`` 收口失败，
+    避免阶段振荡无界循环（取代旧 progress_loop 中间件只告警不阻断的行为）。
+    """
+
+    if node_attempt_cap_exceeded(state) is not None:
+        return "progress_reflection"
     target = _PHASE_TO_NODE.get(_normalize_phase(state.get("current_phase")))
     if target is not None and target in allowed:
         return target
@@ -565,11 +544,20 @@ def _route_after_human_confirm(state: GDPState) -> str:
 
 
 def _route_after_progress_reflection(state: GDPState) -> str:
-    return _route_by_phase(
-        state,
-        allowed=frozenset({"scene_fulfillment", "scene_design", "source_config", "infra_config", "scene_execute", "human_confirm"}),
-        default="end",
+    """progress_reflection 出口路由。
+
+    这里**不做**进度环上限改道：progress_reflection 是收口节点，被改道
+    指向的目标就是它自己，再次套上限只会自循环。capped 任务由
+    progress_reflection 节点落 FAILED 后，经下方查表自然走向 end。
+    """
+
+    target = _PHASE_TO_NODE.get(_normalize_phase(state.get("current_phase")))
+    allowed = frozenset(
+        {"scene_fulfillment", "scene_design", "source_config", "infra_config", "scene_execute", "human_confirm"}
     )
+    if target is not None and target in allowed:
+        return target
+    return "end"
 
 
 def _build_services(

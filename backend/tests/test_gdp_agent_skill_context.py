@@ -46,7 +46,6 @@ async def test_skill_context_wrapper_injects_phase_skills_and_records_event():
         node_name="scene_design",
         node=_scene_design_node,
         task_service=task_service,
-        enabled=True,
     )
 
     result = await node({"task_run_id": "task_skill_1", "current_phase": DatagenTaskPhase.SCENE_FULFILLMENT.value})
@@ -70,7 +69,6 @@ async def test_skill_context_wrapper_skips_duplicate_phase_event():
         node_name="source_config",
         node=_source_config_node,
         task_service=task_service,
-        enabled=True,
     )
     existing_context = get_gdp_skill_context(DatagenTaskPhase.SOURCE_CONFIG)
 
@@ -93,7 +91,6 @@ async def test_skill_context_wrapper_handles_terminal_phase_without_event():
         node_name="failed",
         node=_failed_node,
         task_service=task_service,
-        enabled=True,
     )
 
     result = await node({"task_run_id": "task_skill_3", "current_phase": DatagenTaskPhase.SOURCE_CONFIG.value})

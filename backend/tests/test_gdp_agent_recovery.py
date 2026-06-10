@@ -56,7 +56,6 @@ async def test_task_recovery_wrapper_recovers_non_terminal_steps_once_per_run():
         node_name="intake",
         node=node,
         task_service=task_service,
-        enabled=True,
     )
     result = await wrapped(
         {"task_run_id": "task_recovery_1"},

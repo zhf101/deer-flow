@@ -20,7 +20,6 @@ def wrap_gdp_skill_context(
     node_name: str,
     node: GDPNodeCallable,
     task_service: DatagenTaskService,
-    enabled: bool,
 ) -> GDPNodeCallable:
     """给 GDP 节点出口注入当前阶段技能引用。"""
 
@@ -30,7 +29,7 @@ def wrap_gdp_skill_context(
             return result
 
         phase = result.get("current_phase") or state.get("current_phase")
-        skill_context = get_gdp_skill_context(phase, enabled=enabled)
+        skill_context = get_gdp_skill_context(phase)
         trace = {
             "nodeName": node_name,
             "phase": skill_context.get("phase"),

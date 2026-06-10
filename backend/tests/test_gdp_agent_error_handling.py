@@ -87,7 +87,6 @@ async def test_error_handling_marks_task_failed_and_reraises_original_exception(
         node=failing_node,
         task_service=task_service,
         metadata=SimpleNamespace(assistant_id="gdp_agent"),
-        enabled=True,
     )
 
     with pytest.raises(ValueError, match="Source 配置缺失"):
@@ -134,7 +133,6 @@ async def test_error_handling_reraises_langgraph_interrupt_without_failure_side_
         node_name="human_confirm",
         node=interrupting_node,
         task_service=task_service,
-        enabled=True,
     )
 
     with pytest.raises(GraphInterrupt):

@@ -61,7 +61,6 @@ async def test_interrupt_wrapper_repairs_waiting_checkpoint_from_task_run():
         node_name="source_config",
         node=node,
         task_service=task_service,
-        enabled=True,
     )
     result = await wrapped(
         {
@@ -115,7 +114,6 @@ async def test_interrupt_wrapper_restores_missing_pending_from_task_run_without_
         node_name="scene_design",
         node=node,
         task_service=task_service,
-        enabled=True,
     )
     result = await wrapped({"task_run_id": "task_interrupt_1"}, {})
 
@@ -139,7 +137,6 @@ async def test_interrupt_wrapper_ignores_non_waiting_result():
         node_name="scene_design",
         node=node,
         task_service=task_service,
-        enabled=True,
     )
     result = await wrapped({"task_run_id": "task_interrupt_1"}, {})
 

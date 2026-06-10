@@ -48,7 +48,6 @@ async def test_progress_loop_records_phase_history_without_warning_before_thresh
         node_name="scene_design",
         node=_scene_design_node,
         task_service=task_service,
-        enabled=True,
         warn_threshold=3,
         window_size=6,
     )
@@ -76,7 +75,6 @@ async def test_progress_loop_detects_repeated_phase_in_recent_window():
         node_name="source_config",
         node=_source_config_node,
         task_service=task_service,
-        enabled=True,
         warn_threshold=3,
         window_size=6,
     )
@@ -106,7 +104,6 @@ async def test_progress_loop_skips_duplicate_warning_for_same_phase():
         node_name="source_config",
         node=_source_config_node,
         task_service=task_service,
-        enabled=True,
         warn_threshold=3,
         window_size=6,
     )
@@ -135,7 +132,6 @@ async def test_progress_loop_preserves_inner_wrapper_errors_when_appending_warni
         node_name="source_config",
         node=_source_config_node_with_inner_errors,
         task_service=task_service,
-        enabled=True,
         warn_threshold=3,
         window_size=6,
     )

@@ -23,15 +23,12 @@ def wrap_gdp_error_handling(
     node: GDPNodeCallable,
     task_service: DatagenTaskService,
     metadata: Any | None = None,
-    enabled: bool,
 ) -> GDPNodeCallable:
     """为 GDP 节点增加普通异常失败落库边界，LangGraph 控制流异常继续透传。"""
 
     runtime_payload = metadata_payload(metadata)
 
     async def error_handling_node(state: GDPState, config: RunnableConfig) -> GDPState:
-        if not enabled:
-            return await node(state, config)
         try:
             return await node(state, config)
         except (GraphInterrupt, GraphBubbleUp):

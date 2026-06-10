@@ -22,13 +22,12 @@ def wrap_gdp_goal_guard(
     node: GDPNodeCallable,
     task_service: DatagenTaskService,
     subtask_service: DatagenTaskSubtaskService | None = None,
-    enabled: bool,
 ) -> GDPNodeCallable:
     """在节点出口刷新任务目标锚点，并阻止 checkpoint 中的原始目标漂移。"""
 
     async def guarded_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         result = await node(state, config)
-        if not enabled or not isinstance(result, dict):
+        if not isinstance(result, dict):
             return result
 
         task_run_id = result.get("task_run_id") or state.get("task_run_id")

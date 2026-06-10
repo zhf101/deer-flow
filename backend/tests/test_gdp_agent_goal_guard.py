@@ -65,7 +65,6 @@ async def test_goal_guard_refreshes_authoritative_goal_summary():
         node_name="scene_design",
         node=_plain_node,
         task_service=task_service,
-        enabled=True,
     )
 
     result = await node({"task_run_id": "task_goal_1", "user_intent": "帮我造一笔已支付订单"})
@@ -85,7 +84,6 @@ async def test_goal_guard_blocks_user_intent_drift_and_records_event():
         node_name="scene_design",
         node=_drifting_node,
         task_service=task_service,
-        enabled=True,
     )
 
     result = await node({"task_run_id": "task_goal_1", "user_intent": "帮我造一笔已支付订单"})
