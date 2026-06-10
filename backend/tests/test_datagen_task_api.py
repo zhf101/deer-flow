@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -98,6 +100,100 @@ async def test_continue_bound_task_submits_gdp_agent_run(datagen_client: AsyncCl
     assert calls[0]["body"].input == {"task_run_id": task.taskRunId}
     events = await service.list_events(task.taskRunId)
     assert events[-1].eventType == "CONTINUE_RUN_REQUESTED"
+
+
+@pytest.mark.anyio
+async def test_start_task_run_submits_gdp_agent_run_and_records_events(
+    datagen_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    create = await datagen_client.post(
+        "/api/v1/datagen/tasks/runs",
+        json={"userIntent": "帮我准备登录账号", "inputs": {}},
+    )
+    assert create.status_code == 200, create.text
+    task = create.json()
+    calls = []
+
+    async def _fake_start_run(body, thread_id, request):
+        calls.append({"body": body, "threadId": thread_id, "request": request})
+        return SimpleNamespace(
+            run_id="run_start_1",
+            thread_id=thread_id,
+            assistant_id="gdp_agent",
+            status="pending",
+            metadata={"task_run_id": task["taskRunId"]},
+            kwargs={"input": body.input},
+            multitask_strategy="reject",
+            created_at="2026-06-10T17:03:38",
+            updated_at="2026-06-10T17:03:38",
+            total_input_tokens=0,
+            total_output_tokens=0,
+            total_tokens=0,
+            llm_call_count=0,
+            lead_agent_tokens=0,
+            subagent_tokens=0,
+            middleware_tokens=0,
+            message_count=0,
+        )
+
+    monkeypatch.setattr("app.gateway.services.start_run", _fake_start_run)
+
+    response = await datagen_client.post(
+        f"/api/v1/datagen/tasks/runs/{task['taskRunId']}/start",
+        json={"threadId": "thread-start-task"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["message"] == "已提交 GDP Agent 运行。"
+    assert body["taskRun"]["deerflowThreadId"] == "thread-start-task"
+    assert body["taskRun"]["deerflowRunId"] == "run_start_1"
+    assert body["run"]["run_id"] == "run_start_1"
+    assert calls[0]["threadId"] == "thread-start-task"
+    assert calls[0]["body"].assistant_id == "gdp_agent"
+    assert calls[0]["body"].input == {"task_run_id": task["taskRunId"]}
+    assert calls[0]["body"].metadata["source"] == "datagen-task-run-start"
+    assert calls[0]["body"].stream_mode == ["values", "custom"]
+
+    events = await datagen_client.get(f"/api/v1/datagen/tasks/runs/{task['taskRunId']}/events")
+    assert events.status_code == 200, events.text
+    event_types = [event["eventType"] for event in events.json()]
+    assert event_types[-2:] == ["GDP_AGENT_RUN_REQUESTED", "GDP_AGENT_RUN_SUBMITTED"]
+
+
+@pytest.mark.anyio
+async def test_start_task_run_records_failure_event_when_runtime_rejects(
+    datagen_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    create = await datagen_client.post(
+        "/api/v1/datagen/tasks/runs",
+        json={"userIntent": "帮我准备登录账号", "inputs": {}},
+    )
+    assert create.status_code == 200, create.text
+    task = create.json()
+
+    async def _fake_start_run(_body, _thread_id, _request):
+        raise RuntimeError("runtime unavailable")
+
+    monkeypatch.setattr("app.gateway.services.start_run", _fake_start_run)
+
+    response = await datagen_client.post(
+        f"/api/v1/datagen/tasks/runs/{task['taskRunId']}/start",
+        json={"threadId": "thread-start-failed"},
+    )
+
+    assert response.status_code == 500, response.text
+    assert "提交 GDP Agent 运行失败" in response.json()["detail"]
+    events = await datagen_client.get(f"/api/v1/datagen/tasks/runs/{task['taskRunId']}/events")
+    assert events.status_code == 200, events.text
+    event_types = [event["eventType"] for event in events.json()]
+    assert event_types[-2:] == ["GDP_AGENT_RUN_REQUESTED", "GDP_AGENT_RUN_FAILED"]
+    assert events.json()[-1]["payload"] == {
+        "deerflowThreadId": "thread-start-failed",
+        "error": "runtime unavailable",
+    }
 
 
 @pytest.mark.anyio

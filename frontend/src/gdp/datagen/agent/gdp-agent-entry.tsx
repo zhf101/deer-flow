@@ -45,6 +45,7 @@ import type {
   DatagenTaskEventResponse,
   DatagenTaskRunResponse,
   DatagenTaskStatus,
+  DatagenTaskStepType,
   DeerflowRunResponse,
   EnvironmentResponse,
 } from "../common/lib/types";
@@ -121,6 +122,27 @@ function statusConfig(status: DatagenTaskStatus | undefined) {
         className: "border-muted bg-background text-muted-foreground",
         icon: BotIcon,
       };
+  }
+}
+
+function planStepTypeLabel(stepType: DatagenTaskStepType) {
+  switch (stepType) {
+    case "RUN_SCENE":
+      return "执行场景";
+    case "REFLECT":
+      return "结果校验";
+    case "DESIGN_SCENE":
+      return "设计场景";
+    case "CONFIG_HTTP_SOURCE":
+      return "HTTP Source";
+    case "CONFIG_SQL_SOURCE":
+      return "SQL Source";
+    case "CONFIG_INFRA":
+      return "基础配置";
+    case "ASK_USER":
+      return "用户确认";
+    default:
+      return stepType;
   }
 }
 
@@ -264,7 +286,8 @@ export function GDPAgentEntry() {
       });
       setTaskRun(created);
       const started = await startGdpAgentRun(threadId, created.taskRunId);
-      setRun(started);
+      setTaskRun(started.taskRun);
+      setRun(started.run);
       toast.success("GDP Agent 已发起");
       await refreshTaskRun(created.taskRunId);
     } catch (error) {
@@ -535,20 +558,21 @@ export function GDPAgentEntry() {
                     {taskRun?.plan?.steps.length ? (
                       <div className="mt-2 space-y-2">
                         {taskRun.plan.steps.map((step) => (
-                          <div key={step.stepId} className="rounded-md border p-2">
+                          <div key={step.stepNo} className="rounded-md border p-2">
                             <div className="flex items-center gap-2">
+                              <Badge variant="secondary" className="h-5 rounded text-[10px]">
+                                #{step.stepNo}
+                              </Badge>
                               <span className="min-w-0 flex-1 truncate text-xs font-medium">
-                                {step.title}
+                                {step.goal}
                               </span>
                               <Badge variant="outline" className="h-5 rounded text-[10px]">
                                 {step.status}
                               </Badge>
                             </div>
-                            {step.description ? (
-                              <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-                                {step.description}
-                              </p>
-                            ) : null}
+                            <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
+                              {planStepTypeLabel(step.stepType)}
+                            </p>
                           </div>
                         ))}
                       </div>

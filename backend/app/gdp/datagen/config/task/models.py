@@ -177,6 +177,42 @@ class DatagenTaskRunResponse(BaseModel):
     finishedAt: datetime | None = Field(default=None, description="任务结束时间。")
 
 
+class DeerflowRunResponse(BaseModel):
+    """DeerFlow 运行响应摘要。"""
+
+    run_id: str = Field(..., description="DeerFlow 运行 ID。")
+    thread_id: str = Field(..., description="DeerFlow 线程 ID。")
+    assistant_id: str | None = Field(default=None, description="运行使用的 Assistant ID。")
+    status: str = Field(..., description="运行状态。")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="运行元数据。")
+    kwargs: dict[str, Any] = Field(default_factory=dict, description="运行创建参数摘要。")
+    multitask_strategy: str = Field(default="reject", description="并发运行策略。")
+    created_at: str = Field(default="", description="运行创建时间。")
+    updated_at: str = Field(default="", description="运行更新时间。")
+    total_input_tokens: int = Field(default=0, description="累计输入 token 数。")
+    total_output_tokens: int = Field(default=0, description="累计输出 token 数。")
+    total_tokens: int = Field(default=0, description="累计 token 数。")
+    llm_call_count: int = Field(default=0, description="LLM 调用次数。")
+    lead_agent_tokens: int = Field(default=0, description="Lead Agent token 数。")
+    subagent_tokens: int = Field(default=0, description="子 Agent token 数。")
+    middleware_tokens: int = Field(default=0, description="中间件 token 数。")
+    message_count: int = Field(default=0, description="消息数量。")
+
+
+class DatagenTaskRunStartRequest(BaseModel):
+    """启动造数 Agent 运行请求。"""
+
+    threadId: str = Field(..., min_length=1, max_length=256, description="承载 GDP Agent 运行的 DeerFlow thread ID。")
+
+
+class DatagenTaskRunStartResponse(BaseModel):
+    """启动造数 Agent 运行响应。"""
+
+    taskRun: DatagenTaskRunResponse = Field(..., description="绑定 DeerFlow 运行后的造数任务状态。")
+    run: DeerflowRunResponse = Field(..., description="已提交的 DeerFlow 运行摘要。")
+    message: str = Field(..., description="启动结果说明。")
+
+
 class DatagenTaskStepResponse(BaseModel):
     """造数任务步骤响应。"""
 

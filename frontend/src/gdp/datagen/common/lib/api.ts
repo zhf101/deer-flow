@@ -29,7 +29,7 @@ import type {
   DatagenTaskEventResponse,
   DatagenTaskRunCreateRequest,
   DatagenTaskRunResponse,
-  DeerflowRunResponse,
+  DatagenTaskRunStartResponse,
   TaskExecutionResult,
   TaskSummary,
   TaskValidationResult,
@@ -45,22 +45,6 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
   const response = await fetchWithAuth(`${DATAGEN_BASE_PATH}${path}`, {
-    ...init,
-    headers,
-  });
-  if (!response.ok) {
-    const detail = await readError(response);
-    throw new Error(detail);
-  }
-  return (await response.json()) as T;
-}
-
-async function requestGateway<T>(path: string, init?: RequestInit): Promise<T> {
-  const headers = new Headers(init?.headers);
-  if (init?.body && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  const response = await fetchWithAuth(path, {
     ...init,
     headers,
   });
@@ -629,23 +613,9 @@ export async function replyAgentTaskRun(
 export async function startGdpAgentRun(
   threadId: string,
   taskRunId: string,
-): Promise<DeerflowRunResponse> {
-  return requestGateway<DeerflowRunResponse>(
-    `/api/threads/${encodeURIComponent(threadId)}/runs`,
-    {
-      method: "POST",
-      body: JSON.stringify({
-        assistant_id: "gdp_agent",
-        input: { task_run_id: taskRunId },
-        metadata: {
-          agent_name: "gdp_agent",
-          task_run_id: taskRunId,
-          source: "datagen-agent-entry",
-        },
-        stream_mode: ["values"],
-        multitask_strategy: "reject",
-        on_disconnect: "continue",
-      }),
-    },
+): Promise<DatagenTaskRunStartResponse> {
+  return request<DatagenTaskRunStartResponse>(
+    `/tasks/runs/${encodeURIComponent(taskRunId)}/start`,
+    { method: "POST", body: JSON.stringify({ threadId }) },
   );
 }

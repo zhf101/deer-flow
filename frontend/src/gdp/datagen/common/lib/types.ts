@@ -20,6 +20,21 @@ export type DatagenTaskPhase =
   | "COMPLETED"
   | "FAILED";
 export type DatagenTaskEnvSource = "USER_EXPLICIT" | "SYSTEM_DEFAULT";
+export type DatagenTaskStepType =
+  | "RUN_SCENE"
+  | "DESIGN_SCENE"
+  | "CONFIG_HTTP_SOURCE"
+  | "CONFIG_SQL_SOURCE"
+  | "CONFIG_INFRA"
+  | "ASK_USER"
+  | "REFLECT";
+export type DatagenTaskStepStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "SUCCESS"
+  | "FAILED"
+  | "SKIPPED"
+  | "WAITING_USER";
 export type StepType = "HTTP" | "SQL" | "ASSERT" | "TRANSFORM";
 export type InputFieldType =
   | "string"
@@ -623,11 +638,10 @@ export interface GoalStackItem {
 }
 
 export interface DatagenTaskPlanStep {
-  stepId: string;
-  title: string;
-  description?: string | null;
-  phase: DatagenTaskPhase;
-  status: string;
+  stepNo: number;
+  stepType: DatagenTaskStepType;
+  goal: string;
+  status: DatagenTaskStepStatus;
 }
 
 export interface DatagenTaskPlan {
@@ -648,6 +662,12 @@ export interface DatagenTaskRunCreateRequest {
   envCode?: string | null;
   inputs: Record<string, unknown>;
   normalizedGoal?: Record<string, unknown>;
+}
+
+export interface DatagenTaskRunStartResponse {
+  taskRun: DatagenTaskRunResponse;
+  run: DeerflowRunResponse;
+  message: string;
 }
 
 export interface DatagenTaskRunResponse {

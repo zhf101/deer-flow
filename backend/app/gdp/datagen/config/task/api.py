@@ -10,6 +10,8 @@ from app.gdp.datagen.config.task.models import (
     DatagenTaskPhase,
     DatagenTaskRunCreateRequest,
     DatagenTaskRunResponse,
+    DatagenTaskRunStartRequest,
+    DatagenTaskRunStartResponse,
     DatagenTaskStatus,
     DatagenTaskStepResponse,
     DatagenTaskSummaryResponse,
@@ -62,6 +64,90 @@ async def get_task_run(
     return await service.get_task_run(taskRunId)
 
 
+@router.post("/tasks/runs/{taskRunId}/start", response_model=DatagenTaskRunStartResponse)
+async def start_task_run(
+    taskRunId: str,
+    body: DatagenTaskRunStartRequest,
+    request: Request,
+    service: DatagenTaskService = Depends(_get_service),
+) -> DatagenTaskRunStartResponse:
+    task_run = await service.get_task_run(taskRunId)
+    if task_run.status in {
+        DatagenTaskStatus.COMPLETED,
+        DatagenTaskStatus.FAILED,
+        DatagenTaskStatus.CANCELLED,
+    }:
+        await service.record_event(
+            taskRunId,
+            event_type="GDP_AGENT_RUN_REJECTED",
+            phase=task_run.phase,
+            message="任务已结束，不能启动 GDP Agent 运行。",
+            payload={"status": task_run.status.value, "deerflowThreadId": body.threadId},
+        )
+        raise HTTPException(status_code=409, detail="任务已结束，不能启动 GDP Agent 运行。")
+
+    await service.record_event(
+        taskRunId,
+        event_type="GDP_AGENT_RUN_REQUESTED",
+        phase=task_run.phase,
+        message="已收到 GDP Agent 运行启动请求。",
+        payload={"deerflowThreadId": body.threadId},
+    )
+    try:
+        from app.gateway.routers.thread_runs import RunCreateRequest
+        from app.gateway.services import start_run
+
+        run_body = RunCreateRequest(
+            assistant_id="gdp_agent",
+            input={"task_run_id": taskRunId},
+            metadata={
+                "agent_name": "gdp_agent",
+                "task_run_id": taskRunId,
+                "source": "datagen-task-run-start",
+            },
+            stream_mode=["values", "custom"],
+            multitask_strategy="reject",
+            on_disconnect="continue",
+        )
+        record = await start_run(run_body, body.threadId, request)
+    except HTTPException as exc:
+        await service.record_event(
+            taskRunId,
+            event_type="GDP_AGENT_RUN_FAILED",
+            phase=task_run.phase,
+            message="提交 GDP Agent 运行失败。",
+            payload={"deerflowThreadId": body.threadId, "error": str(exc.detail)},
+        )
+        raise
+    except Exception as exc:
+        await service.record_event(
+            taskRunId,
+            event_type="GDP_AGENT_RUN_FAILED",
+            phase=task_run.phase,
+            message="提交 GDP Agent 运行失败。",
+            payload={"deerflowThreadId": body.threadId, "error": str(exc)},
+        )
+        raise HTTPException(status_code=500, detail=f"提交 GDP Agent 运行失败：{exc}") from exc
+
+    updated = await service.bind_deerflow_run(
+        taskRunId,
+        deerflow_thread_id=body.threadId,
+        deerflow_run_id=record.run_id,
+    )
+    await service.record_event(
+        taskRunId,
+        event_type="GDP_AGENT_RUN_SUBMITTED",
+        phase=updated.phase,
+        message="已向 DeerFlow Runtime 提交 GDP Agent 运行。",
+        payload={"deerflowThreadId": body.threadId, "deerflowRunId": record.run_id},
+    )
+    return DatagenTaskRunStartResponse(
+        taskRun=updated,
+        run=_deerflow_run_response(record),
+        message="已提交 GDP Agent 运行。",
+    )
+
+
 @router.post("/tasks/runs/{taskRunId}/continue", response_model=DatagenTaskContinueResponse)
 async def continue_task(
     taskRunId: str,
@@ -79,7 +165,7 @@ async def continue_task(
         run_body = RunCreateRequest(
             assistant_id="gdp_agent",
             input={"task_run_id": taskRunId},
-            stream_mode=["values"],
+            stream_mode=["values", "custom"],
             multitask_strategy="reject",
             on_disconnect="continue",
         )
@@ -129,7 +215,7 @@ async def record_user_reply(
             run_body = RunCreateRequest(
                 assistant_id="gdp_agent",
                 command={"resume": body.reply},
-                stream_mode=["values"],
+                stream_mode=["values", "custom"],
                 multitask_strategy="reject",
                 on_disconnect="continue",
             )
@@ -176,3 +262,26 @@ async def get_task_summary(
     service: DatagenTaskService = Depends(_get_service),
 ) -> DatagenTaskSummaryResponse:
     return await service.get_summary(taskRunId)
+
+
+def _deerflow_run_response(record) -> dict:
+    status = getattr(record, "status", "")
+    return {
+        "run_id": record.run_id,
+        "thread_id": record.thread_id,
+        "assistant_id": getattr(record, "assistant_id", None),
+        "status": getattr(status, "value", status),
+        "metadata": getattr(record, "metadata", {}) or {},
+        "kwargs": getattr(record, "kwargs", {}) or {},
+        "multitask_strategy": getattr(record, "multitask_strategy", "reject"),
+        "created_at": getattr(record, "created_at", ""),
+        "updated_at": getattr(record, "updated_at", ""),
+        "total_input_tokens": getattr(record, "total_input_tokens", 0),
+        "total_output_tokens": getattr(record, "total_output_tokens", 0),
+        "total_tokens": getattr(record, "total_tokens", 0),
+        "llm_call_count": getattr(record, "llm_call_count", 0),
+        "lead_agent_tokens": getattr(record, "lead_agent_tokens", 0),
+        "subagent_tokens": getattr(record, "subagent_tokens", 0),
+        "middleware_tokens": getattr(record, "middleware_tokens", 0),
+        "message_count": getattr(record, "message_count", 0),
+    }
