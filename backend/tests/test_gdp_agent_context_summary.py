@@ -103,7 +103,7 @@ async def test_intake_injects_context_summary(context_summary_services):
     intake = build_intake_node(task_service, subtask_service=subtask_service)
 
     result = await intake(
-        {"messages": [HumanMessage(content="帮我造一笔订单")], "inputs": {"userId": "U1"}},
+        {"messages": [HumanMessage(content="帮我造一笔订单")], "user_inputs": {"userId": "U1"}},
         {"configurable": {"thread_id": "thread-context-summary"}},
     )
 

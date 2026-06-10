@@ -110,7 +110,8 @@ async def execute_dbapi(
         elapsed_ms = round((perf_counter() - started) * 1000, 3)
         logger.error("【SQL 执行失败】数据库驱动未安装: %s", exc.name)
         logger.info("=" * 60)
-        friendly_type, friendly_msg = friendly_sql_error("MissingDriverError", f"数据库驱动未安装：{exc.name}")
+        driver_name = exc.name or str(exc)
+        friendly_type, friendly_msg = friendly_sql_error("MissingDriverError", f"数据库驱动未安装：{driver_name}")
         return SqlExecutionResult.failed(
             db_type=datasource.dbType,
             operation=request.operation,
@@ -276,7 +277,7 @@ def _close_quietly(resource: Any) -> None:
 def friendly_sql_error(error_type: str, raw_message: str) -> tuple[str, str]:
     """将数据库驱动原始异常转换为面向用户的友好中文消息。
 
-    返回 (友好的 error_type, 友好的 message)，不暴露内部 IP、端口、
+    返回 (稳定 error_type, 友好的 message)，不暴露内部 IP、端口、
     驱动类名和源代码路径。
 
     Args:
@@ -284,7 +285,7 @@ def friendly_sql_error(error_type: str, raw_message: str) -> tuple[str, str]:
         raw_message: 原始异常消息 ``str(exc)``。
 
     Returns:
-        (friendly_type, friendly_message) 元组。
+        (stable_type, friendly_message) 元组。
     """
     msg_lower = raw_message.lower()
 
@@ -323,7 +324,7 @@ def friendly_sql_error(error_type: str, raw_message: str) -> tuple[str, str]:
 
     # 驱动未安装
     if error_type == "MissingDriverError":
-        return ("驱动缺失", raw_message)
+        return ("MissingDriverError", raw_message)
 
     # SQL 语法错误
     if any(kw in msg_lower for kw in (

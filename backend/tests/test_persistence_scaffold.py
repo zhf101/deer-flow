@@ -219,11 +219,11 @@ class TestEngineLifecycle:
         assert get_session_factory() is None
 
     @pytest.mark.anyio
-    async def test_sqlite_migrates_existing_gdp_sql_template_columns(self, tmp_path):
+    async def test_sqlite_migrates_existing_gdp_sql_source_columns(self, tmp_path):
         from sqlalchemy import text
         from sqlalchemy.ext.asyncio import create_async_engine
 
-        from app.gdp.datagen.sqlsource.repository import SqlSourceRepository
+        from app.gdp.datagen.config.sqlsource.repository import SqlSourceRepository
         from deerflow.persistence.engine import close_engine, get_session_factory, init_engine
 
         db_path = tmp_path / "test.db"
@@ -231,12 +231,14 @@ class TestEngineLifecycle:
         async with engine.begin() as conn:
             await conn.execute(text(
                 """
-                CREATE TABLE df_sql_template (
+                CREATE TABLE df_sql_source (
                     id VARCHAR(64) PRIMARY KEY,
-                    template_code VARCHAR(128) NOT NULL UNIQUE,
-                    template_name VARCHAR(256) NOT NULL,
+                    source_code VARCHAR(128) NOT NULL UNIQUE,
+                    source_name VARCHAR(256) NOT NULL,
+                    tags_json TEXT NOT NULL,
+                    capability_type VARCHAR(32) NOT NULL,
+                    sys_code VARCHAR(64) NOT NULL,
                     operation VARCHAR(32) NOT NULL,
-                    datasource_type VARCHAR(64) NOT NULL,
                     sql_text TEXT NOT NULL,
                     parameters_json TEXT NOT NULL,
                     safety_json TEXT NOT NULL,
@@ -255,7 +257,7 @@ class TestEngineLifecycle:
             sf = get_session_factory()
             assert sf is not None
             async with sf() as session:
-                cols = (await session.execute(text("PRAGMA table_info(df_sql_template)"))).all()
+                cols = (await session.execute(text("PRAGMA table_info(df_sql_source)"))).all()
                 column_names = {row[1] for row in cols}
 
             assert "datasource_code" in column_names

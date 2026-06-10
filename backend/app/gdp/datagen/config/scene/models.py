@@ -50,7 +50,7 @@ class StepTemplateRef(BaseModel):
     对比和重新导入，不作为运行期读取基础模板的依据。
     """
 
-    type: Literal["HTTP_SOURCE", "SQL_SOURCE"]
+    type: Literal["HTTP_SOURCE", "SQL_SOURCE"] = Field(..., description="来源模板类型，HTTP_SOURCE 表示 HTTP Source，SQL_SOURCE 表示 SQL Source。")
     sourceCode: str = Field(..., min_length=1, max_length=128, description="来源模板编码。")
     sourceNameAtSnapshot: str | None = Field(default=None, description="导入时模板名称。")
     sourceUpdatedAtSnapshot: datetime | None = Field(default=None, description="导入时模板更新时间。")
@@ -192,61 +192,61 @@ class SceneDefinition(BaseModel):
 class SceneSummary(BaseModel):
     """场景列表摘要。"""
 
-    id: str
-    sceneCode: str
-    sceneName: str
-    sceneRemark: str | None = None
-    sceneType: str | None = None
+    id: str = Field(..., description="数据库主键 ID。")
+    sceneCode: str = Field(..., description="场景唯一编码。")
+    sceneName: str = Field(..., description="场景名称。")
+    sceneRemark: str | None = Field(default=None, description="场景备注。")
+    sceneType: str | None = Field(default=None, description="场景分类。")
     tags: list[str] = Field(default_factory=list, description="场景业务标签。")
     capabilityType: CapabilityType = Field(default=CapabilityType.QUERY, description="场景业务能力类型。")
     businessDomain: str | None = Field(default=None, description="场景所属业务域。")
     sideEffects: list[CapabilitySideEffect] = Field(default_factory=list, description="场景执行副作用摘要。")
     agentDescription: str | None = Field(default=None, description="面向 Agent 的能力说明。")
-    status: SceneStatus
-    currentVersionNo: int | None = None
-    publishedVersionNo: int | None = None
-    createdBy: str | None = None
-    updatedBy: str | None = None
-    createdAt: datetime
-    updatedAt: datetime
+    status: SceneStatus = Field(..., description="场景当前状态。")
+    currentVersionNo: int | None = Field(default=None, description="当前最新版本号。")
+    publishedVersionNo: int | None = Field(default=None, description="当前已发布版本号。")
+    createdBy: str | None = Field(default=None, description="创建人标识。")
+    updatedBy: str | None = Field(default=None, description="最近更新人标识。")
+    createdAt: datetime = Field(..., description="创建时间。")
+    updatedAt: datetime = Field(..., description="最近更新时间。")
 
 
 class SceneVersion(BaseModel):
     """场景版本响应。"""
 
-    id: str
-    sceneCode: str
-    versionNo: int
-    versionStatus: VersionStatus
-    definition: SceneDefinition
-    validationResult: dict[str, Any] | None = None
-    createdBy: str | None = None
-    updatedBy: str | None = None
-    createdAt: datetime
-    updatedAt: datetime
-    publishedBy: str | None = None
-    publishedAt: datetime | None = None
+    id: str = Field(..., description="数据库主键 ID。")
+    sceneCode: str = Field(..., description="所属场景编码。")
+    versionNo: int = Field(..., description="版本号。")
+    versionStatus: VersionStatus = Field(..., description="版本状态。")
+    definition: SceneDefinition = Field(..., description="该版本保存的完整场景定义。")
+    validationResult: dict[str, Any] | None = Field(default=None, description="最近一次场景校验结果。")
+    createdBy: str | None = Field(default=None, description="创建人标识。")
+    updatedBy: str | None = Field(default=None, description="最近更新人标识。")
+    createdAt: datetime = Field(..., description="创建时间。")
+    updatedAt: datetime = Field(..., description="最近更新时间。")
+    publishedBy: str | None = Field(default=None, description="发布人标识。")
+    publishedAt: datetime | None = Field(default=None, description="发布时间。")
 
 
 class ValidationIssue(BaseModel):
     """场景校验问题。"""
 
-    field: str
-    message: str
-    level: Literal["ERROR", "WARNING"] = "ERROR"
+    field: str = Field(..., description="问题所在字段路径。")
+    message: str = Field(..., description="人类可读的校验问题说明。")
+    level: Literal["ERROR", "WARNING"] = Field(default="ERROR", description="问题级别，ERROR 阻断发布，WARNING 用于提示风险。")
 
 
 class ValidationResult(BaseModel):
     """场景校验结果。"""
 
-    valid: bool
-    issues: list[ValidationIssue] = Field(default_factory=list)
+    valid: bool = Field(..., description="场景定义是否通过发布前校验。")
+    issues: list[ValidationIssue] = Field(default_factory=list, description="校验问题列表。")
 
 
 class DisableResponse(BaseModel):
     """删除、禁用类操作响应。"""
 
-    success: bool = True
+    success: bool = Field(default=True, description="操作是否成功。")
 
 
 class SceneRunRequest(BaseModel):
@@ -260,52 +260,52 @@ class SceneRunRequest(BaseModel):
 class StepExecutionResult(BaseModel):
     """单个场景步骤执行结果。"""
 
-    stepId: str
-    stepName: str | None = None
-    type: StepType
+    stepId: str = Field(..., description="步骤唯一 ID。")
+    stepName: str | None = Field(default=None, description="步骤名称。")
+    type: StepType = Field(..., description="步骤类型。")
     stepOrder: int | None = Field(default=None, description="节点在场景编排步骤列表中的顺序，从 1 开始。")
     timelineOrder: int | None = Field(default=None, description="节点本次执行时间线顺序，从 1 开始。")
-    status: Literal["SUCCESS", "FAILED", "SKIPPED"]
-    startedAt: datetime
-    finishedAt: datetime
-    durationMs: float
-    outputs: dict[str, Any] = Field(default_factory=dict)
-    rawResponse: Any = None
-    error: str | None = None
-    statusCode: int | None = None
+    status: Literal["SUCCESS", "FAILED", "SKIPPED"] = Field(..., description="步骤执行状态。")
+    startedAt: datetime = Field(..., description="步骤开始时间。")
+    finishedAt: datetime = Field(..., description="步骤结束时间。")
+    durationMs: float = Field(..., description="步骤执行耗时，单位毫秒。")
+    outputs: dict[str, Any] = Field(default_factory=dict, description="步骤输出变量。")
+    rawResponse: Any = Field(default=None, description="步骤原始响应摘要，可能来自 HTTP 响应或 SQL 执行结果。")
+    error: str | None = Field(default=None, description="步骤失败说明。")
+    statusCode: int | None = Field(default=None, description="HTTP 步骤响应状态码；非 HTTP 步骤为空。")
 
 
 class SceneExecutionResult(BaseModel):
     """场景执行结果。"""
 
     runId: str | None = Field(default=None, description="本次场景执行记录 ID。执行结果持久化后由后端生成。")
-    sceneCode: str
-    versionNo: int
-    envCode: str
+    sceneCode: str = Field(..., description="执行的场景编码。")
+    versionNo: int = Field(..., description="执行的场景版本号。")
+    envCode: str = Field(..., description="执行环境编码。")
     inputs: dict[str, Any] = Field(default_factory=dict, description="本次执行使用的场景入参。")
-    status: Literal["SUCCESS", "FAILED", "PARTIAL"]
-    startedAt: datetime
-    finishedAt: datetime
-    durationMs: float
-    stepResults: list[StepExecutionResult] = Field(default_factory=list)
-    finalOutput: dict[str, Any] = Field(default_factory=dict)
-    errors: list[str] = Field(default_factory=list)
+    status: Literal["SUCCESS", "FAILED", "PARTIAL"] = Field(..., description="场景整体执行状态。")
+    startedAt: datetime = Field(..., description="场景开始执行时间。")
+    finishedAt: datetime = Field(..., description="场景执行结束时间。")
+    durationMs: float = Field(..., description="场景执行总耗时，单位毫秒。")
+    stepResults: list[StepExecutionResult] = Field(default_factory=list, description="步骤执行结果列表。")
+    finalOutput: dict[str, Any] = Field(default_factory=dict, description="场景最终输出变量。")
+    errors: list[str] = Field(default_factory=list, description="场景执行期间收集的错误说明。")
 
 
 class SceneRunSummary(BaseModel):
     """场景执行记录摘要（列表用），不含步骤明细。"""
 
-    runId: str
-    sceneCode: str
-    versionNo: int
-    envCode: str
-    status: Literal["SUCCESS", "FAILED", "PARTIAL"]
-    startedAt: datetime
-    finishedAt: datetime
-    durationMs: float
-    inputs: dict[str, Any] = Field(default_factory=dict)
-    finalOutput: dict[str, Any] = Field(default_factory=dict)
-    errors: list[str] = Field(default_factory=list)
-    stepCount: int = Field(default=0, description="步骤总数")
-    successCount: int = Field(default=0, description="成功步骤数")
-    failedCount: int = Field(default=0, description="失败步骤数")
+    runId: str = Field(..., description="场景执行记录 ID。")
+    sceneCode: str = Field(..., description="执行的场景编码。")
+    versionNo: int = Field(..., description="执行的场景版本号。")
+    envCode: str = Field(..., description="执行环境编码。")
+    status: Literal["SUCCESS", "FAILED", "PARTIAL"] = Field(..., description="场景整体执行状态。")
+    startedAt: datetime = Field(..., description="场景开始执行时间。")
+    finishedAt: datetime = Field(..., description="场景执行结束时间。")
+    durationMs: float = Field(..., description="场景执行总耗时，单位毫秒。")
+    inputs: dict[str, Any] = Field(default_factory=dict, description="本次执行使用的场景入参。")
+    finalOutput: dict[str, Any] = Field(default_factory=dict, description="场景最终输出变量。")
+    errors: list[str] = Field(default_factory=list, description="场景执行期间收集的错误说明。")
+    stepCount: int = Field(default=0, description="步骤总数。")
+    successCount: int = Field(default=0, description="成功步骤数。")
+    failedCount: int = Field(default=0, description="失败步骤数。")

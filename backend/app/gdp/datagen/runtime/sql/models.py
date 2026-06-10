@@ -55,34 +55,34 @@ class SqlSourceTestRequest(BaseModel):
 class SqlResultColumn(BaseModel):
     """标准化后的结果列。"""
 
-    name: str
-    type: str | None = None
+    name: str = Field(..., description="结果列名称。")
+    type: str | None = Field(default=None, description="数据库驱动返回或后端推断的列类型。")
 
 
 class SqlExecutionErrorInfo(BaseModel):
     """SQL 执行结果中返回的错误信息。"""
 
-    type: str
-    message: str
-    detail: str | None = None
+    type: str = Field(..., description="错误类型，用于前端和 Agent 判断失败类别。")
+    message: str = Field(..., description="人类可读的错误说明。")
+    detail: str | None = Field(default=None, description="错误详情，已由后端控制敏感信息暴露。")
 
 
 class SqlExecutionResult(BaseModel):
     """查询和写操作语句统一返回的 SQL 执行结果。"""
 
-    success: bool
-    dbType: str
-    operation: SqlOperation
-    columns: list[SqlResultColumn] = Field(default_factory=list)
-    rows: list[dict[str, Any]] = Field(default_factory=list)
-    row: dict[str, Any] | None = None
-    affectedRows: int = 0
-    lastInsertId: Any = None
-    generatedKeys: list[Any] = Field(default_factory=list)
-    warnings: list[str] = Field(default_factory=list)
-    elapsedMs: float | None = None
-    extractedOutputs: dict[str, Any] = Field(default_factory=dict)
-    error: SqlExecutionErrorInfo | None = None
+    success: bool = Field(..., description="SQL 是否执行成功。")
+    dbType: str = Field(..., description="实际执行 SQL 的数据库类型。")
+    operation: SqlOperation = Field(..., description="SQL 操作类型。")
+    columns: list[SqlResultColumn] = Field(default_factory=list, description="SELECT 查询返回的列信息。")
+    rows: list[dict[str, Any]] = Field(default_factory=list, description="SELECT 查询返回的多行结果。")
+    row: dict[str, Any] | None = Field(default=None, description="便捷单行结果，通常为 rows 的第一行。")
+    affectedRows: int = Field(default=0, description="写操作影响行数。")
+    lastInsertId: Any = Field(default=None, description="插入操作返回的最后插入 ID，不同数据库可能为空。")
+    generatedKeys: list[Any] = Field(default_factory=list, description="写操作生成的主键或返回键列表。")
+    warnings: list[str] = Field(default_factory=list, description="执行过程中的非阻断警告。")
+    elapsedMs: float | None = Field(default=None, description="SQL 执行耗时，单位毫秒。")
+    extractedOutputs: dict[str, Any] = Field(default_factory=dict, description="按 outputMapping 提取出的输出变量。")
+    error: SqlExecutionErrorInfo | None = Field(default=None, description="失败时返回的错误信息。")
 
     @classmethod
     def failed(

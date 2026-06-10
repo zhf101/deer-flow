@@ -4,16 +4,30 @@ from __future__ import annotations
 
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+
+from app.gdp.agent.llm.decision import select_gdp_scene_candidate
+from app.gdp.agent.llm.events import llm_decision_payload, llm_failure_payload
+from app.gdp.agent.llm.schemas import GDPSceneCandidateDecision
+from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
 from app.gdp.agent.nodes.events import emit_waiting_user_event
 from app.gdp.agent.state import GDPState
+from app.gdp.agent.tools.registry import assert_gdp_registered_tool_allowed
 from app.gdp.agent.tools.scene_tools import bind_scene_inputs, run_datagen_scene_for_task, search_scene_contracts
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
 from app.gdp.datagen.config.scene.service import SceneService
-from app.gdp.datagen.config.task.models import DatagenTaskPhase, DatagenTaskStatus
+from app.gdp.datagen.config.task.models import (
+    DatagenTaskPhase,
+    DatagenTaskStatus,
+    DatagenTaskStepStatus,
+    DatagenTaskStepType,
+)
 from app.gdp.datagen.config.task.service import DatagenTaskService
+from deerflow.config.app_config import AppConfig
 
 AUTO_SELECT_MIN_SCORE = 0.25
 CLOSE_SCORE_DELTA = 0.08
+LLM_CANDIDATE_MIN_CONFIDENCE = 0.6
 
 
 def build_scene_fulfillment_node(
@@ -21,10 +35,13 @@ def build_scene_fulfillment_node(
     catalog_service: AgentCatalogService,
     task_service: DatagenTaskService,
     scene_service: SceneService,
+    app_config: AppConfig | None = None,
+    llm_enabled: bool = False,
+    llm_model: Any | None = None,
 ):
     """构造已有场景满足节点。"""
 
-    async def scene_fulfillment(state: GDPState) -> GDPState:
+    async def scene_fulfillment(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         task_run_id = state["task_run_id"]
         task_run = await task_service.get_task_run(task_run_id)
         visible_variable_summaries = [_visible_variable_summary(item) for item in task_run.visibleVariables]
@@ -70,50 +87,108 @@ def build_scene_fulfillment_node(
 
         user_inputs = state.get("user_inputs") or {}
         selected_scene_code = user_inputs.get("selectedSceneCode")
-        top = _select_candidate(result["candidates"], selected_scene_code)
-        if top is None:
+        llm_decision: GDPSceneCandidateDecision | None = None
+        llm_state_update: dict[str, Any] = {}
+        if selected_scene_code:
+            top = _select_candidate(result["candidates"], selected_scene_code)
+            if top is None:
+                details = _candidate_confirmation_details(
+                    result["candidates"],
+                    recommended=result["candidates"][0]["contract"]["sceneCode"],
+                    confirmation_reason="INVALID_SELECTION",
+                )
+                details["invalidSelectedSceneCode"] = str(selected_scene_code)
+                pending = {
+                    "taskRunId": task_run_id,
+                    "phase": DatagenTaskPhase.SCENE_FULFILLMENT.value,
+                    "resumePhase": DatagenTaskPhase.SCENE_FULFILLMENT.value,
+                    "questionType": "SCENE_CANDIDATE_CONFIRM",
+                    "question": "选择的造数场景不存在，请重新确认本次任务优先使用哪一个。",
+                    "details": details,
+                }
+                await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="选择的候选场景不存在，等待用户重新确认。")
+                emit_waiting_user_event(pending, message="选择的候选场景不存在，等待用户重新确认。")
+                return {
+                    "current_phase": DatagenTaskPhase.WAITING_USER.value,
+                    "pending_confirmation": pending,
+                    "decision_context": {
+                        "lastSceneResult": None,
+                        "sceneCandidates": [_candidate_summary(item) for item in result["candidates"]],
+                        "invalidSelectedSceneCode": str(selected_scene_code),
+                    },
+                }
+            confirmation_reason = _candidate_confirmation_reason(
+                result["candidates"],
+                top,
+                selected_code=selected_scene_code,
+            )
+        else:
+            llm_decision, llm_state_update = await _try_select_scene_candidate_with_llm(
+                task_service,
+                task_run_id,
+                goal=state.get("user_intent") or task_run.userIntent,
+                candidates=result["candidates"],
+                user_inputs=user_inputs,
+                visible_variables=visible_variable_summaries,
+                context_summary=state.get("context_summary") or {},
+                config=config,
+                app_config=app_config,
+                llm_enabled=llm_enabled,
+                llm_model=llm_model,
+            )
+            if llm_decision is not None and llm_decision.decision == "NO_MATCH":
+                await task_service.move_to_phase(
+                    task_run_id,
+                    status=DatagenTaskStatus.RUNNING,
+                    phase=DatagenTaskPhase.SCENE_DESIGN,
+                    event_type="RESOURCE_MISSING",
+                    message="模型判断已有场景候选无法满足目标，需要进入场景设计分支。",
+                    payload={
+                        "resourceType": "SCENE",
+                        "goal": task_run.userIntent,
+                        "llmDecision": llm_decision.model_dump(mode="json"),
+                    },
+                )
+                return {
+                    "current_phase": DatagenTaskPhase.SCENE_DESIGN.value,
+                    "decision_context": {
+                        "lastSceneResult": None,
+                        "sceneSearch": {
+                            "resourceMissing": True,
+                            "resourceType": "SCENE",
+                            "candidateCount": len(result["candidates"]),
+                            "reason": llm_decision.reason,
+                        },
+                        **_llm_scene_context(llm_decision),
+                    },
+                    **llm_state_update,
+                }
+            if llm_decision is not None:
+                top = _select_candidate(result["candidates"], llm_decision.sceneCode) or result["candidates"][0]
+                confirmation_reason = "LLM_REQUIRES_CONFIRMATION" if _llm_scene_needs_confirmation(llm_decision) else None
+            else:
+                top = _select_candidate(result["candidates"], selected_scene_code)
+                confirmation_reason = _candidate_confirmation_reason(
+                    result["candidates"],
+                    top,
+                    selected_code=selected_scene_code,
+                )
+
+        if confirmation_reason:
             details = _candidate_confirmation_details(
                 result["candidates"],
-                recommended=result["candidates"][0]["contract"]["sceneCode"],
-                confirmation_reason="INVALID_SELECTION",
+                recommended=top["contract"]["sceneCode"],
+                confirmation_reason=confirmation_reason,
             )
-            details["invalidSelectedSceneCode"] = str(selected_scene_code)
-            pending = {
-                "taskRunId": task_run_id,
-                "phase": DatagenTaskPhase.SCENE_FULFILLMENT.value,
-                "resumePhase": DatagenTaskPhase.SCENE_FULFILLMENT.value,
-                "questionType": "SCENE_CANDIDATE_CONFIRM",
-                "question": "选择的造数场景不存在，请重新确认本次任务优先使用哪一个。",
-                "details": details,
-            }
-            await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="选择的候选场景不存在，等待用户重新确认。")
-            emit_waiting_user_event(pending, message="选择的候选场景不存在，等待用户重新确认。")
-            return {
-                "current_phase": DatagenTaskPhase.WAITING_USER.value,
-                "pending_confirmation": pending,
-                "decision_context": {
-                    "lastSceneResult": None,
-                    "sceneCandidates": [_candidate_summary(item) for item in result["candidates"]],
-                    "invalidSelectedSceneCode": str(selected_scene_code),
-                },
-            }
-        confirmation_reason = _candidate_confirmation_reason(
-            result["candidates"],
-            top,
-            selected_code=selected_scene_code,
-        )
-        if confirmation_reason:
+            if llm_decision is not None:
+                details["llmDecision"] = llm_decision.model_dump(mode="json")
             pending = {
                 "taskRunId": task_run_id,
                 "phase": DatagenTaskPhase.SCENE_FULFILLMENT.value,
                 "resumePhase": DatagenTaskPhase.SCENE_FULFILLMENT.value,
                 "questionType": "SCENE_CANDIDATE_CONFIRM",
                 "question": "找到多个可能可用的造数场景，请确认本次任务优先使用哪一个。",
-                "details": _candidate_confirmation_details(
-                    result["candidates"],
-                    recommended=top["contract"]["sceneCode"],
-                    confirmation_reason=confirmation_reason,
-                ),
+                "details": details,
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="候选场景不够明确，等待用户确认。")
             emit_waiting_user_event(pending, message="候选场景不够明确，等待用户确认。")
@@ -125,7 +200,9 @@ def build_scene_fulfillment_node(
                     "sceneCandidates": [_candidate_summary(item) for item in result["candidates"]],
                     "recommendedSceneCode": top["contract"]["sceneCode"],
                     "sceneConfirmationReason": confirmation_reason,
+                    **_llm_scene_context(llm_decision),
                 },
+                **llm_state_update,
             }
 
         contract = top["contract"]
@@ -145,7 +222,8 @@ def build_scene_fulfillment_node(
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
-                "decision_context": _selected_scene_decision(top),
+                "decision_context": {**_selected_scene_decision(top), **_llm_scene_context(llm_decision)},
+                **llm_state_update,
             }
 
         if top["requiresConfirmation"]:
@@ -165,7 +243,8 @@ def build_scene_fulfillment_node(
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
-                "decision_context": _selected_scene_decision(top),
+                "decision_context": {**_selected_scene_decision(top), **_llm_scene_context(llm_decision)},
+                **llm_state_update,
             }
 
         bindings = await bind_scene_inputs(
@@ -173,6 +252,15 @@ def build_scene_fulfillment_node(
             scene_code=contract["sceneCode"],
             user_inputs=state.get("user_inputs") or {},
             visible_variables=visible_variable_bindings,
+        )
+        _assert_scene_run_allowed(
+            task_run_id=task_run_id,
+            scene_code=contract["sceneCode"],
+            env_code=task_run.envCode,
+            input_params=bindings["bindings"],
+            allow_business_write=not top["requiresConfirmation"],
+            state=state,
+            reason="场景契约未声明写副作用，允许自动执行。",
         )
         scene_result = await run_datagen_scene_for_task(
             task_service,
@@ -188,14 +276,172 @@ def build_scene_fulfillment_node(
             "current_phase": DatagenTaskPhase.PROGRESS_REFLECTION.value,
             "decision_context": {
                 **_selected_scene_decision(top),
+                **_llm_scene_context(llm_decision),
                 "inputBinding": bindings,
                 "lastSceneResult": scene_result,
             },
             "last_result_ref": result_ref,
             "result_refs": [result_ref],
+            **llm_state_update,
         }
 
     return scene_fulfillment
+
+
+async def _try_select_scene_candidate_with_llm(
+    task_service: DatagenTaskService,
+    task_run_id: str,
+    *,
+    goal: str,
+    candidates: list[dict[str, Any]],
+    user_inputs: dict[str, Any],
+    visible_variables: list[dict[str, Any]],
+    context_summary: dict[str, Any],
+    config: RunnableConfig | None,
+    app_config: AppConfig | None,
+    llm_enabled: bool,
+    llm_model: Any | None,
+) -> tuple[GDPSceneCandidateDecision | None, dict[str, Any]]:
+    """调用模型选择场景候选，失败时交回规则排序。"""
+
+    if not llm_enabled:
+        return None, {}
+    try:
+        decision = await select_gdp_scene_candidate(
+            goal=goal,
+            candidates=candidates,
+            user_inputs=user_inputs,
+            visible_variables=visible_variables,
+            context_summary=context_summary,
+            config=config,
+            app_config=app_config,
+            model=llm_model,
+        )
+        _validate_scene_candidate_decision(decision, candidates)
+        event = await task_service.record_event(
+            task_run_id,
+            event_type="LLM_SCENE_SELECTED",
+            phase=DatagenTaskPhase.SCENE_FULFILLMENT,
+            message="模型已在历史场景候选中给出选择建议。",
+            payload=llm_decision_payload(decision),
+        )
+        return decision, _scene_llm_state_update(decision, event.eventId, event.eventType)
+    except Exception as exc:
+        event = await task_service.record_event(
+            task_run_id,
+            event_type="LLM_SCENE_SELECTION_FAILED",
+            phase=DatagenTaskPhase.SCENE_FULFILLMENT,
+            message="模型选择历史场景候选失败，已回退到规则排序。",
+            payload=llm_failure_payload(exc),
+        )
+        return None, {
+            "last_llm_decision": {
+                "decisionType": "scene_candidate_selection",
+                "decisionSource": "fallback_rule",
+                "errorType": type(exc).__name__,
+            },
+            "llm_decision_refs": [
+                {
+                    "eventId": event.eventId,
+                    "eventType": event.eventType,
+                    "decisionType": "scene_candidate_selection",
+                }
+            ],
+        }
+
+
+def _validate_scene_candidate_decision(
+    decision: GDPSceneCandidateDecision,
+    candidates: list[dict[str, Any]],
+) -> None:
+    """确保模型只能选择已召回的场景候选。"""
+
+    codes = {str(item["contract"]["sceneCode"]) for item in candidates}
+    if decision.decision == "NO_MATCH":
+        return
+    if not decision.sceneCode:
+        raise ValueError("模型场景候选决策缺少 sceneCode。")
+    if str(decision.sceneCode) not in codes:
+        raise ValueError(f"模型选择了不存在的场景候选：{decision.sceneCode}")
+    invalid_rank = [code for code in decision.candidateRank if str(code) not in codes]
+    if invalid_rank:
+        raise ValueError(f"模型候选排序包含不存在的场景：{', '.join(invalid_rank)}")
+
+
+def _llm_scene_needs_confirmation(decision: GDPSceneCandidateDecision) -> bool:
+    """判断模型候选建议是否仍应交给用户确认。"""
+
+    return (
+        decision.decision == "ASK_USER"
+        or decision.requiresUserConfirmation
+        or decision.confidence < LLM_CANDIDATE_MIN_CONFIDENCE
+    )
+
+
+def _scene_llm_state_update(
+    decision: GDPSceneCandidateDecision,
+    event_id: str,
+    event_type: str,
+) -> dict[str, Any]:
+    """生成场景候选模型决策的 checkpoint 摘要。"""
+
+    return {
+        "last_llm_decision": {
+            "decisionType": "scene_candidate_selection",
+            "decision": decision.decision,
+            "sceneCode": decision.sceneCode,
+            "confidence": decision.confidence,
+            "reason": decision.reason,
+        },
+        "llm_decision_refs": [
+            {
+                "eventId": event_id,
+                "eventType": event_type,
+                "decisionType": "scene_candidate_selection",
+            }
+        ],
+    }
+
+
+def _llm_scene_context(decision: GDPSceneCandidateDecision | None) -> dict[str, Any]:
+    """把模型场景候选决策写入轻量决策上下文。"""
+
+    if decision is None:
+        return {}
+    return {"llmSceneDecision": decision.model_dump(mode="json")}
+
+
+def _assert_scene_run_allowed(
+    *,
+    task_run_id: str,
+    scene_code: str,
+    env_code: str,
+    input_params: dict[str, Any],
+    allow_business_write: bool,
+    state: GDPState,
+    reason: str,
+) -> None:
+    assert_gdp_registered_tool_allowed(
+        "run_datagen_scene_for_task",
+        {
+            "task_run_id": task_run_id,
+            "scene_code": scene_code,
+            "env_code": env_code,
+            "input_params": input_params,
+        },
+        GDPToolApprovalContext(
+            allowBusinessWrite=allow_business_write,
+            operator=_operator(state),
+            reason=reason,
+        ),
+    )
+
+
+def _operator(state: GDPState) -> str | None:
+    runtime_context = state.get("runtime_context") or {}
+    if isinstance(runtime_context, dict) and runtime_context.get("operator"):
+        return str(runtime_context["operator"])
+    return None
 
 
 def _select_candidate(candidates: list[dict[str, Any]], selected_code: Any) -> dict[str, Any] | None:
@@ -248,7 +494,10 @@ async def _executed_scene_codes(task_service: DatagenTaskService, task_run_id: s
     return {
         str(step.selectedResource.get("sceneCode"))
         for step in steps
-        if step.selectedResource and step.selectedResource.get("sceneCode")
+        if step.stepType == DatagenTaskStepType.RUN_SCENE
+        and step.status == DatagenTaskStepStatus.SUCCESS
+        and step.selectedResource
+        and step.selectedResource.get("sceneCode")
     }
 
 

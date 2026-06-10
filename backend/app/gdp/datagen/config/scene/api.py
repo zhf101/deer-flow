@@ -29,11 +29,15 @@ router = APIRouter(tags=["data-factory-scene"])
 
 
 class SceneCodeRequest(BaseModel):
-    sceneCode: str = Field(..., min_length=1, max_length=128)
+    """按场景编码执行操作的请求体。"""
+
+    sceneCode: str = Field(..., min_length=1, max_length=128, description="场景唯一编码，用于定位要更新、删除或发布的场景。")
 
 
 class SceneUpdateRequest(SceneCodeRequest):
-    definition: SceneDefinition
+    """更新场景定义请求。"""
+
+    definition: SceneDefinition = Field(..., description="新的完整场景定义。")
 
 
 def _get_service() -> SceneService:

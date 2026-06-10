@@ -1,5 +1,12 @@
 """GDP Agent 工具集合。"""
 
+from app.gdp.agent.middlewares.business_guardrail import (
+    GDPToolApprovalContext,
+    GDPToolGuardrailDecision,
+    GDPToolGuardrailError,
+    build_gdp_tool_approval_key,
+    evaluate_gdp_tool_guardrail,
+)
 from app.gdp.agent.tools.infra_config_tools import (
     build_infra_config_tools,
     resolve_infra_basis,
@@ -9,14 +16,12 @@ from app.gdp.agent.tools.infra_config_tools import (
     upsert_system_from_agent,
 )
 from app.gdp.agent.tools.registry import (
-    GDPToolApprovalContext,
-    GDPToolGuardrailDecision,
-    GDPToolGuardrailError,
     GDPToolOutputTarget,
     GDPToolSideEffectLevel,
     GDPToolSpec,
-    build_gdp_tool_approval_key,
-    evaluate_gdp_tool_guardrail,
+    assert_gdp_registered_tool_allowed,
+    evaluate_gdp_registered_tool_guardrail,
+    get_gdp_tool_spec,
     get_gdp_tool_specs,
     get_gdp_tools,
 )
@@ -61,8 +66,11 @@ __all__ = [
     "build_task_tools",
     "build_gdp_tool_approval_key",
     "compose_scene_draft_from_source",
+    "assert_gdp_registered_tool_allowed",
+    "evaluate_gdp_registered_tool_guardrail",
     "evaluate_gdp_tool_guardrail",
     "get_datagen_task_state",
+    "get_gdp_tool_spec",
     "get_gdp_tool_specs",
     "get_gdp_tools",
     "get_scene_contract",

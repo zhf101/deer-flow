@@ -6,11 +6,11 @@
 
 from __future__ import annotations
 
+import json
 from typing import Annotated, Any, TypedDict
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-
 
 BOUNDED_LIST_LIMIT = 50
 
@@ -79,12 +79,16 @@ class GDPState(TypedDict, total=False):
     pending_confirmation: GDPConfirmation | None
     confirmation_result: Any
     user_inputs: Annotated[dict[str, Any], merge_user_inputs]
-    inputs: dict[str, Any]
 
     decision_context: Annotated[dict[str, Any], merge_dict]
+    normalized_goal: Annotated[dict[str, Any], merge_dict]
+    last_llm_decision: Annotated[dict[str, Any], merge_dict]
+    llm_decision_refs: Annotated[list[dict[str, Any]], append_bounded_dedupe]
     context_summary: Annotated[dict[str, Any], merge_dict]
     memory_context: Annotated[dict[str, Any], merge_dict]
     memory_trace: Annotated[list[dict[str, Any]], append_bounded_dedupe]
+    skill_context: Annotated[dict[str, Any], merge_dict]
+    skill_trace: Annotated[list[dict[str, Any]], append_bounded_dedupe]
     last_result_ref: GDPResultRef | None
     result_refs: Annotated[list[GDPResultRef], append_bounded_dedupe]
     errors: Annotated[list[dict[str, Any]], append_bounded]
@@ -131,9 +135,30 @@ def append_bounded_dedupe(existing: list | None, new: list | None) -> list:
     result: list[Any] = []
     seen: set[str] = set()
     for item in list(existing or []) + list(new or []):
-        marker = repr(item)
+        marker = _stable_marker(item)
         if marker in seen:
             continue
         seen.add(marker)
         result.append(item)
     return result[-BOUNDED_LIST_LIMIT:]
+
+
+def _stable_marker(value: Any) -> str:
+    """生成稳定去重键，无法 JSON 化时退回字符串。"""
+
+    try:
+        return json.dumps(_jsonable(value), ensure_ascii=False, sort_keys=True, default=str)
+    except TypeError:
+        return str(value)
+
+
+def _jsonable(value: Any) -> Any:
+    if hasattr(value, "model_dump"):
+        return value.model_dump(mode="json")
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_jsonable(item) for item in value]
+    if isinstance(value, tuple):
+        return [_jsonable(item) for item in value]
+    return value

@@ -72,6 +72,8 @@ from typing import Any
 
 from langgraph.config import get_stream_writer
 
+from app.gdp.datagen.redaction import redact_sensitive_payload
+
 logger = logging.getLogger(__name__)
 
 
@@ -94,6 +96,7 @@ def emit_waiting_user_event(payload: dict[str, Any], *, message: str) -> None:
     """
 
     try:
+        payload = redact_sensitive_payload(payload)
         writer = get_stream_writer()
         writer(
             {

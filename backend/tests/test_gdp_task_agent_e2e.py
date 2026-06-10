@@ -113,7 +113,9 @@ async def test_gdp_task_agent_minimal_e2e_with_existing_write_scene(tmp_path):
         assert "SCENE_CANDIDATES_FOUND" in event_types
         assert "ASK_USER" in event_types
         assert "SCENE_RUN_FINISHED" in event_types
-        assert event_types[-1] == "TASK_COMPLETED"
+        assert "TASK_COMPLETED" in event_types
+        assert event_types.index("SCENE_RUN_FINISHED") < event_types.index("TASK_COMPLETED")
+        assert event_types[-1] == "AGENT_NODE_FINISHED"
     finally:
         await close_engine()
 

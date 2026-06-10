@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
 from app.gdp.agent.tools.infra_config_tools import (
     resolve_infra_basis,
     upsert_datasource_from_agent,
@@ -14,6 +15,7 @@ from app.gdp.agent.tools.infra_config_tools import (
     upsert_service_endpoint_from_agent,
     upsert_system_from_agent,
 )
+from app.gdp.agent.tools.registry import assert_gdp_registered_tool_allowed
 from app.gdp.agent.tools.scene_design_tools import compose_scene_draft_from_source, publish_scene_from_source
 from app.gdp.agent.tools.source_config_tools import (
     parse_sql_source_from_agent,
@@ -156,14 +158,14 @@ class _AgentSceneDesignServices(BaseModel):
 
     model_config = {"arbitrary_types_allowed": True}
 
-    base_repository: BaseConfigRepository
-    task_service: DatagenTaskService
-    scene_service: SceneService
-    http_source_service: HttpSourceService
-    sql_source_service: SqlSourceService
-    sql_execution_service: SqlExecutionService
-    http_source_repository: HttpSourceRepository
-    sql_source_repository: SqlSourceRepository
+    base_repository: BaseConfigRepository = Field(..., description="基础配置仓储，用于读取系统、环境、端点和数据源。")
+    task_service: DatagenTaskService = Field(..., description="造数任务服务，用于发布场景时写入任务事件。")
+    scene_service: SceneService = Field(..., description="场景配置服务，用于校验、保存和发布场景定义。")
+    http_source_service: HttpSourceService = Field(..., description="HTTP Source 服务，用于保存和测试 HTTP 数据源配置。")
+    sql_source_service: SqlSourceService = Field(..., description="SQL Source 服务，用于保存 SQL 数据源配置。")
+    sql_execution_service: SqlExecutionService = Field(..., description="SQL 执行服务，用于测试 SQL Source 查询。")
+    http_source_repository: HttpSourceRepository = Field(..., description="HTTP Source 仓储，用于场景生成时读取已发布 Source。")
+    sql_source_repository: SqlSourceRepository = Field(..., description="SQL Source 仓储，用于场景生成时读取已发布 Source。")
 
 
 def _get_services() -> _AgentSceneDesignServices:
@@ -215,6 +217,11 @@ async def publish_scene_from_source_api(
     body: AgentScenePublishRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> AgentScenePublishResponse:
+    source_contract = _source_contract_payload(body.sourceContract)
+    _assert_agent_api_config_write_allowed(
+        "publish_scene_from_source",
+        {"task_run_id": body.taskRunId, "source_contract": source_contract},
+    )
     result = await publish_scene_from_source(
         task_service=services.task_service,
         scene_service=services.scene_service,
@@ -222,7 +229,7 @@ async def publish_scene_from_source_api(
         sql_source_repository=services.sql_source_repository,
         task_run_id=body.taskRunId,
         goal=body.goal,
-        source_contract=_source_contract_payload(body.sourceContract),
+        source_contract=source_contract,
     )
     return AgentScenePublishResponse(**result)
 
@@ -253,6 +260,7 @@ async def upsert_http_source_api(
     body: AgentHttpSourceUpsertRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> dict[str, Any]:
+    _assert_agent_api_config_write_allowed("upsert_http_source_from_agent", {"config": body.config})
     return await upsert_http_source_from_agent(
         services.http_source_service,
         services.base_repository,
@@ -271,6 +279,7 @@ async def upsert_sql_source_api(
     body: AgentSqlSourceUpsertRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> dict[str, Any]:
+    _assert_agent_api_config_write_allowed("upsert_sql_source_from_agent", {"config": body.config})
     return await upsert_sql_source_from_agent(
         services.sql_source_service,
         services.base_repository,
@@ -284,6 +293,7 @@ async def test_http_source_api(
     body: HttpSourceTestRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> dict[str, Any]:
+    _assert_agent_api_business_write_allowed("test_http_source_from_agent", {"request": body})
     return await test_http_source_from_agent(services.http_source_service, request=body)
 
 
@@ -292,6 +302,7 @@ async def test_sql_source_api(
     body: SqlSourceTestRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> dict[str, Any]:
+    _assert_agent_api_business_write_allowed("test_sql_source_from_agent", {"request": body})
     return await test_sql_source_from_agent(services.sql_execution_service, request=body)
 
 
@@ -315,6 +326,7 @@ async def upsert_system_api(
     body: AgentSystemUpsertRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> dict[str, Any]:
+    _assert_agent_api_config_write_allowed("upsert_system_from_agent", {"config": body.config})
     return await upsert_system_from_agent(services.base_repository, config=body.config)
 
 
@@ -323,6 +335,7 @@ async def upsert_environment_api(
     body: AgentEnvironmentUpsertRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> dict[str, Any]:
+    _assert_agent_api_config_write_allowed("upsert_environment_from_agent", {"config": body.config})
     return await upsert_environment_from_agent(services.base_repository, config=body.config)
 
 
@@ -331,6 +344,7 @@ async def upsert_service_endpoint_api(
     body: AgentServiceEndpointUpsertRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> dict[str, Any]:
+    _assert_agent_api_config_write_allowed("upsert_service_endpoint_from_agent", {"config": body.config})
     return await upsert_service_endpoint_from_agent(services.base_repository, config=body.config)
 
 
@@ -339,8 +353,31 @@ async def upsert_datasource_api(
     body: AgentDatasourceUpsertRequest,
     services: _AgentSceneDesignServices = Depends(_get_services),
 ) -> dict[str, Any]:
+    _assert_agent_api_config_write_allowed("upsert_datasource_from_agent", {"config": body.config})
     return await upsert_datasource_from_agent(services.base_repository, config=body.config)
 
 
 def _source_contract_payload(contract: AgentSourceContract) -> dict[str, Any]:
     return contract.model_dump(mode="json")
+
+
+def _assert_agent_api_config_write_allowed(tool_name: str, tool_input: dict[str, Any]) -> None:
+    assert_gdp_registered_tool_allowed(
+        tool_name,
+        tool_input,
+        GDPToolApprovalContext(
+            allowConfigWrite=True,
+            reason="用户通过 Agent API 显式提交配置写入请求。",
+        ),
+    )
+
+
+def _assert_agent_api_business_write_allowed(tool_name: str, tool_input: dict[str, Any]) -> None:
+    assert_gdp_registered_tool_allowed(
+        tool_name,
+        tool_input,
+        GDPToolApprovalContext(
+            allowBusinessWrite=True,
+            reason="用户通过 Agent API 显式提交业务探测请求。",
+        ),
+    )

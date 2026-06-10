@@ -15,7 +15,9 @@ from app.gdp.agent.graph import (
     GDPAgentServices,
     _build_gdp_metadata,
     _build_gdp_policy,
+    _build_services,
     _get_gdp_runtime_config,
+    _route_after_progress_reflection,
     make_gdp_agent,
     make_gdp_graph,
 )
@@ -48,7 +50,13 @@ from app.gdp.datagen.config.scene.repository import SceneRepository
 from app.gdp.datagen.config.scene.service import SceneService
 from app.gdp.datagen.config.sqlsource.repository import SqlSourceRepository
 from app.gdp.datagen.config.sqlsource.service import SqlSourceService
-from app.gdp.datagen.config.task.models import DatagenTaskStatus
+from app.gdp.datagen.config.task.models import (
+    DatagenTaskPhase,
+    DatagenTaskRunCreateRequest,
+    DatagenTaskStatus,
+    DatagenTaskStepStatus,
+    DatagenTaskStepType,
+)
 from app.gdp.datagen.config.task.repository import DatagenTaskRepository
 from app.gdp.datagen.config.task.service import DatagenTaskService
 from app.gdp.datagen.runtime.sql.registry import SqlExecutorRegistry
@@ -133,10 +141,44 @@ def test_gdp_agent_factory_extracts_runtime_policy_and_metadata():
     assert policy.checkpointer_enabled is True
     assert metadata.log_level == "debug"
     assert metadata.policy == {
+        "llmDecisionEnabled": True,
         "auditEnabled": True,
+        "goalGuardEnabled": True,
         "memoryEnabled": True,
+        "skillsEnabled": True,
+        "progressLoopEnabled": True,
         "checkpointerEnabled": True,
+        "runtimeContextEnabled": True,
+        "taskRunSyncEnabled": True,
+        "interruptEnabled": True,
+        "errorHandlingEnabled": True,
+        "recoveryEnabled": True,
     }
+
+
+@pytest.mark.anyio
+async def test_gdp_agent_build_services_respects_memory_policy(tmp_path):
+    db_path = tmp_path / "gdp-agent-memory-policy.db"
+    await init_engine("sqlite", url=f"sqlite+aiosqlite:///{db_path}", sqlite_dir=str(tmp_path))
+    try:
+        disabled = _build_services(app_config=SimpleNamespace(memory=SimpleNamespace(enabled=False)))
+        enabled = _build_services(app_config=SimpleNamespace(memory=SimpleNamespace(enabled=True)))
+
+        assert disabled.memory_service is None
+        assert enabled.memory_service is not None
+    finally:
+        await close_engine()
+
+
+def test_progress_reflection_routes_active_phases_before_end():
+    assert _route_after_progress_reflection({"current_phase": "SCENE_FULFILLMENT"}) == "scene_fulfillment"
+    assert _route_after_progress_reflection({"current_phase": "SCENE_DESIGN"}) == "scene_design"
+    assert _route_after_progress_reflection({"current_phase": "SOURCE_CONFIG"}) == "source_config"
+    assert _route_after_progress_reflection({"current_phase": "INFRA_CONFIG"}) == "infra_config"
+    assert _route_after_progress_reflection({"current_phase": "SCENE_EXECUTING"}) == "scene_execute"
+    assert _route_after_progress_reflection({"current_phase": "WAITING_USER"}) == "human_confirm"
+    assert _route_after_progress_reflection({"current_phase": "COMPLETED"}) == "end"
+    assert _route_after_progress_reflection({"current_phase": "FAILED"}) == "end"
 
 
 @pytest.mark.anyio
@@ -229,6 +271,18 @@ async def test_gdp_graph_runs_query_scene_and_completes_task(gdp_services):
     )
 
     assert result["current_phase"] == "COMPLETED"
+    assert result["phase_history"]
+    assert result["phase_history"][-1]["phase"] == "COMPLETED"
+    assert result["node_attempts"]["intake"] == 1
+    assert result["node_attempts"]["scene_fulfillment"] == 1
+    assert result["node_attempts"]["progress_reflection"] == 1
+    assert result["runtime_context"]["assistant_id"] == "gdp_agent"
+    assert result["runtime_context"]["thread_id"] == "thread-gdp-success"
+    assert result["task_context"]["task_run_id"] == result["task_run_id"]
+    assert result["task_context"]["status"] == "COMPLETED"
+    assert result["task_context"]["phase"] == "COMPLETED"
+    assert result["task_context"]["env_code"] == "DEV"
+    assert result["task_context"]["deerflow_thread_id"] == "thread-gdp-success"
     summary = result["context_summary"]
     assert summary["goalAnchor"]["phase"] == "COMPLETED"
     assert summary["steps"]["statusCounts"]["SUCCESS"] == 2
@@ -246,6 +300,39 @@ async def test_gdp_graph_runs_query_scene_and_completes_task(gdp_services):
     events = await gdp_services["task_service"].list_events(task_runs[0].taskRunId)
     assert "SCENE_RUN_STARTED" in [event.eventType for event in events]
     assert "TASK_COMPLETED" in [event.eventType for event in events]
+
+
+@pytest.mark.anyio
+async def test_gdp_graph_recovers_stale_non_terminal_steps_before_existing_task_run(gdp_services):
+    await gdp_services["scene_repo"].create_scene(_query_scene())
+    await gdp_services["scene_repo"].publish_scene("queryOrder", validation_result=ValidationResult(valid=True, issues=[]))
+    task_run = await gdp_services["task_service"].create_task_run(DatagenTaskRunCreateRequest(userIntent="查询订单"))
+    stale_step = await gdp_services["task_service"].record_task_step(
+        task_run.taskRunId,
+        phase=DatagenTaskPhase.SCENE_EXECUTING,
+        step_type=DatagenTaskStepType.RUN_SCENE,
+        goal="恢复前遗留的场景执行步骤。",
+        status=DatagenTaskStepStatus.RUNNING,
+        selected_resource={"sceneCode": "queryOrder"},
+    )
+    graph = make_gdp_graph(gdp_services["services"])
+
+    result = await graph.ainvoke(
+        {"task_run_id": task_run.taskRunId},
+        config={"configurable": {"thread_id": "thread-gdp-recovery"}, "metadata": {"run_id": "run-gdp-recovery"}},
+    )
+
+    assert result["current_phase"] == "COMPLETED"
+    recovery = result["decision_context"]["taskStepRecovery"]
+    assert recovery["recoveredStepCount"] == 1
+    assert recovery["recoveredSteps"][0]["taskStepId"] == stale_step.taskStepId
+    steps = await gdp_services["task_service"].list_steps(task_run.taskRunId)
+    recovered_step = next(step for step in steps if step.taskStepId == stale_step.taskStepId)
+    assert recovered_step.status == "FAILED"
+    assert recovered_step.errorType == "RECOVERED_NON_TERMINAL_STEP"
+    assert recovered_step.errorMessage == "GDP Agent 图运行入口恢复上一次运行遗留的非终态步骤。"
+    events = await gdp_services["task_service"].list_events(task_run.taskRunId)
+    assert "TASK_STEPS_RECOVERED" in [event.eventType for event in events]
 
 
 @pytest.mark.anyio
@@ -439,12 +526,29 @@ async def test_gdp_graph_designs_scene_from_http_source_then_resumes_execution(g
 
     assert "__interrupt__" in first_chunks[-1]
     waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
-    generated_scene_code = waiting.pendingInterrupts["details"]["sceneCode"]
-    assert generated_scene_code.startswith("agent_createOrderApi_")
+    assert waiting.pendingInterrupts["questionType"] == "SCENE_PUBLISH_APPROVAL"
+    assert waiting.pendingInterrupts["details"]["sourceCode"] == "createOrderApi"
     events = await gdp_services["task_service"].list_events(waiting.taskRunId)
     event_types = [event.eventType for event in events]
     assert "SOURCE_CANDIDATES_FOUND" in event_types
-    assert "SCENE_AUTO_PUBLISHED" in event_types
+    assert "SCENE_AUTO_PUBLISHED" not in event_types
+
+    publish_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            Command(resume={"approved": True}),
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in publish_chunks[-1]
+    waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
+    assert waiting.pendingInterrupts["questionType"] == "WRITE_SCENE_APPROVAL"
+    generated_scene_code = waiting.pendingInterrupts["details"]["sceneCode"]
+    assert generated_scene_code.startswith("agent_createOrderApi_")
+    events = await gdp_services["task_service"].list_events(waiting.taskRunId)
+    assert "SCENE_AUTO_PUBLISHED" in [event.eventType for event in events]
 
     final_chunks = [
         chunk
@@ -464,6 +568,42 @@ async def test_gdp_graph_designs_scene_from_http_source_then_resumes_execution(g
     assert _steps_by_type(steps, "ASK_USER")
     published = await gdp_services["scene_repo"].get_published_scene(generated_scene_code)
     assert published.definition.steps[0].templateRef.sourceCode == "createOrderApi"
+
+
+@pytest.mark.anyio
+async def test_gdp_graph_rejects_unknown_selected_source_code(gdp_services):
+    await gdp_services["http_repo"].upsert_http_source(_order_http_source("createOrderApi"))
+    await gdp_services["http_repo"].upsert_http_source(_order_http_source("createOrderApiV2"))
+    graph = make_gdp_graph(gdp_services["services"], checkpointer=MemorySaver())
+    config = {"configurable": {"thread_id": "thread-gdp-stale-source-choice"}}
+
+    first_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            {"messages": [HumanMessage(content="帮我造一笔订单")]},
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in first_chunks[-1]
+
+    stale_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            Command(resume={"selectedSourceCode": "createOrderApiExpired"}),
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in stale_chunks[-1]
+    waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
+    assert waiting.pendingInterrupts["questionType"] == "SOURCE_CANDIDATE_CONFIRM"
+    assert waiting.pendingInterrupts["details"]["confirmationReason"] == "INVALID_SELECTION"
+    assert waiting.pendingInterrupts["details"]["invalidSelectedSourceCode"] == "createOrderApiExpired"
+    design_steps = _steps_by_type(await gdp_services["task_service"].list_steps(waiting.taskRunId), "DESIGN_SCENE")
+    assert design_steps == []
 
 
 @pytest.mark.anyio
@@ -505,6 +645,21 @@ async def test_gdp_graph_asks_user_to_choose_ambiguous_source_candidate(gdp_serv
 
     assert "__interrupt__" in source_chunks[-1]
     waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
+    assert waiting.pendingInterrupts["questionType"] == "SCENE_PUBLISH_APPROVAL"
+    assert waiting.pendingInterrupts["details"]["sourceCode"] == "createOrderApiV2"
+
+    publish_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            Command(resume={"approved": True}),
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in publish_chunks[-1]
+    waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
+    assert waiting.pendingInterrupts["questionType"] == "WRITE_SCENE_APPROVAL"
     generated_scene_code = waiting.pendingInterrupts["details"]["sceneCode"]
 
     final_chunks = [
@@ -580,6 +735,19 @@ async def test_gdp_graph_configures_source_and_infra_then_returns_to_scene_flow(
 
     assert "__interrupt__" in infra_chunks[-1]
     waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
+    assert waiting.pendingInterrupts["questionType"] == "SCENE_PUBLISH_APPROVAL"
+
+    publish_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            Command(resume={"approved": True}),
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in publish_chunks[-1]
+    waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
     assert waiting.pendingInterrupts["questionType"] == "WRITE_SCENE_APPROVAL"
     generated_scene_code = waiting.pendingInterrupts["details"]["sceneCode"]
 
@@ -607,6 +775,48 @@ async def test_gdp_graph_configures_source_and_infra_then_returns_to_scene_flow(
     assert "INFRA_CONFIG_SAVED" in event_types
     assert "SOURCE_CONFIG_SAVED" in event_types
     assert "SCENE_AUTO_PUBLISHED" in event_types
+
+
+@pytest.mark.anyio
+async def test_gdp_graph_redacts_invalid_source_payload(gdp_services):
+    graph = make_gdp_graph(gdp_services["services"], checkpointer=MemorySaver())
+    config = {"configurable": {"thread_id": "thread-gdp-redact-source"}}
+
+    first_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            {"messages": [HumanMessage(content="帮我造一笔订单")]},
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in first_chunks[-1]
+
+    invalid_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            Command(
+                resume={
+                    "sourceType": "HTTP",
+                    "config": {
+                        "sourceCode": "createOrderApi",
+                        "password": "secret-123",
+                        "headers": {"Authorization": "Bearer raw-token"},
+                    },
+                }
+            ),
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in invalid_chunks[-1]
+    waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
+    assert waiting.pendingInterrupts["questionType"] == "SOURCE_CONFIG_INVALID"
+    received = waiting.pendingInterrupts["details"]["received"]
+    assert received["config"]["password"] == "***已脱敏***"
+    assert received["config"]["headers"]["Authorization"] == "***已脱敏***"
 
 
 def _steps_by_type(steps, step_type: str):

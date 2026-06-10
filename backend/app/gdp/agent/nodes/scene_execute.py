@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
 from app.gdp.agent.state import GDPState
+from app.gdp.agent.tools.registry import assert_gdp_registered_tool_allowed
 from app.gdp.agent.tools.scene_tools import bind_scene_inputs, run_datagen_scene_for_task
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
 from app.gdp.datagen.config.scene.service import SceneService
@@ -51,6 +53,20 @@ def build_scene_execute_node(
             user_inputs=state.get("user_inputs") or {},
             visible_variables=visible_variables,
         )
+        assert_gdp_registered_tool_allowed(
+            "run_datagen_scene_for_task",
+            {
+                "task_run_id": task_run_id,
+                "scene_code": scene_code,
+                "env_code": task_run.envCode,
+                "input_params": bindings["bindings"],
+            },
+            GDPToolApprovalContext(
+                allowBusinessWrite=True,
+                operator=_operator(state),
+                reason="用户已确认执行写操作场景。",
+            ),
+        )
         scene_result = await run_datagen_scene_for_task(
             task_service,
             scene_service,
@@ -74,6 +90,13 @@ def build_scene_execute_node(
         }
 
     return scene_execute
+
+
+def _operator(state: GDPState) -> str | None:
+    runtime_context = state.get("runtime_context") or {}
+    if isinstance(runtime_context, dict) and runtime_context.get("operator"):
+        return str(runtime_context["operator"])
+    return None
 
 
 def _is_approved(value: Any) -> bool:

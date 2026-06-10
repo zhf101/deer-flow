@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
+from app.gdp.agent.middlewares.idempotency import find_successful_infra_config_step
 from app.gdp.agent.nodes.events import emit_waiting_user_event
 from app.gdp.agent.state import GDPState
 from app.gdp.agent.tools.infra_config_tools import (
@@ -15,6 +17,7 @@ from app.gdp.agent.tools.infra_config_tools import (
     upsert_service_endpoint_from_agent,
     upsert_system_from_agent,
 )
+from app.gdp.agent.tools.registry import assert_gdp_registered_tool_allowed
 from app.gdp.datagen.config.base.models import DatasourceConfig, EnvironmentConfig, ServiceEndpointConfig, SysConfig
 from app.gdp.datagen.config.base.repository import BaseConfigRepository
 from app.gdp.datagen.config.task.models import (
@@ -86,6 +89,46 @@ def build_infra_config_node(
                     "lastSceneResult": None,
                     "infraConfigRequired": True,
                     "infraBasis": basis,
+                },
+            }
+
+        reused_step = find_successful_infra_config_step(
+            await task_service.list_steps(task_run_id),
+            infra_payload=infra_payload,
+        )
+        if reused_step:
+            output = reused_step.output or {}
+            saved = output.get("saved") if isinstance(output.get("saved"), dict) else {}
+            await task_service.move_to_phase(
+                task_run_id,
+                status=DatagenTaskStatus.RUNNING,
+                phase=DatagenTaskPhase.SOURCE_CONFIG,
+                event_type="INFRA_CONFIG_REUSED",
+                message="已复用本任务内成功保存过的基础配置，回到 Source 配置分支继续处理。",
+                payload={
+                    "taskStepId": reused_step.taskStepId,
+                    "resourceTypes": sorted(saved),
+                    "idempotentReuse": True,
+                },
+            )
+            return {
+                "current_phase": DatagenTaskPhase.SOURCE_CONFIG.value,
+                "decision_context": {
+                    "lastSceneResult": None,
+                    "infraConfigResult": {
+                        "success": True,
+                        "saved": sorted(saved),
+                        "idempotentReuse": True,
+                    },
+                },
+                "last_result_ref": {
+                    "ref_type": "INFRA_CONFIG",
+                    "task_step_id": reused_step.taskStepId,
+                    "summary": {
+                        "success": True,
+                        "resourceTypes": sorted(saved),
+                        "idempotentReuse": True,
+                    },
                 },
             }
 
@@ -181,29 +224,37 @@ async def _upsert_infra(base_repository: BaseConfigRepository, payload: dict[str
     saved: dict[str, Any] = {}
     system = payload.get("system")
     if isinstance(system, dict):
+        config = SysConfig.model_validate(system)
+        _assert_infra_config_allowed("upsert_system_from_agent", config)
         saved["system"] = (
-            await upsert_system_from_agent(base_repository, config=SysConfig.model_validate(system))
+            await upsert_system_from_agent(base_repository, config=config)
         )["system"]
 
     environment = payload.get("environment")
     if isinstance(environment, dict):
+        config = EnvironmentConfig.model_validate(environment)
+        _assert_infra_config_allowed("upsert_environment_from_agent", config)
         saved["environment"] = (
-            await upsert_environment_from_agent(base_repository, config=EnvironmentConfig.model_validate(environment))
+            await upsert_environment_from_agent(base_repository, config=config)
         )["environment"]
 
     service_endpoint = payload.get("serviceEndpoint")
     if isinstance(service_endpoint, dict):
+        config = ServiceEndpointConfig.model_validate(service_endpoint)
+        _assert_infra_config_allowed("upsert_service_endpoint_from_agent", config)
         saved["serviceEndpoint"] = (
             await upsert_service_endpoint_from_agent(
                 base_repository,
-                config=ServiceEndpointConfig.model_validate(service_endpoint),
+                config=config,
             )
         )["serviceEndpoint"]
 
     datasource = payload.get("datasource")
     if isinstance(datasource, dict):
+        config = DatasourceConfig.model_validate(datasource)
+        _assert_infra_config_allowed("upsert_datasource_from_agent", config)
         saved["datasource"] = (
-            await upsert_datasource_from_agent(base_repository, config=DatasourceConfig.model_validate(datasource))
+            await upsert_datasource_from_agent(base_repository, config=config)
         )["datasource"]
 
     if not saved:
@@ -220,6 +271,17 @@ async def _upsert_infra(base_repository: BaseConfigRepository, payload: dict[str
             ],
         )
     return saved
+
+
+def _assert_infra_config_allowed(tool_name: str, config: SysConfig | EnvironmentConfig | ServiceEndpointConfig | DatasourceConfig) -> None:
+    assert_gdp_registered_tool_allowed(
+        tool_name,
+        {"config": config},
+        GDPToolApprovalContext(
+            allowConfigWrite=True,
+            reason="用户已提交基础配置 payload，允许保存配置。",
+        ),
+    )
 
 
 def _optional_str(value: Any) -> str | None:

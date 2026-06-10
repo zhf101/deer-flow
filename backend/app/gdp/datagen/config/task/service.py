@@ -33,6 +33,7 @@ from app.gdp.datagen.config.task.repository import (
     DatagenTaskRepository,
 )
 from app.gdp.datagen.config.task.validation import normalize_task_intent
+from app.gdp.datagen.redaction import redact_sensitive_payload
 
 T = TypeVar("T")
 
@@ -72,6 +73,7 @@ class DatagenTaskService:
         env_code = request.envCode or DEFAULT_ENV_CODE
         env_source = DatagenTaskEnvSource.USER_EXPLICIT if request.envCode else DatagenTaskEnvSource.SYSTEM_DEFAULT
         normalized_goal = {
+            **(request.normalizedGoal or {}),
             "rawIntent": request.userIntent,
             "inputs": request.inputs,
             "envCode": env_code,
@@ -246,6 +248,7 @@ class DatagenTaskService:
         pending_interrupts: dict[str, Any],
         message: str,
     ) -> DatagenTaskRunResponse:
+        pending_interrupts = redact_sensitive_payload(pending_interrupts)
         steps = await self.list_steps(task_run_id)
         task_run = await self._guard(
             lambda: self._repo.update_status(
@@ -303,7 +306,7 @@ class DatagenTaskService:
             event_type="USER_REPLY",
             phase=task_run.phase,
             message="已记录用户回复。",
-            payload={"reply": request.reply},
+            payload={"reply": redact_sensitive_payload(request.reply)},
         )
 
     async def list_steps(self, task_run_id: str) -> list[DatagenTaskStepResponse]:
@@ -457,6 +460,55 @@ class DatagenTaskService:
             )
         return variables
 
+    async def append_visible_variables_from_mcp_result(
+        self,
+        task_run_id: str,
+        *,
+        capability_name: str,
+        output: dict[str, Any],
+        sensitive: bool = False,
+        storage_ref: str | None = None,
+    ) -> list[VisibleVariable]:
+        """把 MCP capability 输出摘要化后写入任务变量栈。"""
+
+        task_run = await self.get_task_run(task_run_id)
+        variables_by_name = {item.name: item for item in task_run.visibleVariables}
+        created_names: list[str] = []
+        for name, value in output.items():
+            variable = _build_visible_variable_from_value(
+                name=name,
+                value=value,
+                source=f"${{task.mcp.{capability_name}.output.{name}}}",
+            )
+            if sensitive:
+                variable = variable.model_copy(update={"sensitive": True, "valuePreview": None, "storageRef": storage_ref})
+            elif storage_ref:
+                variable = variable.model_copy(update={"storageRef": storage_ref})
+            variables_by_name[name] = variable
+            created_names.append(name)
+
+        variables = list(variables_by_name.values())
+        await self._guard(
+            lambda: self._repo.update_visible_variables(
+                task_run_id,
+                visible_variables=variables,
+            )
+        )
+        if created_names:
+            await self.record_event(
+                task_run_id,
+                event_type="VARIABLE_STACK_UPDATED",
+                phase=DatagenTaskPhase.PROGRESS_REFLECTION,
+                message="已把 MCP capability 输出写入任务变量栈。",
+                payload={
+                    "capabilityName": capability_name,
+                    "variables": created_names,
+                    "storageRef": storage_ref,
+                    "sensitive": sensitive,
+                },
+            )
+        return variables
+
     async def fail_task(
         self,
         task_run_id: str,
@@ -505,6 +557,7 @@ class DatagenTaskService:
         message: str,
         payload: dict[str, Any] | None = None,
     ) -> DatagenTaskEventResponse:
+        payload = redact_sensitive_payload(payload or {})
         return await self._guard(
             lambda: self._repo.record_event(
                 task_run_id=task_run_id,

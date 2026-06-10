@@ -8,7 +8,15 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
+from app.gdp.agent.middlewares.error_handling import wrap_gdp_error_handling
+from app.gdp.agent.middlewares.goal_guard import wrap_gdp_goal_guard
+from app.gdp.agent.middlewares.interrupt import wrap_gdp_interrupt
 from app.gdp.agent.middlewares.node_audit import wrap_gdp_node_audit
+from app.gdp.agent.middlewares.progress_loop import wrap_gdp_progress_loop_detection
+from app.gdp.agent.middlewares.recovery import wrap_gdp_task_recovery
+from app.gdp.agent.middlewares.runtime_context import wrap_gdp_runtime_context
+from app.gdp.agent.middlewares.skill_context import wrap_gdp_skill_context
+from app.gdp.agent.middlewares.task_run_sync import wrap_gdp_task_run_sync
 from app.gdp.agent.nodes.human_confirm import build_human_confirm_node
 from app.gdp.agent.nodes.infra_config import build_infra_config_node
 from app.gdp.agent.nodes.intake import build_intake_node
@@ -17,6 +25,7 @@ from app.gdp.agent.nodes.scene_design import build_scene_design_node
 from app.gdp.agent.nodes.scene_execute import build_scene_execute_node
 from app.gdp.agent.nodes.scene_fulfillment import build_scene_fulfillment_node
 from app.gdp.agent.nodes.source_config import build_source_config_node
+from app.gdp.agent.observability import configure_gdp_observability
 from app.gdp.agent.state import GDPState
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
 from app.gdp.datagen.agent_memory.repository import GDPAgentMemoryRepository
@@ -54,6 +63,7 @@ class GDPAgentServices:
     sql_execution_service: SqlExecutionService
     memory_service: GDPAgentMemoryService | None = None
     subtask_service: DatagenTaskSubtaskService | None = None
+    app_config: AppConfig | None = None
 
 
 @dataclass(frozen=True)
@@ -72,9 +82,18 @@ class GDPAgentRuntimeConfig:
 class GDPAgentPolicy:
     """GDP Agent 运行策略开关。"""
 
+    llm_decision_enabled: bool
     audit_enabled: bool
+    goal_guard_enabled: bool
     memory_enabled: bool
+    skills_enabled: bool
+    progress_loop_enabled: bool
     checkpointer_enabled: bool
+    runtime_context_enabled: bool
+    task_run_sync_enabled: bool
+    interrupt_enabled: bool
+    error_handling_enabled: bool
+    recovery_enabled: bool
 
 
 @dataclass(frozen=True)
@@ -85,6 +104,7 @@ class GDPAgentMetadata:
     thread_id: str | None
     run_id: str | None
     user_id: str | None
+    operator: str | None
     model_name: str | None
     log_level: str | None
     policy: dict[str, Any]
@@ -96,6 +116,7 @@ def make_gdp_agent(config: RunnableConfig, app_config: AppConfig):
     runtime = _get_gdp_runtime_config(config)
     policy = _build_gdp_policy(app_config)
     metadata = _build_gdp_metadata(app_config, runtime, policy)
+    configure_gdp_observability(config, runtime=runtime, metadata=metadata)
     services = _build_services(app_config=app_config, runtime=runtime)
     return make_gdp_graph(
         services,
@@ -124,21 +145,40 @@ def make_gdp_graph(
         model_name=None,
     )
     policy = policy or GDPAgentPolicy(
+        llm_decision_enabled=False,
         audit_enabled=True,
+        goal_guard_enabled=True,
         memory_enabled=False,
+        skills_enabled=True,
+        progress_loop_enabled=True,
         checkpointer_enabled=checkpointer is not None,
+        runtime_context_enabled=True,
+        task_run_sync_enabled=True,
+        interrupt_enabled=True,
+        error_handling_enabled=True,
+        recovery_enabled=True,
     )
     metadata = metadata or GDPAgentMetadata(
         assistant_id=runtime.assistant_id,
         thread_id=runtime.thread_id,
         run_id=runtime.run_id,
         user_id=runtime.user_id,
+        operator=runtime.operator,
         model_name=runtime.model_name,
         log_level=None,
         policy={
+            "llmDecisionEnabled": policy.llm_decision_enabled,
             "auditEnabled": policy.audit_enabled,
+            "goalGuardEnabled": policy.goal_guard_enabled,
             "memoryEnabled": policy.memory_enabled,
+            "skillsEnabled": policy.skills_enabled,
+            "progressLoopEnabled": policy.progress_loop_enabled,
             "checkpointerEnabled": policy.checkpointer_enabled,
+            "runtimeContextEnabled": policy.runtime_context_enabled,
+            "taskRunSyncEnabled": policy.task_run_sync_enabled,
+            "interruptEnabled": policy.interrupt_enabled,
+            "errorHandlingEnabled": policy.error_handling_enabled,
+            "recoveryEnabled": policy.recovery_enabled,
         },
     )
 
@@ -147,7 +187,13 @@ def make_gdp_graph(
         "intake",
         _wrap_node(
             "intake",
-            build_intake_node(services.task_service, services.memory_service, services.subtask_service),
+            build_intake_node(
+                services.task_service,
+                services.memory_service,
+                services.subtask_service,
+                app_config=services.app_config,
+                llm_enabled=policy.llm_decision_enabled,
+            ),
             services,
             policy,
             metadata,
@@ -161,6 +207,8 @@ def make_gdp_graph(
                 catalog_service=services.catalog_service,
                 task_service=services.task_service,
                 scene_service=services.scene_service,
+                app_config=services.app_config,
+                llm_enabled=policy.llm_decision_enabled,
             ),
             services,
             policy,
@@ -177,6 +225,8 @@ def make_gdp_graph(
                 scene_service=services.scene_service,
                 http_source_repository=services.http_source_repository,
                 sql_source_repository=services.sql_source_repository,
+                app_config=services.app_config,
+                llm_enabled=policy.llm_decision_enabled,
             ),
             services,
             policy,
@@ -196,6 +246,8 @@ def make_gdp_graph(
                 base_repository=services.base_repository,
                 http_source_service=services.http_source_service,
                 sql_source_service=services.sql_source_service,
+                app_config=services.app_config,
+                llm_enabled=policy.llm_decision_enabled,
             ),
             services,
             policy,
@@ -233,7 +285,12 @@ def make_gdp_graph(
         "progress_reflection",
         _wrap_node(
             "progress_reflection",
-            build_progress_reflection_node(services.task_service, services.subtask_service),
+            build_progress_reflection_node(
+                services.task_service,
+                services.subtask_service,
+                app_config=services.app_config,
+                llm_enabled=policy.llm_decision_enabled,
+            ),
             services,
             policy,
             metadata,
@@ -299,6 +356,11 @@ def make_gdp_graph(
         _route_after_progress_reflection,
         {
             "scene_fulfillment": "scene_fulfillment",
+            "scene_design": "scene_design",
+            "source_config": "source_config",
+            "infra_config": "infra_config",
+            "scene_execute": "scene_execute",
+            "human_confirm": "human_confirm",
             "end": END,
         },
     )
@@ -314,13 +376,60 @@ def _wrap_node(
 ):
     """按 GDP 策略给图节点套用运行时 wrapper。"""
 
-    if not policy.audit_enabled:
-        return node
-    return wrap_gdp_node_audit(
+    node = wrap_gdp_runtime_context(
+        node=node,
+        metadata=metadata,
+        enabled=policy.runtime_context_enabled,
+    )
+    node = wrap_gdp_task_recovery(
+        node_name=node_name,
+        node=node,
+        task_service=services.task_service,
+        enabled=policy.recovery_enabled,
+    )
+    node = wrap_gdp_task_run_sync(
+        node=node,
+        task_service=services.task_service,
+        enabled=policy.task_run_sync_enabled,
+    )
+    node = wrap_gdp_interrupt(
+        node_name=node_name,
+        node=node,
+        task_service=services.task_service,
+        enabled=policy.interrupt_enabled,
+    )
+    node = wrap_gdp_skill_context(
+        node_name=node_name,
+        node=node,
+        task_service=services.task_service,
+        enabled=policy.skills_enabled,
+    )
+    node = wrap_gdp_goal_guard(
+        node_name=node_name,
+        node=node,
+        task_service=services.task_service,
+        subtask_service=services.subtask_service,
+        enabled=policy.goal_guard_enabled,
+    )
+    node = wrap_gdp_progress_loop_detection(
+        node_name=node_name,
+        node=node,
+        task_service=services.task_service,
+        enabled=policy.progress_loop_enabled,
+    )
+    if policy.audit_enabled:
+        node = wrap_gdp_node_audit(
+            node_name=node_name,
+            node=node,
+            task_service=services.task_service,
+            metadata=metadata,
+        )
+    return wrap_gdp_error_handling(
         node_name=node_name,
         node=node,
         task_service=services.task_service,
         metadata=metadata,
+        enabled=policy.error_handling_enabled,
     )
 
 
@@ -341,9 +450,18 @@ def _build_gdp_policy(app_config: AppConfig | None) -> GDPAgentPolicy:
     """从 AppConfig 中抽取 GDP 当前可用的运行策略。"""
 
     return GDPAgentPolicy(
+        llm_decision_enabled=_gdp_agent_config_bool(app_config, "llm_decision_enabled", True),
         audit_enabled=True,
+        goal_guard_enabled=True,
         memory_enabled=bool(getattr(getattr(app_config, "memory", None), "enabled", False)),
+        skills_enabled=True,
+        progress_loop_enabled=True,
         checkpointer_enabled=getattr(app_config, "checkpointer", None) is not None,
+        runtime_context_enabled=True,
+        task_run_sync_enabled=True,
+        interrupt_enabled=True,
+        error_handling_enabled=True,
+        recovery_enabled=True,
     )
 
 
@@ -359,12 +477,22 @@ def _build_gdp_metadata(
         thread_id=runtime.thread_id,
         run_id=runtime.run_id,
         user_id=runtime.user_id,
+        operator=runtime.operator,
         model_name=runtime.model_name,
         log_level=getattr(app_config, "log_level", None),
         policy={
+            "llmDecisionEnabled": policy.llm_decision_enabled,
             "auditEnabled": policy.audit_enabled,
+            "goalGuardEnabled": policy.goal_guard_enabled,
             "memoryEnabled": policy.memory_enabled,
+            "skillsEnabled": policy.skills_enabled,
+            "progressLoopEnabled": policy.progress_loop_enabled,
             "checkpointerEnabled": policy.checkpointer_enabled,
+            "runtimeContextEnabled": policy.runtime_context_enabled,
+            "taskRunSyncEnabled": policy.task_run_sync_enabled,
+            "interruptEnabled": policy.interrupt_enabled,
+            "errorHandlingEnabled": policy.error_handling_enabled,
+            "recoveryEnabled": policy.recovery_enabled,
         },
     )
 
@@ -434,6 +562,16 @@ def _route_after_human_confirm(state: GDPState) -> str:
 def _route_after_progress_reflection(state: GDPState) -> str:
     if state.get("current_phase") == "SCENE_FULFILLMENT":
         return "scene_fulfillment"
+    if state.get("current_phase") == "SCENE_DESIGN":
+        return "scene_design"
+    if state.get("current_phase") == "SOURCE_CONFIG":
+        return "source_config"
+    if state.get("current_phase") == "INFRA_CONFIG":
+        return "infra_config"
+    if state.get("current_phase") == "SCENE_EXECUTING":
+        return "scene_execute"
+    if state.get("current_phase") == "WAITING_USER":
+        return "human_confirm"
     return "end"
 
 
@@ -468,7 +606,8 @@ def _build_services(
         registry=SqlExecutorRegistry(),
     )
     scene_service = SceneService(scene_repository, SceneExecutor(sql_execution, base_repository))
-    memory_service = GDPAgentMemoryService(GDPAgentMemoryRepository(sf))
+    memory_enabled = bool(getattr(getattr(app_config, "memory", None), "enabled", False))
+    memory_service = GDPAgentMemoryService(GDPAgentMemoryRepository(sf)) if memory_enabled else None
     return GDPAgentServices(
         task_service=task_service,
         catalog_service=catalog_service,
@@ -481,4 +620,18 @@ def _build_services(
         sql_execution_service=sql_execution,
         memory_service=memory_service,
         subtask_service=subtask_service,
+        app_config=app_config,
     )
+
+
+def _gdp_agent_config_bool(app_config: AppConfig | None, key: str, default: bool) -> bool:
+    """读取 GDP Agent 专用布尔配置，支持 config.yaml 额外字段。"""
+
+    if app_config is None:
+        return default
+    container = getattr(app_config, "gdp_agent", None)
+    if container is None:
+        return default
+    if isinstance(container, dict):
+        return bool(container.get(key, default))
+    return bool(getattr(container, key, default))

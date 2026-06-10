@@ -12,7 +12,6 @@ from app.gdp.agent.middlewares.business_guardrail import (
     GDPToolApprovalContext,
     GDPToolGuardrailDecision,
     GDPToolGuardrailError,
-    build_gdp_tool_approval_key,
     evaluate_gdp_tool_guardrail,
     wrap_gdp_tools_guardrail,
 )
@@ -141,7 +140,7 @@ _TOOL_SPECS: tuple[GDPToolSpec, ...] = (
         (DatagenTaskPhase.SOURCE_CONFIG,),
         side_effect_level=GDPToolSideEffectLevel.BUSINESS_WRITE,
         requires_approval=True,
-        idempotency_key_fields=("request.sourceCode", "request.envCode", "request.inputs"),
+        idempotency_key_fields=("request.config.sourceCode", "request.envCode", "request.config.requestMapping"),
         output_target=GDPToolOutputTarget.STORAGE_REF,
         sensitive_output=True,
     ),
@@ -150,7 +149,7 @@ _TOOL_SPECS: tuple[GDPToolSpec, ...] = (
         (DatagenTaskPhase.SOURCE_CONFIG,),
         side_effect_level=GDPToolSideEffectLevel.BUSINESS_WRITE,
         requires_approval=True,
-        idempotency_key_fields=("request.sourceCode", "request.envCode", "request.params"),
+        idempotency_key_fields=("request.sourceCode", "request.envCode", "request.parameters"),
         output_target=GDPToolOutputTarget.STORAGE_REF,
         sensitive_output=True,
     ),
@@ -201,6 +200,38 @@ def get_gdp_tool_specs(phase: DatagenTaskPhase | str | None = None) -> list[GDPT
     target_phase = _normalize_phase(phase)
     specs = _TOOL_SPECS if target_phase is None else tuple(item for item in _TOOL_SPECS if target_phase in item.phase)
     return [item.model_copy(deep=True) for item in specs]
+
+
+def get_gdp_tool_spec(tool_name: str) -> GDPToolSpec:
+    """按工具名读取 GDP Agent 工具治理元数据。"""
+
+    for spec in _TOOL_SPECS:
+        if spec.name == tool_name:
+            return spec.model_copy(deep=True)
+    raise KeyError(tool_name)
+
+
+def evaluate_gdp_registered_tool_guardrail(
+    tool_name: str,
+    tool_input: Any = None,
+    approval_context: GDPToolApprovalContext | dict[str, Any] | None = None,
+) -> GDPToolGuardrailDecision:
+    """按注册表元数据评估一次 GDP 工具调用是否允许。"""
+
+    return evaluate_gdp_tool_guardrail(get_gdp_tool_spec(tool_name), tool_input, approval_context)
+
+
+def assert_gdp_registered_tool_allowed(
+    tool_name: str,
+    tool_input: Any = None,
+    approval_context: GDPToolApprovalContext | dict[str, Any] | None = None,
+) -> GDPToolGuardrailDecision:
+    """按注册表元数据校验 GDP 工具调用，不允许时抛出 Guardrail 错误。"""
+
+    decision = evaluate_gdp_registered_tool_guardrail(tool_name, tool_input, approval_context)
+    if not decision.allowed:
+        raise GDPToolGuardrailError(decision)
+    return decision
 
 
 def get_gdp_tools(

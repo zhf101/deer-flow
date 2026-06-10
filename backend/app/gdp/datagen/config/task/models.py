@@ -146,6 +146,7 @@ class DatagenTaskRunCreateRequest(BaseModel):
     userIntent: str = Field(..., min_length=1, description="用户原始自然语言造数目标。")
     envCode: str | None = Field(default=None, min_length=1, max_length=64, description="用户明确指定或前端已解析出的环境编码。为空时后端默认 DEV。")
     inputs: dict[str, Any] = Field(default_factory=dict, description="用户随任务一起提供的结构化输入。")
+    normalizedGoal: dict[str, Any] = Field(default_factory=dict, description="Agent 或模型预归一化后的结构化目标，会与后端权威字段合并后落库。")
 
 
 class DatagenTaskRunResponse(BaseModel):

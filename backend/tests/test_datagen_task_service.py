@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import pytest
 
+from app.gdp.datagen.config.task import api as task_api
 from app.gdp.datagen.config.task.models import (
     DatagenTaskPhase,
     DatagenTaskRunCreateRequest,
     DatagenTaskStepStatus,
     DatagenTaskStepType,
+    DatagenTaskUserReplyRequest,
 )
 from app.gdp.datagen.config.task.repository import DatagenTaskRepository
 from app.gdp.datagen.config.task.service import DatagenTaskService
@@ -193,6 +195,37 @@ async def test_mark_waiting_user_records_ask_user_step(task_service):
     assert steps[0].status == "WAITING_USER"
     assert steps[0].selectedResource == {"questionType": "WRITE_SCENE_APPROVAL"}
     assert steps[0].output["question"] == "是否执行写操作场景？"
+
+
+@pytest.mark.anyio
+async def test_user_reply_records_resume_failed_event_when_runtime_rejects(task_service, monkeypatch):
+    service, _repo = task_service
+    task_run = await service.create_task_run(
+        DatagenTaskRunCreateRequest(userIntent="造订单"),
+        deerflow_thread_id="thread-resume-failed",
+    )
+    await service.mark_waiting_user(
+        task_run.taskRunId,
+        pending_interrupts={"questionType": "WRITE_SCENE_APPROVAL", "question": "是否执行写操作场景？"},
+        message="写操作场景执行前需要用户确认。",
+    )
+
+    async def _raise_start_run(*args, **kwargs):
+        raise RuntimeError("checkpoint missing")
+
+    monkeypatch.setattr("app.gateway.services.start_run", _raise_start_run)
+
+    with pytest.raises(RuntimeError, match="checkpoint missing"):
+        await task_api.record_user_reply(
+            task_run.taskRunId,
+            DatagenTaskUserReplyRequest(reply={"approved": True}),
+            request=object(),
+            service=service,
+        )
+
+    events = await service.list_events(task_run.taskRunId)
+    assert [event.eventType for event in events][-2:] == ["USER_REPLY", "RESUME_FAILED"]
+    assert events[-1].payload == {"error": "checkpoint missing"}
 
 
 @pytest.mark.anyio

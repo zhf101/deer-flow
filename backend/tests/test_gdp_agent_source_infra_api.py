@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
@@ -120,6 +122,43 @@ def test_agent_source_and_infra_routes_only_use_post():
     }
 
     assert route_methods == {"POST"}
+
+
+@pytest.mark.anyio
+async def test_agent_write_and_test_api_checks_registered_guardrail(agent_config_client: AsyncClient, monkeypatch):
+    calls: list[tuple[str, Any, Any]] = []
+
+    def _capture_guardrail(tool_name: str, tool_input: Any = None, approval_context: Any = None) -> None:
+        calls.append((tool_name, tool_input, approval_context))
+
+    async def _fake_http_test(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {"success": True, "request": {}, "response": None}
+
+    monkeypatch.setattr("app.gdp.agent.api.assert_gdp_registered_tool_allowed", _capture_guardrail)
+    monkeypatch.setattr("app.gdp.agent.api.test_http_source_from_agent", _fake_http_test)
+
+    await _create_http_basis(agent_config_client)
+    saved = await agent_config_client.post(
+        "/api/v1/datagen/agent/sources/http/upsert",
+        json={"envCode": "DEV", "config": _order_http_source().model_dump(mode="json")},
+    )
+    tested = await agent_config_client.post(
+        "/api/v1/datagen/agent/sources/http/test",
+        json={"envCode": "DEV", "config": _order_http_source().model_dump(mode="json")},
+    )
+
+    assert saved.status_code == 200, saved.text
+    assert tested.status_code == 200, tested.text
+    by_tool = {tool_name: context for tool_name, _payload, context in calls}
+    assert {
+        "upsert_system_from_agent",
+        "upsert_environment_from_agent",
+        "upsert_service_endpoint_from_agent",
+        "upsert_http_source_from_agent",
+        "test_http_source_from_agent",
+    }.issubset(by_tool)
+    assert by_tool["upsert_http_source_from_agent"].allowConfigWrite is True
+    assert by_tool["test_http_source_from_agent"].allowBusinessWrite is True
 
 
 async def _create_http_basis(client: AsyncClient) -> None:

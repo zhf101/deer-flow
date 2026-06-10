@@ -13,8 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.gdp.datagen.config.task.models import (
-    DatagenTaskPhase,
-    DatagenTaskSubagentType,
     DatagenTaskSubtaskCreateRequest,
     DatagenTaskSubtaskResponse,
     DatagenTaskSubtaskStatus,

@@ -9,7 +9,6 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphInterrupt
 
-from app.gdp.agent.middlewares.error_handling import mark_node_failed
 from app.gdp.agent.middlewares.runtime_context import metadata_payload
 from app.gdp.agent.middlewares.task_run_sync import sync_task_run_binding
 from app.gdp.agent.state import GDPState
@@ -33,6 +32,7 @@ def wrap_gdp_node_audit(
 
     async def audited_node(state: GDPState, config: RunnableConfig) -> GDPState:
         task_run_id = state.get("task_run_id")
+        attempt_no = _next_attempt_no(state, node_name)
         if task_run_id:
             await sync_task_run_binding(task_service, task_run_id, config)
             await _record_node_event(
@@ -41,7 +41,7 @@ def wrap_gdp_node_audit(
                 event_type="AGENT_NODE_STARTED",
                 phase=_phase_from_state(state),
                 message=f"Agent 节点 {node_name} 开始执行。",
-                payload={"nodeName": node_name, **runtime_payload},
+                payload={"nodeName": node_name, "attemptNo": attempt_no, **runtime_payload},
             )
         try:
             result = await node(state, config) if accepts_config else await node(state)
@@ -53,12 +53,8 @@ def wrap_gdp_node_audit(
                     event_type="AGENT_NODE_INTERRUPTED",
                     phase=_phase_from_state(state),
                     message=f"Agent 节点 {node_name} 触发 LangGraph 中断。",
-                    payload={"nodeName": node_name, **runtime_payload},
+                    payload={"nodeName": node_name, "attemptNo": attempt_no, **runtime_payload},
                 )
-            raise
-        except Exception as exc:
-            if task_run_id:
-                await mark_node_failed(task_service, task_run_id, node_name, exc)
             raise
 
         result_task_run_id = result.get("task_run_id") or task_run_id
@@ -72,12 +68,16 @@ def wrap_gdp_node_audit(
                 message=f"Agent 节点 {node_name} 执行完成。",
                 payload={
                     "nodeName": node_name,
+                    "attemptNo": attempt_no,
                     "currentPhase": result.get("current_phase") or state.get("current_phase"),
                     "lastResultRef": result.get("last_result_ref"),
                     **runtime_payload,
                 },
             )
-        return result
+        return {
+            **result,
+            "node_attempts": _merge_attempt_delta(result.get("node_attempts"), node_name),
+        }
 
     return audited_node
 
@@ -108,3 +108,21 @@ def _phase_from_state(state: GDPState, *, fallback: GDPState | None = None) -> D
         return DatagenTaskPhase(str(value))
     except ValueError:
         return DatagenTaskPhase.INTAKE
+
+
+def _next_attempt_no(state: GDPState, node_name: str) -> int:
+    attempts = state.get("node_attempts") or {}
+    try:
+        return int(attempts.get(node_name, 0)) + 1
+    except (TypeError, ValueError):
+        return 1
+
+
+def _merge_attempt_delta(existing: Any, node_name: str) -> dict[str, int]:
+    result = dict(existing or {})
+    try:
+        current = int(result.get(node_name, 0))
+    except (TypeError, ValueError):
+        current = 0
+    result[node_name] = current + 1
+    return result

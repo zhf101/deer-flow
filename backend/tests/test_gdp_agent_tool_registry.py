@@ -12,7 +12,6 @@ from app.gdp.agent.tools.registry import (
 )
 from app.gdp.datagen.config.task.models import DatagenTaskPhase
 
-
 EXPECTED_TOOL_NAMES = {
     "get_datagen_task_state",
     "search_scene_contracts",
@@ -91,6 +90,12 @@ def test_registry_marks_business_write_tools_as_approval_required():
     assert sql_test.requiresApproval is True
     assert http_test.outputTarget == GDPToolOutputTarget.STORAGE_REF
     assert sql_test.outputTarget == GDPToolOutputTarget.STORAGE_REF
+    assert http_test.idempotencyKeyFields == [
+        "request.config.sourceCode",
+        "request.envCode",
+        "request.config.requestMapping",
+    ]
+    assert sql_test.idempotencyKeyFields == ["request.sourceCode", "request.envCode", "request.parameters"]
 
 
 def test_registry_marks_config_write_tools_as_approval_required():

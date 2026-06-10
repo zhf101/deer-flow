@@ -24,27 +24,39 @@ router = APIRouter(tags=["data-factory-base"])
 
 
 class SysCodeRequest(BaseModel):
-    sysCode: str = Field(..., min_length=1, max_length=64)
+    """按系统编码执行操作的请求体。"""
+
+    sysCode: str = Field(..., min_length=1, max_length=64, description="系统编码，用于定位要删除或操作的系统配置。")
 
 
 class EnvCodeRequest(BaseModel):
-    envCode: str = Field(..., min_length=1, max_length=64)
+    """按环境编码执行操作的请求体。"""
+
+    envCode: str = Field(..., min_length=1, max_length=64, description="环境编码，用于定位要删除或操作的环境配置。")
 
 
 class ServiceEndpointIdRequest(BaseModel):
-    endpointId: str = Field(..., min_length=1, max_length=64)
+    """按服务端点 ID 执行操作的请求体。"""
+
+    endpointId: str = Field(..., min_length=1, max_length=64, description="服务端点数据库 ID，用于更新或删除指定服务端点。")
 
 
 class ServiceEndpointUpdateRequest(ServiceEndpointIdRequest):
-    config: ServiceEndpointConfig
+    """更新服务端点配置请求。"""
+
+    config: ServiceEndpointConfig = Field(..., description="新的服务端点配置内容。")
 
 
 class DatasourceIdRequest(BaseModel):
-    datasourceId: str = Field(..., min_length=1, max_length=64)
+    """按数据源 ID 执行操作的请求体。"""
+
+    datasourceId: str = Field(..., min_length=1, max_length=64, description="数据源数据库 ID，用于更新或删除指定数据源。")
 
 
 class DatasourceUpdateRequest(DatasourceIdRequest):
-    config: DatasourceConfig
+    """更新数据源配置请求。"""
+
+    config: DatasourceConfig = Field(..., description="新的数据源配置内容。")
 
 
 def _get_service() -> BaseConfigService:
