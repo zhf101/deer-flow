@@ -62,6 +62,26 @@ async def test_bind_scene_inputs_uses_alias_and_variable_stack(services):
 
 
 @pytest.mark.anyio
+async def test_bind_scene_inputs_uses_full_variable_value_before_preview(services):
+    result = await bind_scene_inputs(
+        services["catalog"],
+        scene_code="createOrder",
+        user_inputs={},
+        visible_variables=[
+            {
+                "name": "buyer",
+                "semanticType": "USER_ID",
+                "value": ["U1", "U2", "U3"],
+                "valuePreview": ["U1", "U2"],
+            }
+        ],
+    )
+
+    assert result["bindings"] == {"userId": ["U1", "U2", "U3"]}
+    assert result["missingInputs"] == []
+
+
+@pytest.mark.anyio
 async def test_run_datagen_scene_for_task_records_success_history(services):
     task_run = await services["task"].create_task_run(
         DatagenTaskRunCreateRequest(userIntent="造订单", inputs={"userId": "U1"})
@@ -78,6 +98,9 @@ async def test_run_datagen_scene_for_task_records_success_history(services):
 
     assert result["success"] is True
     assert result["sceneRunId"] == "scene_run_success"
+    assert "finalOutput" not in result
+    assert result["outputKeys"] == ["orderId"]
+    assert result["finalOutputPreview"] == {"orderId": "O1"}
     steps = await services["task"].list_steps(task_run.taskRunId)
     assert steps[0].sceneRunId == "scene_run_success"
     updated_task = await services["task"].get_task_run(task_run.taskRunId)
@@ -88,6 +111,68 @@ async def test_run_datagen_scene_for_task_records_success_history(services):
     assert "SCENE_RUN_STARTED" in [event.eventType for event in events]
     assert "SCENE_RUN_FINISHED" in [event.eventType for event in events]
     assert "VARIABLE_STACK_UPDATED" in [event.eventType for event in events]
+
+
+@pytest.mark.anyio
+async def test_run_datagen_scene_for_task_returns_preview_but_persists_full_output(services):
+    task_run = await services["task"].create_task_run(
+        DatagenTaskRunCreateRequest(userIntent="查询一批订单", inputs={"userId": "U1"})
+    )
+    large_output = {
+        "orders": [{"orderId": f"O{i}", "status": "PAID"} for i in range(5)],
+        "rawText": "X" * 300,
+    }
+
+    result = await run_datagen_scene_for_task(
+        services["task"],
+        _FakeSceneService("SUCCESS", final_output=large_output),
+        task_run_id=task_run.taskRunId,
+        scene_code="createOrder",
+        env_code="DEV",
+        input_params={"userId": "U1"},
+    )
+
+    assert "finalOutput" not in result
+    assert result["outputKeys"] == ["orders", "rawText"]
+    assert result["finalOutputPreview"]["orders"] == large_output["orders"][:2]
+    assert result["finalOutputPreview"]["rawText"] == "X" * 256
+    assert result["finalOutputSchema"]["fields"]["orders"]["type"] == "array"
+    assert result["finalOutputSize"]["itemCount"] == 2
+    steps = await services["task"].list_steps(task_run.taskRunId)
+    assert steps[0].output == large_output
+
+
+@pytest.mark.anyio
+async def test_run_datagen_scene_for_task_reuses_successful_same_input_step(services):
+    task_run = await services["task"].create_task_run(
+        DatagenTaskRunCreateRequest(userIntent="造订单", inputs={"userId": "U1"})
+    )
+
+    first = await run_datagen_scene_for_task(
+        services["task"],
+        services["scene_success"],
+        task_run_id=task_run.taskRunId,
+        scene_code="createOrder",
+        env_code="DEV",
+        input_params={"userId": "U1"},
+    )
+    second = await run_datagen_scene_for_task(
+        services["task"],
+        services["scene_success"],
+        task_run_id=task_run.taskRunId,
+        scene_code="createOrder",
+        env_code="DEV",
+        input_params={"userId": "U1"},
+    )
+
+    assert second["idempotentReuse"] is True
+    assert second["taskStepId"] == first["taskStepId"]
+    assert second["sceneRunId"] == first["sceneRunId"]
+    assert services["scene_success"].call_count == 1
+    steps = await services["task"].list_steps(task_run.taskRunId)
+    assert [step.stepType for step in steps].count("RUN_SCENE") == 1
+    events = await services["task"].list_events(task_run.taskRunId)
+    assert "SCENE_RUN_IDEMPOTENT_REUSED" in [event.eventType for event in events]
 
 
 @pytest.mark.anyio
@@ -142,12 +227,16 @@ async def test_build_scene_tools_exposes_expected_tool_names(services):
 
 
 class _FakeSceneService:
-    def __init__(self, status: str) -> None:
+    def __init__(self, status: str, *, final_output: dict | None = None) -> None:
         self._status = status
+        self._final_output = final_output
+        self.call_count = 0
 
     async def run_scene(self, request: SceneRunRequest) -> SceneExecutionResult:
+        self.call_count += 1
         now = datetime.now(UTC)
         success = self._status == "SUCCESS"
+        final_output = self._final_output or {"orderId": "O1"}
         return SceneExecutionResult(
             runId="scene_run_success" if success else "scene_run_failed",
             sceneCode=request.sceneCode,
@@ -167,11 +256,11 @@ class _FakeSceneService:
                     startedAt=now,
                     finishedAt=now,
                     durationMs=1,
-                    outputs={"orderId": "O1"} if success else {},
+                    outputs=final_output if success else {},
                     error=None if success else "业务失败",
                 )
             ],
-            finalOutput={"orderId": "O1"} if success else {},
+            finalOutput=final_output if success else {},
             errors=[] if success else ["createOrder: 业务失败"],
         )
 

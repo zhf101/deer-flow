@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.gdp.agent.nodes.events import emit_waiting_user_event
 from app.gdp.agent.state import GDPState
 from app.gdp.agent.tools.scene_design_tools import publish_scene_from_source, search_source_contracts
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
@@ -58,7 +59,10 @@ def build_scene_design_node(
             )
             return {
                 "current_phase": DatagenTaskPhase.SOURCE_CONFIG.value,
-                "last_tool_result": {"resourceMissing": True, "resourceType": "SOURCE", **source_result},
+                "decision_context": {
+                    "lastSceneResult": None,
+                    "sourceSearch": {"resourceMissing": True, "resourceType": "SOURCE", "candidateCount": 0}
+                },
             }
 
         user_inputs = state.get("user_inputs") or {}
@@ -82,10 +86,16 @@ def build_scene_design_node(
                 ),
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="候选 Source 不够明确，等待用户确认。")
+            emit_waiting_user_event(pending, message="候选 Source 不够明确，等待用户确认。")
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
-                "last_tool_result": {"sourceCandidateConfirmationRequired": True, **source_result},
+                "decision_context": {
+                    "lastSceneResult": None,
+                    "sourceCandidates": [_candidate_summary(item) for item in source_result["candidates"]],
+                    "recommendedSourceCode": top["contract"]["sourceCode"],
+                    "sourceConfirmationReason": confirmation_reason,
+                },
             }
 
         if top["missingInputs"]:
@@ -101,10 +111,11 @@ def build_scene_design_node(
                 },
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="候选 Source 缺少必填入参，等待用户补充。")
+            emit_waiting_user_event(pending, message="候选 Source 缺少必填入参，等待用户补充。")
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
-                "last_tool_result": {"selectedSourceCandidate": top, **source_result},
+                "decision_context": _selected_source_decision(top),
             }
 
         published = await publish_scene_from_source(
@@ -118,7 +129,16 @@ def build_scene_design_node(
         )
         return {
             "current_phase": DatagenTaskPhase.SCENE_FULFILLMENT.value,
-            "last_tool_result": {"selectedSourceCandidate": top, "publishedScene": published, **source_result},
+            "decision_context": {
+                **_selected_source_decision(top),
+                "publishedScene": published,
+            },
+            "last_result_ref": {
+                "ref_type": "SCENE_DEFINITION",
+                "scene_code": published.get("sceneCode"),
+                "source_code": top["contract"].get("sourceCode"),
+                "summary": {"published": published.get("success"), "sceneCode": published.get("sceneCode")},
+            },
         }
 
     return scene_design
@@ -195,4 +215,14 @@ def _candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
         "reasons": candidate["reasons"],
         "missingInputs": candidate["missingInputs"],
         "requiresConfirmation": candidate["requiresConfirmation"],
+    }
+
+
+def _selected_source_decision(candidate: dict[str, Any]) -> dict[str, Any]:
+    contract = candidate["contract"]
+    return {
+        "lastSceneResult": None,
+        "selectedSourceCode": contract["sourceCode"],
+        "selectedSourceCandidate": candidate,
+        "selectedSourceSummary": _candidate_summary(candidate),
     }

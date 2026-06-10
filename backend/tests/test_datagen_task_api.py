@@ -6,7 +6,7 @@ import pytest
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from app.gdp.datagen.config.task.models import DatagenTaskRunCreateRequest
+from app.gdp.datagen.config.task.models import DatagenTaskRunCreateRequest, DatagenTaskStatus
 from app.gdp.datagen.config.task.repository import DatagenTaskRepository
 from app.gdp.datagen.config.task.service import DatagenTaskService
 from app.gdp.router import router
@@ -98,6 +98,50 @@ async def test_continue_bound_task_submits_gdp_agent_run(datagen_client: AsyncCl
     assert calls[0]["body"].input == {"task_run_id": task.taskRunId}
     events = await service.list_events(task.taskRunId)
     assert events[-1].eventType == "CONTINUE_RUN_REQUESTED"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "terminal_status",
+    [DatagenTaskStatus.COMPLETED, DatagenTaskStatus.FAILED, DatagenTaskStatus.CANCELLED],
+)
+async def test_continue_terminal_bound_task_rejects_without_starting_run(
+    datagen_client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+    terminal_status: DatagenTaskStatus,
+):
+    session_factory = get_session_factory()
+    assert session_factory is not None
+    service = DatagenTaskService(DatagenTaskRepository(session_factory))
+    task = await service.create_task_run(
+        DatagenTaskRunCreateRequest(userIntent="继续已结束任务"),
+        deerflow_thread_id="thread-terminal-task",
+    )
+    if terminal_status == DatagenTaskStatus.COMPLETED:
+        await service.mark_completed(task.taskRunId, final_summary="任务已完成。")
+    elif terminal_status == DatagenTaskStatus.FAILED:
+        await service.fail_task(
+            task.taskRunId,
+            failure_type="TEST_FAILURE",
+            failure_message="任务已失败。",
+        )
+    else:
+        await service.cancel_task(task.taskRunId)
+    calls = []
+
+    async def _fake_start_run(body, thread_id, request):
+        calls.append({"body": body, "threadId": thread_id, "request": request})
+
+    monkeypatch.setattr("app.gateway.services.start_run", _fake_start_run)
+
+    response = await datagen_client.post(f"/api/v1/datagen/tasks/runs/{task.taskRunId}/continue")
+
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "任务已结束，不能继续推进。"
+    assert calls == []
+    updated = await service.get_task_run(task.taskRunId)
+    assert updated.status == terminal_status
+    assert updated.deerflowRunId is None
 
 
 @pytest.mark.anyio

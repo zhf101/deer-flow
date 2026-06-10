@@ -23,17 +23,17 @@ def build_scene_execute_node(
     async def scene_execute(state: GDPState) -> GDPState:
         task_run_id = state["task_run_id"]
         task_run = await task_service.get_task_run(task_run_id)
-        last_result = state.get("last_tool_result") or {}
-        selected = last_result.get("selectedCandidate") or {}
+        decision_context = state.get("decision_context") or {}
+        selected = decision_context.get("selectedSceneCandidate") or {}
         contract = selected.get("contract") or {}
-        scene_code = contract.get("sceneCode")
+        scene_code = contract.get("sceneCode") or decision_context.get("selectedSceneCode")
         if not scene_code:
             await task_service.fail_task(
                 task_run_id,
                 failure_type="SCENE_SELECTION_MISSING",
                 failure_message="用户确认后没有找到待执行的候选场景，任务终止。",
             )
-            return {"current_phase": DatagenTaskPhase.FAILED.value, "last_tool_result": last_result}
+            return {"current_phase": DatagenTaskPhase.FAILED.value}
 
         confirmation = state.get("confirmation_result")
         if not _is_approved(confirmation):
@@ -42,7 +42,7 @@ def build_scene_execute_node(
                 failure_type="USER_REJECTED_WRITE_SCENE",
                 failure_message="用户未确认执行写操作场景，造数任务已终止。",
             )
-            return {"current_phase": DatagenTaskPhase.FAILED.value, "last_tool_result": last_result}
+            return {"current_phase": DatagenTaskPhase.FAILED.value}
 
         visible_variables = [_visible_variable_summary(item) for item in task_run.visibleVariables]
         bindings = await bind_scene_inputs(
@@ -60,9 +60,17 @@ def build_scene_execute_node(
             input_params=bindings["bindings"],
             goal=task_run.userIntent,
         )
+        result_ref = _scene_result_ref(str(scene_code), scene_result)
         return {
             "current_phase": DatagenTaskPhase.PROGRESS_REFLECTION.value,
-            "last_tool_result": {**last_result, "inputBinding": bindings, "sceneResult": scene_result},
+            "decision_context": {
+                "selectedSceneCode": scene_code,
+                "selectedSceneCandidate": selected,
+                "inputBinding": bindings,
+                "lastSceneResult": scene_result,
+            },
+            "last_result_ref": result_ref,
+            "result_refs": [result_ref],
         }
 
     return scene_execute
@@ -97,4 +105,20 @@ def _visible_variable_summary(variable: Any) -> dict[str, Any]:
         "valueSize": variable.valueSize.model_dump(mode="json") if variable.valueSize else None,
         "sensitive": variable.sensitive,
         "confidence": variable.confidence,
+    }
+
+
+def _scene_result_ref(scene_code: str, scene_result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "ref_type": "SCENE_RUN",
+        "task_step_id": scene_result.get("taskStepId"),
+        "scene_run_id": scene_result.get("sceneRunId"),
+        "scene_code": scene_code,
+        "summary": {
+            "success": scene_result.get("success"),
+            "sceneStatus": scene_result.get("sceneStatus"),
+            "outputKeys": scene_result.get("outputKeys") or sorted((scene_result.get("finalOutput") or {}).keys()),
+            "finalOutputSize": scene_result.get("finalOutputSize"),
+            "errorCount": len(scene_result.get("errors") or []),
+        },
     }

@@ -6,6 +6,8 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
+from app.gdp.agent.middlewares.idempotency import find_successful_scene_run_step
+from app.gdp.agent.middlewares.output_budget import output_keys, summarize_gdp_output
 from app.gdp.datagen.agent_catalog.models import AgentSceneSearchRequest
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
 from app.gdp.datagen.config.scene.models import SceneRunRequest
@@ -91,6 +93,38 @@ async def run_datagen_scene_for_task(
     """执行已发布场景并记录任务历史。"""
 
     steps = await task_service.list_steps(task_run_id)
+    reused_step = find_successful_scene_run_step(
+        steps,
+        scene_code=scene_code,
+        env_code=env_code,
+        input_params=input_params,
+    )
+    if reused_step is not None:
+        await task_service.record_event(
+            task_run_id,
+            event_type="SCENE_RUN_IDEMPOTENT_REUSED",
+            phase=DatagenTaskPhase.SCENE_EXECUTING,
+            message=f"检测到场景 {scene_code} 已用相同入参成功执行，复用已有执行结果。",
+            payload={
+                "taskStepId": reused_step.taskStepId,
+                "sceneCode": scene_code,
+                "envCode": env_code,
+                "sceneRunId": reused_step.sceneRunId,
+            },
+        )
+        return {
+            **_scene_run_tool_result(
+                success=True,
+                task_step_id=reused_step.taskStepId,
+                scene_run_id=reused_step.sceneRunId,
+                scene_code=scene_code,
+                env_code=env_code,
+                scene_status="SUCCESS",
+                final_output=reused_step.output or {},
+                errors=[],
+            ),
+            "idempotentReuse": True,
+        }
     await task_service.record_event(
         task_run_id,
         event_type="SCENE_RUN_STARTED",
@@ -106,7 +140,7 @@ async def run_datagen_scene_for_task(
         task_run_id,
         step_no=len(steps) + 1,
         goal=goal or f"执行场景 {scene_code}",
-        selected_resource={"sceneCode": scene_code, "versionNo": result.versionNo},
+        selected_resource={"sceneCode": scene_code, "versionNo": result.versionNo, "envCode": env_code},
         input_binding=input_params,
         output=result.finalOutput,
         scene_run_id=result.runId,
@@ -138,14 +172,16 @@ async def run_datagen_scene_for_task(
             failure_type="SCENE_BUSINESS_ERROR",
             failure_message="场景执行失败或部分成功，造数任务已终止。",
         )
-    return {
-        "success": success,
-        "taskStepId": step.taskStepId,
-        "sceneRunId": result.runId,
-        "sceneStatus": result.status,
-        "finalOutput": result.finalOutput,
-        "errors": result.errors,
-    }
+    return _scene_run_tool_result(
+        success=success,
+        task_step_id=step.taskStepId,
+        scene_run_id=result.runId,
+        scene_code=scene_code,
+        env_code=env_code,
+        scene_status=result.status,
+        final_output=result.finalOutput,
+        errors=result.errors,
+    )
 
 
 async def reflect_scene_result(
@@ -155,7 +191,8 @@ async def reflect_scene_result(
 ) -> dict[str, Any]:
     """根据场景结果给出下一步建议。"""
 
-    if scene_result.get("success") and _goal_requires_paid_state(goal) and not _output_has_paid_state(scene_result.get("finalOutput")):
+    output_for_reflection = scene_result.get("finalOutput", scene_result.get("finalOutputPreview"))
+    if scene_result.get("success") and _goal_requires_paid_state(goal) and not _output_has_paid_state(output_for_reflection):
         return {
             "completed": False,
             "nextAction": "SEARCH_NEXT_SCENE",
@@ -174,6 +211,33 @@ async def reflect_scene_result(
         "nextAction": "FAIL_TASK",
         "reason": "场景执行失败，按照任务规则终止整个造数任务。",
         "goal": goal,
+    }
+
+
+def _scene_run_tool_result(
+    *,
+    success: bool,
+    task_step_id: str,
+    scene_run_id: str | None,
+    scene_code: str,
+    env_code: str,
+    scene_status: str,
+    final_output: dict[str, Any],
+    errors: list[Any],
+) -> dict[str, Any]:
+    output_summary = summarize_gdp_output(final_output)
+    return {
+        "success": success,
+        "taskStepId": task_step_id,
+        "sceneRunId": scene_run_id,
+        "sceneCode": scene_code,
+        "envCode": env_code,
+        "sceneStatus": scene_status,
+        "outputKeys": output_keys(final_output),
+        "finalOutputPreview": output_summary["valuePreview"],
+        "finalOutputSchema": output_summary["valueSchema"],
+        "finalOutputSize": output_summary["valueSize"],
+        "errors": errors,
     }
 
 
@@ -313,5 +377,7 @@ def _resolve_input_value(
                 str(variable.get("label") or "").lower(),
             }
             if matched:
+                if "value" in variable:
+                    return variable.get("value"), f"variable.{variable.get('name')}"
                 return variable.get("valuePreview"), f"variable.{variable.get('name')}"
     return None, ""

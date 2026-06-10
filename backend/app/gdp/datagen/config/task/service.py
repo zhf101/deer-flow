@@ -40,6 +40,19 @@ DEFAULT_ENV_CODE = "DEV"
 VARIABLE_PREVIEW_ITEM_LIMIT = 2
 VARIABLE_PREVIEW_FIELD_LIMIT = 8
 VARIABLE_PREVIEW_STRING_LIMIT = 256
+TERMINAL_TASK_STATUSES = frozenset(
+    {
+        DatagenTaskStatus.COMPLETED,
+        DatagenTaskStatus.FAILED,
+        DatagenTaskStatus.CANCELLED,
+    }
+)
+RECOVERABLE_STEP_STATUSES = frozenset(
+    {
+        DatagenTaskStepStatus.PENDING,
+        DatagenTaskStepStatus.RUNNING,
+    }
+)
 
 
 class DatagenTaskService:
@@ -140,11 +153,30 @@ class DatagenTaskService:
             message="收到继续推进任务请求。",
             payload={},
         )
+        if task_run.status in TERMINAL_TASK_STATUSES:
+            await self.record_event(
+                task_run_id,
+                event_type="TASK_CONTINUE_REJECTED",
+                phase=task_run.phase,
+                message="任务已结束，不能继续推进。",
+                payload={"status": task_run.status.value},
+            )
+            raise HTTPException(status_code=409, detail="任务已结束，不能继续推进。")
         if task_run.status == DatagenTaskStatus.WAITING_USER:
             return DatagenTaskContinueResponse(taskRun=task_run, message="任务正在等待用户回复，请通过 user-reply 恢复中断点。")
+        recovered_steps = await self.recover_non_terminal_steps(
+            task_run_id,
+            reason="继续推进任务前恢复上一次运行遗留的非终态步骤。",
+        )
         if not task_run.deerflowThreadId:
-            return DatagenTaskContinueResponse(taskRun=task_run, message="任务尚未绑定 DeerFlow thread，仅记录继续请求。")
-        return DatagenTaskContinueResponse(taskRun=task_run, message="任务控制面已记录继续请求，可提交 GDP Agent 运行继续推进。")
+            message = "任务尚未绑定 DeerFlow thread，仅记录继续请求。"
+            if recovered_steps:
+                message = f"{message} 已恢复 {len(recovered_steps)} 个非终态步骤。"
+            return DatagenTaskContinueResponse(taskRun=task_run, message=message)
+        message = "任务控制面已记录继续请求，可提交 GDP Agent 运行继续推进。"
+        if recovered_steps:
+            message = f"{message} 已恢复 {len(recovered_steps)} 个非终态步骤。"
+        return DatagenTaskContinueResponse(taskRun=task_run, message=message)
 
     async def bind_deerflow_run(
         self,
@@ -334,6 +366,53 @@ class DatagenTaskService:
                 scene_run_id=scene_run_id,
             )
         )
+
+    async def recover_non_terminal_steps(
+        self,
+        task_run_id: str,
+        *,
+        reason: str,
+    ) -> list[DatagenTaskStepResponse]:
+        """把上一次运行遗留的 PENDING/RUNNING 步骤标记为可恢复失败。"""
+
+        steps = await self.list_steps(task_run_id)
+        recovered: list[DatagenTaskStepResponse] = []
+        for step in steps:
+            if step.status not in RECOVERABLE_STEP_STATUSES:
+                continue
+            recovered.append(
+                await self._guard(
+                    lambda step=step: self._repo.update_step_status(
+                        task_run_id,
+                        step.taskStepId,
+                        status=DatagenTaskStepStatus.FAILED,
+                        error_type="RECOVERED_NON_TERMINAL_STEP",
+                        error_message=reason,
+                    )
+                )
+            )
+        if recovered:
+            task_run = await self.get_task_run(task_run_id)
+            await self.record_event(
+                task_run_id,
+                event_type="TASK_STEPS_RECOVERED",
+                phase=task_run.phase,
+                message="已恢复上一次运行遗留的非终态步骤。",
+                payload={
+                    "reason": reason,
+                    "steps": [
+                        {
+                            "taskStepId": step.taskStepId,
+                            "stepNo": step.stepNo,
+                            "phase": step.phase.value,
+                            "stepType": step.stepType.value,
+                            "status": step.status.value,
+                        }
+                        for step in recovered
+                    ],
+                },
+            )
+        return recovered
 
     async def append_visible_variables_from_scene_result(
         self,

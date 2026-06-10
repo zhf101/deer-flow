@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.gdp.agent.tools.scene_design_tools import publish_scene_from_source, search_source_contracts
+from app.gdp.agent.tools.scene_design_tools import compose_scene_draft_from_source, publish_scene_from_source, search_source_contracts
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
 from app.gdp.datagen.config.common.models import CapabilityType, ConfigStatus, HttpMethod, InputFieldDefinition, InputFieldType
 from app.gdp.datagen.config.httpsource.models import HttpSourceConfig
@@ -79,6 +79,67 @@ async def test_publish_scene_from_http_source_records_task_events(design_service
     assert "SCENE_AUTO_PUBLISHED" in event_types
 
 
+@pytest.mark.anyio
+async def test_publish_scene_from_source_reuses_successful_same_source_step(design_services):
+    task_run = await design_services["task_service"].create_task_run(
+        DatagenTaskRunCreateRequest(userIntent="帮我造一笔订单", inputs={"buyerId": "U1"})
+    )
+    source_result = await search_source_contracts(
+        design_services["catalog"],
+        goal=task_run.userIntent,
+        user_inputs={"buyerId": "U1"},
+    )
+    source_contract = source_result["candidates"][0]["contract"]
+
+    first = await publish_scene_from_source(
+        task_service=design_services["task_service"],
+        scene_service=design_services["scene_service"],
+        http_source_repository=design_services["http_repo"],
+        sql_source_repository=design_services["sql_repo"],
+        task_run_id=task_run.taskRunId,
+        goal=task_run.userIntent,
+        source_contract=source_contract,
+    )
+    second = await publish_scene_from_source(
+        task_service=design_services["task_service"],
+        scene_service=design_services["scene_service"],
+        http_source_repository=design_services["http_repo"],
+        sql_source_repository=design_services["sql_repo"],
+        task_run_id=task_run.taskRunId,
+        goal=task_run.userIntent,
+        source_contract=source_contract,
+    )
+
+    assert second["idempotentReuse"] is True
+    assert second["sceneCode"] == first["sceneCode"]
+    assert second["versionNo"] == first["versionNo"]
+    assert second["definition"]["sceneCode"] == first["sceneCode"]
+    steps = await design_services["task_service"].list_steps(task_run.taskRunId)
+    assert [step.stepType for step in steps].count("DESIGN_SCENE") == 1
+    events = await design_services["task_service"].list_events(task_run.taskRunId)
+    assert "SCENE_PUBLISH_IDEMPOTENT_REUSED" in [event.eventType for event in events]
+
+
+@pytest.mark.anyio
+async def test_compose_http_scene_includes_request_mapping_inputs_without_body_schema(design_services):
+    await design_services["http_repo"].upsert_http_source(_query_order_http_source())
+
+    scene = await compose_scene_draft_from_source(
+        task_run_id="task_12345678",
+        goal="查询指定订单",
+        source_contract={"sourceType": "HTTP", "sourceCode": "queryOrderApi"},
+        http_source_repository=design_services["http_repo"],
+        sql_source_repository=design_services["sql_repo"],
+    )
+
+    fields = {field.name: field for field in scene.inputSchema}
+    assert list(fields)[0] == "env"
+    assert set(fields) == {"env", "userId", "traceId", "orderId"}
+    assert fields["userId"].required is True
+    assert fields["traceId"].required is True
+    assert fields["orderId"].required is True
+
+
 def _order_http_source() -> HttpSourceConfig:
     return HttpSourceConfig(
         sourceCode="createOrderApi",
@@ -103,5 +164,27 @@ def _order_http_source() -> HttpSourceConfig:
         requestMapping={"bodyMapping": {"userId": "${input.userId}"}},
         outputMapping={"orderId": "${RES_BODY(data.orderId)}"},
         outputMeta={"orderId": {"label": "订单号", "remark": "创建后的订单号。", "semanticType": "ORDER_ID"}},
+        status=ConfigStatus.ENABLED,
+    )
+
+
+def _query_order_http_source() -> HttpSourceConfig:
+    return HttpSourceConfig(
+        sourceCode="queryOrderApi",
+        sourceName="查询订单接口",
+        tags=["订单", "查询"],
+        capabilityType=CapabilityType.QUERY,
+        businessDomain="交易",
+        agentDescription="根据用户和订单查询测试订单。",
+        sysCode="TRADE",
+        path="/orders/detail",
+        method=HttpMethod.GET,
+        bodySchema=None,
+        requestMapping={
+            "headers": {"X-Trace-Id": "${input.traceId}", "Accept": "application/json"},
+            "query": {"userId": "${input.userId}", "orderId": "${input.orderId}"},
+        },
+        outputMapping={"orderId": "${RES_BODY(data.orderId)}"},
+        outputMeta={"orderId": {"label": "订单号", "remark": "查询到的订单号。", "semanticType": "ORDER_ID"}},
         status=ConfigStatus.ENABLED,
     )

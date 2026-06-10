@@ -326,6 +326,35 @@ class DatagenTaskRepository:
             rows = (await session.execute(stmt)).scalars().all()
             return [self._to_step_response(row) for row in rows]
 
+    async def update_step_status(
+        self,
+        task_run_id: str,
+        task_step_id: str,
+        *,
+        status: DatagenTaskStepStatus,
+        error_type: str | None = None,
+        error_message: str | None = None,
+    ) -> DatagenTaskStepResponse:
+        """更新任务步骤状态，用于服务重启后的非终态步骤恢复。"""
+
+        async with self._sf() as session:
+            await self._require_run_row(session, task_run_id)
+            stmt = select(DataFactoryDatagenTaskStepRow).where(
+                DataFactoryDatagenTaskStepRow.task_run_id == task_run_id,
+                DataFactoryDatagenTaskStepRow.task_step_id == task_step_id,
+            )
+            row = (await session.execute(stmt)).scalar_one_or_none()
+            if row is None:
+                raise DatagenTaskNotFoundError(f"datagen task step not found: {task_step_id}")
+            row.status = status.value
+            row.error_type = error_type if error_type is not None else row.error_type
+            row.error_message = error_message if error_message is not None else row.error_message
+            if status in {DatagenTaskStepStatus.SUCCESS, DatagenTaskStepStatus.FAILED, DatagenTaskStepStatus.SKIPPED}:
+                row.finished_at = _now()
+            await self._commit(session)
+            await session.refresh(row)
+            return self._to_step_response(row)
+
     async def record_event(
         self,
         *,

@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.gdp.agent.nodes.events import emit_waiting_user_event
 from app.gdp.agent.state import GDPState
 from app.gdp.agent.tools.source_config_tools import upsert_http_source_from_agent, upsert_sql_source_from_agent
 from app.gdp.datagen.config.base.repository import BaseConfigRepository
@@ -53,10 +54,15 @@ def build_source_config_node(
                 },
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="缺少 Source 配置，等待用户补充。")
+            emit_waiting_user_event(pending, message="缺少 Source 配置，等待用户补充。")
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
-                "last_tool_result": {"resourceMissing": True, "resourceType": "SOURCE"},
+                "decision_context": {
+                    "lastSceneResult": None,
+                    "sourceConfigRequired": True,
+                    "resourceType": "SOURCE",
+                },
             }
 
         try:
@@ -77,10 +83,15 @@ def build_source_config_node(
                 "details": {"errors": exc.errors(), "received": source_payload},
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="Source 配置校验失败，等待用户修正。")
+            emit_waiting_user_event(pending, message="Source 配置校验失败，等待用户修正。")
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
-                "last_tool_result": {"sourceConfigInvalid": True, "errors": exc.errors()},
+                "decision_context": {
+                    "lastSceneResult": None,
+                    "sourceConfigInvalid": True,
+                    "sourceConfigErrors": exc.errors(),
+                },
             }
 
         if not result.get("success"):
@@ -104,7 +115,12 @@ def build_source_config_node(
             )
             return {
                 "current_phase": DatagenTaskPhase.INFRA_CONFIG.value,
-                "last_tool_result": {"sourceConfigResult": result},
+                "decision_context": {
+                    "lastSceneResult": None,
+                    "sourceConfigResult": _source_result_summary(result),
+                    "sourceConfigNeedsInfra": True,
+                },
+                "last_result_ref": _source_result_ref(source_payload, result),
             }
 
         await task_service.record_task_step(
@@ -127,7 +143,11 @@ def build_source_config_node(
         )
         return {
             "current_phase": DatagenTaskPhase.SCENE_DESIGN.value,
-            "last_tool_result": {"sourceConfigResult": result},
+            "decision_context": {
+                "lastSceneResult": None,
+                "sourceConfigResult": _source_result_summary(result),
+            },
+            "last_result_ref": _source_result_ref(source_payload, result),
         }
 
     return source_config
@@ -147,6 +167,25 @@ def _source_step_resource(payload: dict[str, Any], *, result: dict[str, Any] | N
         "sourceType": str(payload.get("sourceType") or "").upper(),
         "sourceCode": saved_source.get("sourceCode") or config.get("sourceCode"),
         "sysCode": saved_source.get("sysCode") or config.get("sysCode"),
+    }
+
+
+def _source_result_summary(result: dict[str, Any]) -> dict[str, Any]:
+    source = result.get("source") if isinstance(result.get("source"), dict) else {}
+    return {
+        "success": result.get("success"),
+        "sourceCode": source.get("sourceCode"),
+        "sysCode": source.get("sysCode"),
+        "missing": result.get("missing"),
+    }
+
+
+def _source_result_ref(payload: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    source = result.get("source") if isinstance(result.get("source"), dict) else {}
+    return {
+        "ref_type": f"{str(payload.get('sourceType') or 'SOURCE').upper()}_SOURCE",
+        "source_code": source.get("sourceCode") or _source_step_resource(payload, result=result).get("sourceCode"),
+        "summary": _source_result_summary(result),
     }
 
 

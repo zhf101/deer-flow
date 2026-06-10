@@ -1,0 +1,97 @@
+@import "tailwindcss";
+
+/* Dark mode is driven by a `.dark` class on a parent (matches the source). */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Design tokens — ported from the Next.js source (`src/styles/globals.css`).
+ *
+ * Raw values live in `:root` / `.dark`; the `@theme` block below maps them to
+ * Tailwind color utilities so the migrated markup keeps working unchanged
+ * (`bg-background`, `text-muted-foreground`, `bg-card`, `border`, etc.).
+ */
+@theme {
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', 'PingFang SC',
+    'Microsoft YaHei', sans-serif;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(0.9855 0.0098 87.47);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0.0098 87.47);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0.0098 87.47);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.9455 0.0098 87.47);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0.0098 87.47);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.94 0.0098 87.47);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0.0098 87.47);
+  --input: oklch(0.88 0.0098 87.47);
+  --ring: transparent;
+}
+
+.dark {
+  --background: oklch(0.24 0.0036 106.64);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.238 0.0036 106.64);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0.0036 106.64);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(1 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.3 0.0036 106.64);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0.0036 106.64);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.32 0.0036 106.64);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+}
+
+/* Global resets / base styles below. */
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+#app {
+  font-family: var(--font-sans);
+  background-color: var(--background);
+  color: var(--foreground);
+}

@@ -4,13 +4,21 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from inspect import signature
+from types import SimpleNamespace
 
 import pytest
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-from app.gdp.agent.graph import GDPAgentServices, make_gdp_agent, make_gdp_graph
+from app.gdp.agent.graph import (
+    GDPAgentServices,
+    _build_gdp_metadata,
+    _build_gdp_policy,
+    _get_gdp_runtime_config,
+    make_gdp_agent,
+    make_gdp_graph,
+)
 from app.gdp.datagen.agent_catalog.service import AgentCatalogService
 from app.gdp.datagen.config.base.models import EnvironmentConfig, ServiceEndpointConfig, SysConfig
 from app.gdp.datagen.config.base.repository import BaseConfigRepository
@@ -96,6 +104,41 @@ def test_make_gdp_agent_accepts_app_config_signature():
     assert "app_config" in params
 
 
+def test_gdp_agent_factory_extracts_runtime_policy_and_metadata():
+    runtime = _get_gdp_runtime_config(
+        {
+            "context": {
+                "thread_id": "thread-runtime",
+                "run_id": "run-runtime",
+                "user_id": "user-runtime",
+                "model_name": "gdp-model",
+            },
+            "metadata": {"assistant_id": "gdp_agent"},
+        }
+    )
+    app_config = SimpleNamespace(
+        log_level="debug",
+        memory=SimpleNamespace(enabled=True),
+        checkpointer=SimpleNamespace(backend="sqlite"),
+    )
+    policy = _build_gdp_policy(app_config)
+    metadata = _build_gdp_metadata(app_config, runtime, policy)
+
+    assert runtime.thread_id == "thread-runtime"
+    assert runtime.run_id == "run-runtime"
+    assert runtime.user_id == "user-runtime"
+    assert runtime.model_name == "gdp-model"
+    assert policy.audit_enabled is True
+    assert policy.memory_enabled is True
+    assert policy.checkpointer_enabled is True
+    assert metadata.log_level == "debug"
+    assert metadata.policy == {
+        "auditEnabled": True,
+        "memoryEnabled": True,
+        "checkpointerEnabled": True,
+    }
+
+
 @pytest.mark.anyio
 async def test_gdp_graph_asks_for_source_config_when_no_scene_and_no_source(gdp_services):
     graph = make_gdp_graph(gdp_services["services"], checkpointer=MemorySaver())
@@ -104,7 +147,10 @@ async def test_gdp_graph_asks_for_source_config_when_no_scene_and_no_source(gdp_
         chunk
         async for chunk in graph.astream(
             {"messages": [HumanMessage(content="帮我造一笔已支付订单")]},
-            config={"configurable": {"thread_id": "thread-gdp-missing"}},
+            config={
+                "configurable": {"thread_id": "thread-gdp-missing"},
+                "metadata": {"run_id": "run-gdp-missing", "checkpoint_id": "ckpt-gdp-missing"},
+            },
             stream_mode="values",
         )
     ]
@@ -112,12 +158,42 @@ async def test_gdp_graph_asks_for_source_config_when_no_scene_and_no_source(gdp_
     assert "__interrupt__" in chunks[-1]
     task_runs = await gdp_services["task_service"].list_task_runs()
     assert task_runs[0].deerflowThreadId == "thread-gdp-missing"
+    assert task_runs[0].deerflowRunId == "run-gdp-missing"
+    assert task_runs[0].lastCheckpointId == "ckpt-gdp-missing"
     assert task_runs[0].phase == "WAITING_USER"
     assert task_runs[0].pendingInterrupts["questionType"] == "SOURCE_CONFIG_REQUIRED"
     events = await gdp_services["task_service"].list_events(task_runs[0].taskRunId)
     assert [event.eventNo for event in events] == list(range(1, len(events) + 1))
     resource_missing_events = [event for event in events if event.eventType == "RESOURCE_MISSING"]
     assert [event.payload["resourceType"] for event in resource_missing_events] == ["SCENE", "SOURCE"]
+    node_events = [event for event in events if event.eventType.startswith("AGENT_NODE_")]
+    assert [event.eventType for event in node_events].count("AGENT_NODE_STARTED") >= 4
+    assert [event.eventType for event in node_events].count("AGENT_NODE_FINISHED") >= 4
+    assert [event.eventType for event in node_events].count("AGENT_NODE_INTERRUPTED") == 1
+    assert node_events[-1].payload["nodeName"] == "human_confirm"
+
+
+@pytest.mark.anyio
+async def test_gdp_graph_emits_waiting_user_custom_event(gdp_services):
+    graph = make_gdp_graph(gdp_services["services"], checkpointer=MemorySaver())
+
+    chunks = [
+        chunk
+        async for chunk in graph.astream(
+            {"messages": [HumanMessage(content="帮我造一笔已支付订单")]},
+            config={"configurable": {"thread_id": "thread-gdp-waiting-event"}},
+            stream_mode=["values", "custom"],
+        )
+    ]
+
+    custom_events = [chunk for mode, chunk in chunks if mode == "custom"]
+    waiting_events = [event for event in custom_events if event["type"] == "gdp_waiting_user"]
+    assert waiting_events
+    assert waiting_events[-1]["questionType"] == "SOURCE_CONFIG_REQUIRED"
+    assert waiting_events[-1]["taskRunId"]
+    assert waiting_events[-1]["details"]["envCode"] == "DEV"
+    value_chunks = [chunk for mode, chunk in chunks if mode == "values"]
+    assert "__interrupt__" in value_chunks[-1]
 
 
 @pytest.mark.anyio
@@ -153,6 +229,14 @@ async def test_gdp_graph_runs_query_scene_and_completes_task(gdp_services):
     )
 
     assert result["current_phase"] == "COMPLETED"
+    summary = result["context_summary"]
+    assert summary["goalAnchor"]["phase"] == "COMPLETED"
+    assert summary["steps"]["statusCounts"]["SUCCESS"] == 2
+    completed_step_types = {step["stepType"] for step in summary["steps"]["completed"]}
+    assert {"RUN_SCENE", "REFLECT"}.issubset(completed_step_types)
+    scene_summary = next(step for step in summary["steps"]["completed"] if step["stepType"] == "RUN_SCENE")
+    assert scene_summary["outputKeys"] == ["orderId"]
+    assert "orderId" not in scene_summary
     task_runs = await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.COMPLETED)
     assert len(task_runs) == 1
     steps = await gdp_services["task_service"].list_steps(task_runs[0].taskRunId)
@@ -214,6 +298,48 @@ async def test_gdp_graph_asks_user_to_choose_ambiguous_scene_candidate(gdp_servi
 
 
 @pytest.mark.anyio
+async def test_gdp_graph_rejects_unknown_selected_scene_code(gdp_services):
+    scene_a = _query_scene()
+    scene_a.sceneCode = "queryOrderA"
+    scene_b = _query_scene()
+    scene_b.sceneCode = "queryOrderB"
+    await gdp_services["scene_repo"].create_scene(scene_a)
+    await gdp_services["scene_repo"].publish_scene("queryOrderA", validation_result=ValidationResult(valid=True, issues=[]))
+    await gdp_services["scene_repo"].create_scene(scene_b)
+    await gdp_services["scene_repo"].publish_scene("queryOrderB", validation_result=ValidationResult(valid=True, issues=[]))
+    graph = make_gdp_graph(gdp_services["services"], checkpointer=MemorySaver())
+    config = {"configurable": {"thread_id": "thread-gdp-stale-scene-choice"}}
+
+    first_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            {"messages": [HumanMessage(content="查询订单")]},
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in first_chunks[-1]
+
+    stale_chunks = [
+        chunk
+        async for chunk in graph.astream(
+            Command(resume={"selectedSceneCode": "queryOrderExpired"}),
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in stale_chunks[-1]
+    waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
+    assert waiting.pendingInterrupts["questionType"] == "SCENE_CANDIDATE_CONFIRM"
+    assert waiting.pendingInterrupts["details"]["confirmationReason"] == "INVALID_SELECTION"
+    assert waiting.pendingInterrupts["details"]["invalidSelectedSceneCode"] == "queryOrderExpired"
+    scene_steps = _steps_by_type(await gdp_services["task_service"].list_steps(waiting.taskRunId), "RUN_SCENE")
+    assert scene_steps == []
+
+
+@pytest.mark.anyio
 async def test_gdp_graph_asks_user_to_choose_close_score_scene_candidate(gdp_services):
     primary = _query_scene()
     primary.sceneCode = "queryOrderPrimary"
@@ -269,6 +395,31 @@ async def test_gdp_graph_loops_across_existing_scenes_until_goal_completed(gdp_s
     events = await gdp_services["task_service"].list_events(task_runs[0].taskRunId)
     assert [event.eventType for event in events].count("TASK_REFLECTED") == 1
     assert [event.eventType for event in events].count("SCENE_RUN_FINISHED") == 2
+
+
+@pytest.mark.anyio
+async def test_gdp_graph_clears_previous_scene_result_when_next_scene_missing(gdp_services):
+    await gdp_services["scene_repo"].create_scene(_create_order_scene())
+    await gdp_services["scene_repo"].publish_scene("createOrder", validation_result=ValidationResult(valid=True, issues=[]))
+    graph = make_gdp_graph(gdp_services["services"], checkpointer=MemorySaver())
+    config = {"configurable": {"thread_id": "thread-gdp-stale-scene-result"}}
+
+    chunks = [
+        chunk
+        async for chunk in graph.astream(
+            {"messages": [HumanMessage(content="帮我造一笔已支付订单")]},
+            config=config,
+            stream_mode="values",
+        )
+    ]
+
+    assert "__interrupt__" in chunks[-1]
+    snapshot = await graph.aget_state(config)
+    assert snapshot.values["decision_context"]["lastSceneResult"] is None
+    waiting = (await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.WAITING_USER))[0]
+    assert waiting.pendingInterrupts["questionType"] == "SOURCE_CONFIG_REQUIRED"
+    completed = await gdp_services["task_service"].list_task_runs(status=DatagenTaskStatus.COMPLETED)
+    assert completed == []
 
 
 @pytest.mark.anyio

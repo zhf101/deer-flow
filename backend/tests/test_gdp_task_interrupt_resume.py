@@ -103,6 +103,15 @@ async def test_gdp_task_write_scene_interrupts_and_resumes(interrupt_services):
     ]
 
     assert final_chunks[-1]["current_phase"] == "COMPLETED"
+    assert final_chunks[-1].get("pending_confirmation") is None
+    assert final_chunks[-1]["decision_context"]["selectedSceneCode"] == "createOrder"
+    scene_result = final_chunks[-1]["decision_context"]["lastSceneResult"]
+    assert scene_result["sceneRunId"] == "scene_run_create_order"
+    assert "finalOutput" not in scene_result
+    assert scene_result["finalOutputPreview"] == {"orderId": "O1"}
+    assert final_chunks[-1]["last_result_ref"]["summary"]["outputKeys"] == ["orderId"]
+    assert final_chunks[-1]["last_result_ref"]["ref_type"] == "SCENE_RUN"
+    assert final_chunks[-1]["last_result_ref"]["scene_run_id"] == "scene_run_create_order"
     completed = await interrupt_services["task_service"].list_task_runs(status=DatagenTaskStatus.COMPLETED)
     assert len(completed) == 1
     assert completed[0].pendingInterrupts is None

@@ -6,6 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from app.gdp.agent.nodes.events import emit_waiting_user_event
 from app.gdp.agent.state import GDPState
 from app.gdp.agent.tools.infra_config_tools import (
     resolve_infra_basis,
@@ -77,10 +78,15 @@ def build_infra_config_node(
                 output={"basis": basis},
             )
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="基础配置不完整，等待用户补充。")
+            emit_waiting_user_event(pending, message="基础配置不完整，等待用户补充。")
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
-                "last_tool_result": {"resourceMissing": True, "resourceType": "INFRA", "basis": basis},
+                "decision_context": {
+                    "lastSceneResult": None,
+                    "infraConfigRequired": True,
+                    "infraBasis": basis,
+                },
             }
 
         try:
@@ -95,10 +101,15 @@ def build_infra_config_node(
                 "details": {"errors": exc.errors(), "received": infra_payload},
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="基础配置校验失败，等待用户修正。")
+            emit_waiting_user_event(pending, message="基础配置校验失败，等待用户修正。")
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
-                "last_tool_result": {"infraConfigInvalid": True, "errors": exc.errors()},
+                "decision_context": {
+                    "lastSceneResult": None,
+                    "infraConfigInvalid": True,
+                    "infraConfigErrors": exc.errors(),
+                },
             }
 
         await task_service.record_task_step(
@@ -121,7 +132,14 @@ def build_infra_config_node(
         )
         return {
             "current_phase": DatagenTaskPhase.SOURCE_CONFIG.value,
-            "last_tool_result": {"infraConfigResult": {"success": True, "saved": saved}},
+            "decision_context": {
+                "lastSceneResult": None,
+                "infraConfigResult": {"success": True, "saved": sorted(saved)},
+            },
+            "last_result_ref": {
+                "ref_type": "INFRA_CONFIG",
+                "summary": {"success": True, "resourceTypes": sorted(saved)},
+            },
         }
 
     return infra_config

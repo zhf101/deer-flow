@@ -6,15 +6,23 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
+from app.gdp.agent.middlewares.context_compression import build_gdp_context_summary
 from app.gdp.datagen.config.task.service import DatagenTaskService
+from app.gdp.datagen.config.task.subtask_service import DatagenTaskSubtaskService
 
 
-async def get_datagen_task_state(task_service: DatagenTaskService, task_run_id: str) -> dict[str, Any]:
+async def get_datagen_task_state(
+    task_service: DatagenTaskService,
+    task_run_id: str,
+    subtask_service: DatagenTaskSubtaskService | None = None,
+) -> dict[str, Any]:
     """读取造数任务状态摘要。"""
 
     task_run = await task_service.get_task_run(task_run_id)
     steps = await task_service.list_steps(task_run_id)
     events = await task_service.list_events(task_run_id)
+    subtasks = await subtask_service.list_subtasks(task_run_id) if subtask_service is not None else []
+    context_summary = build_gdp_context_summary(task_run=task_run, steps=steps, subtasks=subtasks)
     return {
         "taskRunId": task_run.taskRunId,
         "userIntent": task_run.userIntent,
@@ -38,6 +46,8 @@ async def get_datagen_task_state(task_service: DatagenTaskService, task_run_id: 
             for item in task_run.visibleVariables
         ],
         "stepCount": len(steps),
+        "subtaskCount": len(subtasks),
+        "contextSummary": context_summary,
         "recentEvents": [
             {
                 "eventType": event.eventType,
@@ -50,13 +60,16 @@ async def get_datagen_task_state(task_service: DatagenTaskService, task_run_id: 
     }
 
 
-def build_task_tools(task_service: DatagenTaskService) -> list[StructuredTool]:
+def build_task_tools(
+    task_service: DatagenTaskService,
+    subtask_service: DatagenTaskSubtaskService | None = None,
+) -> list[StructuredTool]:
     """构造 Task 阶段 LangChain 工具。"""
 
     async def _get_datagen_task_state(task_run_id: str) -> dict[str, Any]:
         """读取造数任务状态摘要。"""
 
-        return await get_datagen_task_state(task_service, task_run_id)
+        return await get_datagen_task_state(task_service, task_run_id, subtask_service)
 
     return [
         StructuredTool.from_function(

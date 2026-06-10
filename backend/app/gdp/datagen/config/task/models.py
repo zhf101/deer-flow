@@ -70,6 +70,29 @@ class DatagenTaskEnvSource(StrEnum):
     SYSTEM_DEFAULT = "SYSTEM_DEFAULT"
 
 
+class DatagenTaskSubtaskStatus(StrEnum):
+    """造数子任务状态。"""
+
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    WAITING_USER = "WAITING_USER"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"
+
+
+class DatagenTaskSubagentType(StrEnum):
+    """造数子 Agent 类型。"""
+
+    SCENE_DISCOVERY_AGENT = "scene-discovery-agent"
+    SOURCE_ANALYSIS_AGENT = "source-analysis-agent"
+    SQL_SOURCE_DESIGN_AGENT = "sql-source-design-agent"
+    HTTP_SOURCE_DESIGN_AGENT = "http-source-design-agent"
+    INFRA_RESOLVER_AGENT = "infra-resolver-agent"
+    SCENE_VALIDATION_AGENT = "scene-validation-agent"
+    DATA_QUALITY_REFLECTION_AGENT = "data-quality-reflection-agent"
+
+
 class GoalStackItem(BaseModel):
     """递归目标栈条目。"""
 
@@ -172,6 +195,62 @@ class DatagenTaskStepResponse(BaseModel):
     errorMessage: str | None = Field(default=None, description="步骤错误说明。")
     startedAt: datetime | None = Field(default=None, description="步骤开始时间。")
     finishedAt: datetime | None = Field(default=None, description="步骤结束时间。")
+
+
+class DatagenTaskSubtaskCreateRequest(BaseModel):
+    """创建造数子任务请求。"""
+
+    parentStepId: str | None = Field(default=None, max_length=64, description="父任务步骤 ID。为空表示由当前阶段直接创建。")
+    phase: DatagenTaskPhase = Field(..., description="子任务归属的 Agent 阶段。")
+    subagentType: DatagenTaskSubagentType = Field(..., description="子任务使用的子 Agent 类型。")
+    goal: str = Field(..., min_length=1, description="子任务目标，必须能回溯到父任务目标。")
+    operationId: str | None = Field(default=None, max_length=128, description="外部执行或子 Agent 运行 ID，用于恢复和审计。")
+    inputSnapshot: dict[str, Any] = Field(default_factory=dict, description="创建子任务时的输入快照，只保存必要摘要和引用。")
+
+
+class DatagenTaskSubtaskUpdateRequest(BaseModel):
+    """更新造数子任务请求。"""
+
+    subtaskId: str = Field(..., min_length=1, max_length=64, description="子任务业务 ID。")
+    status: DatagenTaskSubtaskStatus | None = Field(default=None, description="新的子任务状态。为空表示不更新状态。")
+    operationId: str | None = Field(default=None, max_length=128, description="新的外部运行 ID。为空表示不更新。")
+    resultSummary: dict[str, Any] | None = Field(default=None, description="子任务结果摘要，可进入父任务 Prompt 或 checkpoint。")
+    resultPayload: dict[str, Any] | None = Field(default=None, description="子任务完整结构化结果，落业务表保存，默认不直接注入 Prompt。")
+    resultRef: dict[str, Any] | None = Field(default=None, description="子任务外部结果引用，例如 artifact、sceneRun 或 storageRef。")
+    tokenUsage: dict[str, Any] | None = Field(default=None, description="子任务模型调用成本摘要。")
+    errorType: str | None = Field(default=None, max_length=128, description="子任务失败类型。")
+    errorMessage: str | None = Field(default=None, description="子任务失败说明。")
+
+
+class DatagenTaskSubtaskIdRequest(BaseModel):
+    """按 ID 操作造数子任务请求。"""
+
+    subtaskId: str = Field(..., min_length=1, max_length=64, description="子任务业务 ID。")
+
+
+class DatagenTaskSubtaskResponse(BaseModel):
+    """造数子任务响应。"""
+
+    id: str = Field(..., description="数据库主键 ID。")
+    taskRunId: str = Field(..., description="所属任务运行 ID。")
+    subtaskId: str = Field(..., description="子任务业务 ID。")
+    parentStepId: str | None = Field(default=None, description="父任务步骤 ID。")
+    phase: DatagenTaskPhase = Field(..., description="子任务归属阶段。")
+    subagentType: DatagenTaskSubagentType = Field(..., description="子 Agent 类型。")
+    goal: str = Field(..., description="子任务目标。")
+    operationId: str | None = Field(default=None, description="外部执行或子 Agent 运行 ID。")
+    status: DatagenTaskSubtaskStatus = Field(..., description="子任务状态。")
+    inputSnapshot: dict[str, Any] = Field(default_factory=dict, description="子任务输入快照。")
+    resultSummary: dict[str, Any] | None = Field(default=None, description="子任务结果摘要。")
+    resultPayload: dict[str, Any] | None = Field(default=None, description="子任务完整结构化结果。")
+    resultRef: dict[str, Any] | None = Field(default=None, description="子任务结果引用。")
+    tokenUsage: dict[str, Any] | None = Field(default=None, description="子任务成本摘要。")
+    errorType: str | None = Field(default=None, description="子任务失败类型。")
+    errorMessage: str | None = Field(default=None, description="子任务失败说明。")
+    createdAt: datetime = Field(..., description="创建时间。")
+    updatedAt: datetime = Field(..., description="最近更新时间。")
+    startedAt: datetime | None = Field(default=None, description="开始时间。")
+    finishedAt: datetime | None = Field(default=None, description="结束时间。")
 
 
 class DatagenTaskEventResponse(BaseModel):

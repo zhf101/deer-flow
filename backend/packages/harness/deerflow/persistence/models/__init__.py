@@ -47,6 +47,8 @@ try:
         DataFactoryDatagenTaskRunRow,
         DataFactoryDatagenTaskStepRow,
     )
+    from app.gdp.datagen.config.task.subtask_repository import DataFactoryDatagenTaskSubtaskRow
+    from app.gdp.datagen.agent_memory.repository import DataFactoryGDPAgentMemoryFactRow
 except ImportError:
     DataFactoryConfigAuditRow = None
     DataFactoryDatasourceRow = None
@@ -68,6 +70,8 @@ except ImportError:
     DataFactoryDatagenTaskEventRow = None
     DataFactoryDatagenTaskRunRow = None
     DataFactoryDatagenTaskStepRow = None
+    DataFactoryDatagenTaskSubtaskRow = None
+    DataFactoryGDPAgentMemoryFactRow = None
 
 __all__ = [
     "FeedbackRow",
@@ -95,4 +99,6 @@ __all__ = [
     "DataFactoryDatagenTaskEventRow",
     "DataFactoryDatagenTaskRunRow",
     "DataFactoryDatagenTaskStepRow",
+    "DataFactoryDatagenTaskSubtaskRow",
+    "DataFactoryGDPAgentMemoryFactRow",
 ]

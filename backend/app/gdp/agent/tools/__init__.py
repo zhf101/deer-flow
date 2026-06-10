@@ -8,7 +8,20 @@ from app.gdp.agent.tools.infra_config_tools import (
     upsert_service_endpoint_from_agent,
     upsert_system_from_agent,
 )
+from app.gdp.agent.tools.registry import (
+    GDPToolApprovalContext,
+    GDPToolGuardrailDecision,
+    GDPToolGuardrailError,
+    GDPToolOutputTarget,
+    GDPToolSideEffectLevel,
+    GDPToolSpec,
+    build_gdp_tool_approval_key,
+    evaluate_gdp_tool_guardrail,
+    get_gdp_tool_specs,
+    get_gdp_tools,
+)
 from app.gdp.agent.tools.scene_design_tools import (
+    build_scene_design_tools,
     compose_scene_draft_from_source,
     publish_scene_from_source,
     search_source_contracts,
@@ -31,15 +44,27 @@ from app.gdp.agent.tools.source_config_tools import (
     upsert_http_source_from_agent,
     upsert_sql_source_from_agent,
 )
-from app.gdp.agent.tools.task_tools import get_datagen_task_state
+from app.gdp.agent.tools.task_tools import build_task_tools, get_datagen_task_state
 
 __all__ = [
+    "GDPToolApprovalContext",
+    "GDPToolGuardrailDecision",
+    "GDPToolGuardrailError",
+    "GDPToolOutputTarget",
+    "GDPToolSideEffectLevel",
+    "GDPToolSpec",
     "bind_scene_inputs",
+    "build_scene_design_tools",
     "build_scene_tools",
     "build_infra_config_tools",
     "build_source_config_tools",
+    "build_task_tools",
+    "build_gdp_tool_approval_key",
     "compose_scene_draft_from_source",
+    "evaluate_gdp_tool_guardrail",
     "get_datagen_task_state",
+    "get_gdp_tool_specs",
+    "get_gdp_tools",
     "get_scene_contract",
     "parse_sql_source_from_agent",
     "publish_scene_from_source",
