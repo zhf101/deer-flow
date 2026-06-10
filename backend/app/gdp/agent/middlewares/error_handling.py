@@ -8,7 +8,6 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphBubbleUp, GraphInterrupt
 
-from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.middlewares.runtime_context import metadata_payload
 from app.gdp.agent.middlewares.task_run_sync import sync_task_run_binding
 from app.gdp.agent.state import GDPState
@@ -28,14 +27,13 @@ def wrap_gdp_error_handling(
 ) -> GDPNodeCallable:
     """为 GDP 节点增加普通异常失败落库边界，LangGraph 控制流异常继续透传。"""
 
-    invoke_node = make_gdp_node_invoker(node)
     runtime_payload = metadata_payload(metadata)
 
     async def error_handling_node(state: GDPState, config: RunnableConfig) -> GDPState:
         if not enabled:
-            return await invoke_node(state, config)
+            return await node(state, config)
         try:
-            return await invoke_node(state, config)
+            return await node(state, config)
         except (GraphInterrupt, GraphBubbleUp):
             raise
         except Exception as exc:

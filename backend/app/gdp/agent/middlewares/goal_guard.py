@@ -8,7 +8,6 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 
 from app.gdp.agent.middlewares.context_compression import load_gdp_context_summary
-from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.state import GDPState
 from app.gdp.datagen.config.task.models import DatagenTaskPhase
 from app.gdp.datagen.config.task.service import DatagenTaskService
@@ -27,10 +26,8 @@ def wrap_gdp_goal_guard(
 ) -> GDPNodeCallable:
     """在节点出口刷新任务目标锚点，并阻止 checkpoint 中的原始目标漂移。"""
 
-    invoke_node = make_gdp_node_invoker(node)
-
     async def guarded_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
-        result = await invoke_node(state, config)
+        result = await node(state, config)
         if not enabled or not isinstance(result, dict):
             return result
 

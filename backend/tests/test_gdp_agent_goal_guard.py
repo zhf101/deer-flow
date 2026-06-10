@@ -46,11 +46,11 @@ class _FakeTaskService:
         )
 
 
-async def _plain_node(state):
+async def _plain_node(state, config=None):
     return {"task_run_id": state["task_run_id"], "current_phase": DatagenTaskPhase.SCENE_DESIGN.value}
 
 
-async def _drifting_node(state):
+async def _drifting_node(state, config=None):
     return {
         "task_run_id": state["task_run_id"],
         "current_phase": DatagenTaskPhase.SCENE_DESIGN.value,

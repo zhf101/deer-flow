@@ -7,7 +7,6 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.skills.registry import get_gdp_skill_context
 from app.gdp.agent.state import GDPState
 from app.gdp.datagen.config.task.models import DatagenTaskPhase
@@ -25,10 +24,8 @@ def wrap_gdp_skill_context(
 ) -> GDPNodeCallable:
     """给 GDP 节点出口注入当前阶段技能引用。"""
 
-    invoke_node = make_gdp_node_invoker(node)
-
     async def skill_context_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
-        result = await invoke_node(state, config)
+        result = await node(state, config)
         if not isinstance(result, dict):
             return result
 

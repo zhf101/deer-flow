@@ -26,15 +26,15 @@ class _FakeTaskService:
         )
 
 
-async def _scene_design_node(state):
+async def _scene_design_node(state, config=None):
     return {"current_phase": DatagenTaskPhase.SCENE_DESIGN.value}
 
 
-async def _source_config_node(state):
+async def _source_config_node(state, config=None):
     return {"current_phase": DatagenTaskPhase.SOURCE_CONFIG.value}
 
 
-async def _source_config_node_with_inner_errors(state):
+async def _source_config_node_with_inner_errors(state, config=None):
     return {
         "current_phase": DatagenTaskPhase.SOURCE_CONFIG.value,
         "errors": [{"errorType": "GOAL_DRIFT_DETECTED", "nodeName": "source_config"}],

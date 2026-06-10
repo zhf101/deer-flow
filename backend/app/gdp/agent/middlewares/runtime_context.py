@@ -8,7 +8,6 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.state import GDPState
 
 GDPNodeCallable = Callable[..., Awaitable[GDPState]]
@@ -22,10 +21,8 @@ def wrap_gdp_runtime_context(
 ) -> GDPNodeCallable:
     """在节点出口注入本次运行上下文，避免运行时标识只停留在入口节点。"""
 
-    invoke_node = make_gdp_node_invoker(node)
-
     async def runtime_context_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
-        result = await invoke_node(state, config)
+        result = await node(state, config)
         if not enabled or not isinstance(result, dict):
             return result
         runtime_context = build_gdp_runtime_context(config, metadata)

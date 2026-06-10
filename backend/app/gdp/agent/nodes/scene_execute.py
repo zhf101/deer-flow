@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
+
 from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
 from app.gdp.agent.state import GDPState
 from app.gdp.agent.tools.registry import assert_gdp_registered_tool_allowed
@@ -22,7 +24,7 @@ def build_scene_execute_node(
 ):
     """构造用户确认后的场景执行节点。"""
 
-    async def scene_execute(state: GDPState) -> GDPState:
+    async def scene_execute(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         task_run_id = state["task_run_id"]
         task_run = await task_service.get_task_run(task_run_id)
         decision_context = state.get("decision_context") or {}

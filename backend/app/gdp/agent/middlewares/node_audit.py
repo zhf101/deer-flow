@@ -8,7 +8,6 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import GraphInterrupt
 
-from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.middlewares.runtime_context import metadata_payload
 from app.gdp.agent.middlewares.task_run_sync import sync_task_run_binding
 from app.gdp.agent.state import GDPState
@@ -27,7 +26,6 @@ def wrap_gdp_node_audit(
 ) -> GDPNodeCallable:
     """为 GDP 图节点增加开始、结束、中断和失败审计。"""
 
-    invoke_node = make_gdp_node_invoker(node)
     runtime_payload = metadata_payload(metadata)
 
     async def audited_node(state: GDPState, config: RunnableConfig) -> GDPState:
@@ -44,7 +42,7 @@ def wrap_gdp_node_audit(
                 payload={"nodeName": node_name, "attemptNo": attempt_no, **runtime_payload},
             )
         try:
-            result = await invoke_node(state, config)
+            result = await node(state, config)
         except GraphInterrupt:
             if task_run_id:
                 await _record_node_event(

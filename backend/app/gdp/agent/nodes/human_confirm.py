@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from langchain_core.runnables import RunnableConfig
 from langgraph.types import interrupt
 
 from app.gdp.agent.middlewares.interrupt import (
@@ -17,7 +18,7 @@ from app.gdp.datagen.config.task.service import DatagenTaskService
 def build_human_confirm_node(task_service: DatagenTaskService):
     """构造人工确认节点。"""
 
-    async def human_confirm(state: GDPState) -> GDPState:
+    async def human_confirm(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         payload = state.get("pending_confirmation") or {}
         resume_value = interrupt(payload)
         task_run_id = state["task_run_id"]

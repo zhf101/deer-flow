@@ -7,7 +7,6 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.middlewares.runtime_context import runtime_binding
 from app.gdp.agent.state import GDPState
 from app.gdp.datagen.config.task.models import DatagenTaskStatus
@@ -27,11 +26,9 @@ def wrap_gdp_task_recovery(
 ) -> GDPNodeCallable:
     """在每次图运行中至多恢复一次遗留的 PENDING/RUNNING 任务步骤。"""
 
-    invoke_node = make_gdp_node_invoker(node)
-
     async def task_recovery_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         if not enabled:
-            return await invoke_node(state, config)
+            return await node(state, config)
 
         recovery_summary = await recover_task_steps_once(
             task_service,
@@ -40,7 +37,7 @@ def wrap_gdp_task_recovery(
             node_name=node_name,
         )
         prepared_state = _merge_recovery_summary(state, recovery_summary)
-        result = await invoke_node(prepared_state, config)
+        result = await node(prepared_state, config)
         if not isinstance(result, dict) or recovery_summary is None:
             return result
         return _merge_recovery_summary(result, recovery_summary)

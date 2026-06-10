@@ -16,7 +16,6 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.middlewares.runtime_context import runtime_binding
 from app.gdp.agent.state import GDPState
 from app.gdp.datagen.config.task.models import DatagenTaskRunResponse
@@ -35,14 +34,12 @@ def wrap_gdp_task_run_sync(
 ) -> GDPNodeCallable:
     """在节点前后刷新 TaskRun 权威上下文，并把运行绑定同步回业务表。"""
 
-    invoke_node = make_gdp_node_invoker(node)
-
     async def task_run_sync_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         if not enabled:
-            return await invoke_node(state, config)
+            return await node(state, config)
 
         prepared_state = await _refresh_state_from_task_run(task_service, state)
-        result = await invoke_node(prepared_state, config)
+        result = await node(prepared_state, config)
         if not isinstance(result, dict):
             return result
 

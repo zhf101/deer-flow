@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
 from app.gdp.agent.middlewares.business_guardrail import user_submitted_config_write_context
@@ -37,7 +38,7 @@ def build_infra_config_node(
 ):
     """构造系统、环境、服务端点和数据源配置节点。"""
 
-    async def infra_config(state: GDPState) -> GDPState:
+    async def infra_config(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         task_run_id = state["task_run_id"]
         task_run = await task_service.get_task_run(task_run_id)
         user_inputs = state.get("user_inputs") or {}
