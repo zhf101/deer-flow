@@ -161,8 +161,14 @@ def build_scene_design_node(
                     **llm_state_update,
                 }
             if llm_decision is not None:
-                top = _select_source_candidate(source_result["candidates"], llm_decision.sourceCode) or source_result["candidates"][0]
-                confirmation_reason = "LLM_REQUIRES_CONFIRMATION" if _llm_source_needs_confirmation(llm_decision) else None
+                top = _select_source_candidate(source_result["candidates"], llm_decision.sourceCode)
+                if top is None:
+                    # 防御：模型给出的 sourceCode 未命中候选时，不静默回退到第一个候选，
+                    # 改为推荐第一个候选并强制交给用户确认（与非 LLM 路径的无效选择行为一致）。
+                    top = source_result["candidates"][0]
+                    confirmation_reason = "LLM_REQUIRES_CONFIRMATION"
+                else:
+                    confirmation_reason = "LLM_REQUIRES_CONFIRMATION" if _llm_source_needs_confirmation(llm_decision) else None
             else:
                 top = _select_source_candidate(source_result["candidates"], selected_source_code)
                 confirmation_reason = _source_candidate_confirmation_reason(

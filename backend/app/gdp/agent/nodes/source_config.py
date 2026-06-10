@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from app.gdp.agent.llm.decision import draft_gdp_source_config
 from app.gdp.agent.llm.events import llm_decision_payload, llm_failure_payload
 from app.gdp.agent.llm.schemas import GDPSourceConfigDraftDecision
-from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
+from app.gdp.agent.middlewares.business_guardrail import user_submitted_config_write_context
 from app.gdp.agent.middlewares.idempotency import find_successful_source_config_step
 from app.gdp.agent.nodes.events import emit_waiting_user_event
 from app.gdp.agent.state import GDPState
@@ -29,6 +29,7 @@ from app.gdp.datagen.config.task.models import (
     DatagenTaskStepType,
 )
 from app.gdp.datagen.config.task.service import DatagenTaskService
+from app.gdp.datagen.redaction import redact_sensitive_payload, redact_validation_errors
 from deerflow.config.app_config import AppConfig
 
 
@@ -145,13 +146,16 @@ def build_source_config_node(
                 sql_source_service=sql_source_service,
             )
         except ValidationError as exc:
+            # 校验失败的原始 payload 可能携带连接串、账号、token 等凭据，
+            # 必须在进入 TaskRun pending / checkpoint state 之前先脱敏。
+            redacted_errors = redact_validation_errors(exc.errors())
             pending = {
                 "taskRunId": task_run_id,
                 "phase": DatagenTaskPhase.SOURCE_CONFIG.value,
                 "resumePhase": DatagenTaskPhase.SOURCE_CONFIG.value,
                 "questionType": "SOURCE_CONFIG_INVALID",
                 "question": "Source 配置结构不完整或字段类型不正确，请修正后继续。",
-                "details": {"errors": exc.errors(), "received": source_payload},
+                "details": {"errors": redacted_errors, "received": redact_sensitive_payload(source_payload)},
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="Source 配置校验失败，等待用户修正。")
             emit_waiting_user_event(pending, message="Source 配置校验失败，等待用户修正。")
@@ -161,7 +165,7 @@ def build_source_config_node(
                 "decision_context": {
                     "lastSceneResult": None,
                     "sourceConfigInvalid": True,
-                    "sourceConfigErrors": exc.errors(),
+                    "sourceConfigErrors": redacted_errors,
                 },
             }
 
@@ -688,8 +692,5 @@ def _assert_source_config_allowed(tool_name: str, config: HttpSourceConfig | Sql
             "config": config,
             "sourceType": payload.get("sourceType"),
         },
-        GDPToolApprovalContext(
-            allowConfigWrite=True,
-            reason="用户已提交 Source 配置 payload，允许保存配置。",
-        ),
+        user_submitted_config_write_context(source="source_config 节点"),
     )

@@ -39,6 +39,43 @@ class GDPToolGuardrailError(PermissionError):
         super().__init__(decision.reason)
 
 
+def user_submitted_config_write_context(*, source: str, operator: str | None = None) -> GDPToolApprovalContext:
+    """构造"用户提交配置 payload 即视为确认保存"的标准审批上下文。
+
+    产品策略（已拍板，见 tools/registry.py 模块文档）：配置写入类工具
+    （``upsert_*_from_agent`` 等 ``CONFIG_WRITE``）在用户显式提交配置 payload 的
+    场景下不要求二次审批，**提交动作本身即为确认**。所有配置写路径（主图节点、
+    Agent API）必须复用本 helper 构造审批上下文，禁止各自手写
+    ``allowConfigWrite=True``，避免治理口径漂移。
+
+    Args:
+        source: 放行来源说明（如 ``"source_config 节点"`` / ``"Agent API"``），用于审计归因。
+        operator: 操作者标识，可为空。
+    """
+
+    return GDPToolApprovalContext(
+        allowConfigWrite=True,
+        operator=operator,
+        reason=f"{source}：用户已提交配置 payload，按【提交即确认】策略放行配置写入。",
+    )
+
+
+def user_submitted_probe_context(*, source: str, operator: str | None = None) -> GDPToolApprovalContext:
+    """构造"用户显式提交连通性探测请求"的标准审批上下文。
+
+    适用于 ``test_http_source_from_agent`` / ``test_sql_source_from_agent`` 等由用户
+    主动发起的业务探测（``BUSINESS_WRITE``）。与配置写同理：用户提交探测请求本身
+    即为确认，统一经本 helper 放行，禁止各自手写 ``allowBusinessWrite=True``。
+    注意：场景执行（``run_datagen_scene_for_task``）不适用本策略，仍走显式确认/审批键。
+    """
+
+    return GDPToolApprovalContext(
+        allowBusinessWrite=True,
+        operator=operator,
+        reason=f"{source}：用户已显式提交业务探测请求，按【提交即确认】策略放行。",
+    )
+
+
 class GuardedGDPTool(BaseTool):
     """带 GDP 业务 Guardrail 的 LangChain 工具包装器。"""
 

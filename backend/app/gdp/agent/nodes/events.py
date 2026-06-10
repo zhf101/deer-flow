@@ -61,8 +61,11 @@ questionType                      来源节点                          details 
 --------
 
 ``*_INVALID`` 分支的 ``details.received`` 是用户/Agent 提交的原始 payload，会
-随本事件流向前端。若该 payload 可能携带凭据（数据源连接串、HTTP Source 的认证
-信息等），调用方应在放入 ``pending`` 之前完成脱敏，避免敏感值经实时流泄露。
+随本事件流向前端。``source_config`` / ``infra_config`` 节点已在构造 ``pending``
+时通过 :func:`app.gdp.datagen.redaction.redact_sensitive_payload` 与
+:func:`app.gdp.datagen.redaction.redact_validation_errors` 对 ``received`` 和
+``errors`` 完成源头脱敏；``mark_waiting_user`` 落库与本模块发送实时事件前还会
+各自再做一次兜底脱敏。新增 ``*_INVALID`` 分支时必须沿用同样的源头脱敏约定。
 """
 
 from __future__ import annotations

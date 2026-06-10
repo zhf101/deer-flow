@@ -12,6 +12,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
 from app.gdp.agent.graph import (
+    _PHASE_TO_NODE,
     GDPAgentServices,
     _build_gdp_metadata,
     _build_gdp_policy,
@@ -156,6 +157,17 @@ def test_gdp_agent_factory_extracts_runtime_policy_and_metadata():
     }
 
 
+def test_gdp_policy_checkpointer_enabled_reflects_gateway_runtime_truth():
+    """Gateway worker 构图后总会挂载 checkpointer（未配置时回退 InMemorySaver），
+    因此工厂路径 metadata 的 checkpointerEnabled 按运行时真实值恒为 True。"""
+
+    without_config = _build_gdp_policy(SimpleNamespace(memory=None, checkpointer=None))
+    with_config = _build_gdp_policy(SimpleNamespace(memory=None, checkpointer=SimpleNamespace(backend="sqlite")))
+
+    assert without_config.checkpointer_enabled is True
+    assert with_config.checkpointer_enabled is True
+
+
 @pytest.mark.anyio
 async def test_gdp_agent_build_services_respects_memory_policy(tmp_path):
     db_path = tmp_path / "gdp-agent-memory-policy.db"
@@ -179,6 +191,27 @@ def test_progress_reflection_routes_active_phases_before_end():
     assert _route_after_progress_reflection({"current_phase": "WAITING_USER"}) == "human_confirm"
     assert _route_after_progress_reflection({"current_phase": "COMPLETED"}) == "end"
     assert _route_after_progress_reflection({"current_phase": "FAILED"}) == "end"
+
+
+def test_phase_routing_accepts_enum_values_and_unknown_strings():
+    """路由查表对枚举实例和未知字符串都应有确定行为，杜绝字符串/枚举两套真相。"""
+
+    assert _route_after_progress_reflection({"current_phase": DatagenTaskPhase.SCENE_DESIGN}) == "scene_design"
+    assert _route_after_progress_reflection({"current_phase": DatagenTaskPhase.WAITING_USER}) == "human_confirm"
+    assert _route_after_progress_reflection({"current_phase": "NOT_A_PHASE"}) == "end"
+    assert _route_after_progress_reflection({}) == "end"
+
+
+def test_phase_to_node_table_covers_all_routable_phases():
+    """所有非终态/非入口阶段都必须能从映射表路由到图节点。"""
+
+    routable = set(DatagenTaskPhase) - {
+        DatagenTaskPhase.INTAKE,
+        DatagenTaskPhase.PROGRESS_REFLECTION,
+        DatagenTaskPhase.COMPLETED,
+        DatagenTaskPhase.FAILED,
+    }
+    assert set(_PHASE_TO_NODE) == routable
 
 
 @pytest.mark.anyio
@@ -817,6 +850,13 @@ async def test_gdp_graph_redacts_invalid_source_payload(gdp_services):
     received = waiting.pendingInterrupts["details"]["received"]
     assert received["config"]["password"] == "***已脱敏***"
     assert received["config"]["headers"]["Authorization"] == "***已脱敏***"
+    # Pydantic exc.errors() 的 input 字段同样不允许携带原始凭据。
+    for error in waiting.pendingInterrupts["details"]["errors"]:
+        error_input = error.get("input")
+        if isinstance(error_input, dict):
+            assert error_input.get("password") in (None, "***已脱敏***")
+            headers = error_input.get("headers") or {}
+            assert headers.get("Authorization") in (None, "***已脱敏***")
 
 
 def _steps_by_type(steps, step_type: str):

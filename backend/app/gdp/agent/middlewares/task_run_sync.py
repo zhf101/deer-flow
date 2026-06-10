@@ -1,17 +1,28 @@
-"""GDP Agent TaskRun 同步中间件工具。"""
+"""GDP Agent TaskRun 同步中间件工具。
+
+重要契约（节点必须遵守）：本中间件在节点出口会用 DB 中 TaskRun 的
+``phase`` / ``user_intent`` 覆盖节点返回值（TaskRun 是权威状态源）。
+因此**节点必须先通过 ``move_to_phase`` / ``mark_waiting_user`` 等服务方法把
+新阶段持久化，再在返回值里携带 ``current_phase``**；只改内存返回值而不落库
+的阶段变更会被本中间件静默覆盖，导致路由决策丢失。出口检测到这种不一致时
+会记录 warning 日志，便于及时发现违反契约的节点。
+"""
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable
-from inspect import signature
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.middlewares.runtime_context import runtime_binding
 from app.gdp.agent.state import GDPState
 from app.gdp.datagen.config.task.models import DatagenTaskRunResponse
 from app.gdp.datagen.config.task.service import DatagenTaskService
+
+logger = logging.getLogger(__name__)
 
 GDPNodeCallable = Callable[..., Awaitable[GDPState]]
 
@@ -24,14 +35,14 @@ def wrap_gdp_task_run_sync(
 ) -> GDPNodeCallable:
     """在节点前后刷新 TaskRun 权威上下文，并把运行绑定同步回业务表。"""
 
-    accepts_config = len(signature(node).parameters) >= 2
+    invoke_node = make_gdp_node_invoker(node)
 
     async def task_run_sync_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
         if not enabled:
-            return await node(state, config) if accepts_config else await node(state)
+            return await invoke_node(state, config)
 
         prepared_state = await _refresh_state_from_task_run(task_service, state)
-        result = await node(prepared_state, config) if accepts_config else await node(prepared_state)
+        result = await invoke_node(prepared_state, config)
         if not isinstance(result, dict):
             return result
 
@@ -99,7 +110,26 @@ async def _refresh_result_from_task_run(
     task_run = await _safe_get_task_run(task_service, task_run_id)
     if task_run is None:
         return result
+    _warn_on_unpersisted_phase(result, task_run, task_run_id)
     return _merge_task_run_state(result, task_run, fallback=state)
+
+
+def _warn_on_unpersisted_phase(result: GDPState, task_run: DatagenTaskRunResponse | Any, task_run_id: str) -> None:
+    """检测节点违反“先持久化 phase 再返回”契约的情况并告警。
+
+    节点返回的 ``current_phase`` 与 DB 权威 phase 不一致，说明节点只在内存里
+    改了阶段、没有先落库——该路由决策即将被权威状态覆盖（见模块级契约说明）。
+    """
+
+    result_phase = result.get("current_phase")
+    db_phase = _enum_value(getattr(task_run, "phase", None))
+    if result_phase and db_phase and str(result_phase) != str(db_phase):
+        logger.warning(
+            "GDP 节点返回的 current_phase=%s 与 TaskRun(%s) 持久化 phase=%s 不一致，节点内存阶段将被权威状态覆盖。请检查节点是否漏调 move_to_phase/mark_waiting_user 先落库。",
+            result_phase,
+            task_run_id,
+            db_phase,
+        )
 
 
 async def _safe_get_task_run(

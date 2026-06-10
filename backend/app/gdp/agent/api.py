@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
+from app.gdp.agent.middlewares.business_guardrail import user_submitted_config_write_context, user_submitted_probe_context
 from app.gdp.agent.tools.infra_config_tools import (
     resolve_infra_basis,
     upsert_datasource_from_agent,
@@ -365,10 +365,7 @@ def _assert_agent_api_config_write_allowed(tool_name: str, tool_input: dict[str,
     assert_gdp_registered_tool_allowed(
         tool_name,
         tool_input,
-        GDPToolApprovalContext(
-            allowConfigWrite=True,
-            reason="用户通过 Agent API 显式提交配置写入请求。",
-        ),
+        user_submitted_config_write_context(source="Agent API"),
     )
 
 
@@ -376,8 +373,5 @@ def _assert_agent_api_business_write_allowed(tool_name: str, tool_input: dict[st
     assert_gdp_registered_tool_allowed(
         tool_name,
         tool_input,
-        GDPToolApprovalContext(
-            allowBusinessWrite=True,
-            reason="用户通过 Agent API 显式提交业务探测请求。",
-        ),
+        user_submitted_probe_context(source="Agent API"),
     )

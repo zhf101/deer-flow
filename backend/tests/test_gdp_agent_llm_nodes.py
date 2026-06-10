@@ -274,6 +274,56 @@ async def test_scene_design_uses_llm_source_selection_before_publish_approval(ta
 
 
 @pytest.mark.anyio
+async def test_scene_design_asks_confirmation_when_llm_source_code_misses_candidates(task_service, monkeypatch):
+    """模型给出的 sourceCode 未命中候选时必须交给用户确认，不允许静默回退到第一个候选。
+
+    正常链路上 ``_validate_source_candidate_decision`` 会先拦截无效 sourceCode；
+    本测试故意削弱该校验，锁定节点选择逻辑自身的纵深防御行为。
+    """
+
+    task = await task_service.create_task_run(DatagenTaskRunCreateRequest(userIntent="创建订单"))
+    candidates = [_source_candidate("createOrderApi"), _source_candidate("createOrderApiV2")]
+    model = _FakeChatModel(
+        """
+        {
+          "decision": "USE_SOURCE",
+          "sourceCode": "nonexistentSource",
+          "sourceType": "HTTP",
+          "reason": "幻觉出来的 Source。",
+          "confidence": 0.95,
+          "missingInputs": [],
+          "requiresUserConfirmation": false,
+          "generationStrategy": "生成单步骤 HTTP 造数场景。",
+          "candidateRank": [],
+          "evidence": []
+        }
+        """
+    )
+
+    async def fake_search_source_contracts(*args, **kwargs):
+        return {"candidates": candidates, "queryTerms": ["订单"]}
+
+    monkeypatch.setattr(scene_design_module, "search_source_contracts", fake_search_source_contracts)
+    monkeypatch.setattr(scene_design_module, "_validate_source_candidate_decision", lambda *args, **kwargs: None)
+    node = build_scene_design_node(
+        catalog_service=object(),
+        task_service=task_service,
+        scene_service=object(),
+        http_source_repository=object(),
+        sql_source_repository=object(),
+        llm_enabled=True,
+        llm_model=model,
+    )
+
+    result = await node({"task_run_id": task.taskRunId, "user_inputs": {}}, {"tags": ["root"]})
+
+    assert result["current_phase"] == "WAITING_USER"
+    assert result["pending_confirmation"]["questionType"] == "SOURCE_CANDIDATE_CONFIRM"
+    assert result["pending_confirmation"]["details"]["confirmationReason"] == "LLM_REQUIRES_CONFIRMATION"
+    assert result["pending_confirmation"]["details"]["recommended"] == "createOrderApi"
+
+
+@pytest.mark.anyio
 async def test_scene_design_includes_llm_enhanced_scene_draft_preview(task_service, monkeypatch):
     task = await task_service.create_task_run(DatagenTaskRunCreateRequest(userIntent="创建订单"))
     scene_code = f"agent_createOrderApi_{task.taskRunId[-8:]}"

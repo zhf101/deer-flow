@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BotIcon,
   DatabaseIcon,
   FilePlus2Icon,
   GlobeIcon,
@@ -14,6 +15,7 @@ import { useCallback, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
+import { GDPAgentEntry } from "./agent/gdp-agent-entry";
 import { ConfigManagement } from "./baseconfig";
 import { TabBar, type Tab } from "./common/shell/module-tab-bar";
 import { HttpSourceManagement } from "./httpsource";
@@ -29,6 +31,7 @@ import { TaskRunDialog } from "./task/task-run-dialog";
 /* ── 类型 ── */
 
 type TabType =
+  | "agent"
   | "scene-list"
   | "scene-history"
   | "task-list"
@@ -61,6 +64,7 @@ const NAV_ITEMS: {
   icon: typeof LayoutListIcon;
   group: string;
 }[] = [
+  { id: "agent", type: "agent", label: "GDP Agent", icon: BotIcon, group: "Agent" },
   { id: "config", type: "config", label: "基础配置", icon: SettingsIcon, group: "配置" },
   { id: "httpsource", type: "httpsource", label: "HTTP 接口", icon: GlobeIcon, group: "配置" },
   { id: "sqlsource", type: "sqlsource", label: "SQL 配置", icon: DatabaseIcon, group: "配置" },
@@ -217,6 +221,8 @@ export function DataFactoryPage() {
     icon:
       t.type === "scene-list" ? (
         <LayoutListIcon className="size-3" />
+      ) : t.type === "agent" ? (
+        <BotIcon className="size-3" />
       ) : t.type === "task-list" ? (
         <WorkflowIcon className="size-3" />
       ) : t.type === "config" ? (
@@ -242,6 +248,8 @@ export function DataFactoryPage() {
     if (!activeTab) return null;
 
     switch (activeTab.type) {
+      case "agent":
+        return <GDPAgentEntry />;
       case "scene-list":
         return (
           <SceneDashboard
@@ -338,6 +346,7 @@ export function DataFactoryPage() {
   const activeNavId = (() => {
     if (!activeTab) return "scene-list";
     if (activeTab.type === "scene-history") return "scene-history";
+    if (activeTab.type === "agent") return "agent";
     // 从历史记录打开的执行详情也高亮执行历史
     if (activeTab.type === "scene-run" && activeTab.runId) return "scene-history";
     // 将编辑、查看、新建标签映射回父级导航项

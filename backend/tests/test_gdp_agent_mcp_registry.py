@@ -333,3 +333,85 @@ async def test_apply_gdp_mcp_visible_variable_result_updates_variable_stack(tmp_
         ]
     finally:
         await close_engine()
+
+@pytest.mark.anyio
+async def test_apply_gdp_mcp_result_ignores_caller_supplied_policy(tmp_path):
+    """归并策略必须以服务端 registry 为准，调用方自报的策略字段会被忽略。"""
+
+    db_path = tmp_path / "gdp-mcp-result-policy.db"
+    await init_engine("sqlite", url=f"sqlite+aiosqlite:///{db_path}", sqlite_dir=str(tmp_path))
+    try:
+        session_factory = get_session_factory()
+        assert session_factory is not None
+        task_service = DatagenTaskService(DatagenTaskRepository(session_factory))
+        task = await task_service.create_task_run(
+            DatagenTaskRunCreateRequest(userIntent="校验造数结果", envCode="DEV")
+        )
+
+        # gdp-mcp-quality-check 在 registry 注册为 SENSITIVE + SUMMARY_ONLY；
+        # 调用方自报 PUBLIC + VISIBLE_VARIABLE 试图绕过脱敏并写入变量栈。
+        result = await apply_gdp_mcp_capability_result(
+            task_service,
+            GDPMCPCapabilityResultApplyRequest(
+                taskRunId=task.taskRunId,
+                capabilityName="gdp-mcp-quality-check",
+                phase=DatagenTaskPhase.PROGRESS_REFLECTION,
+                outputVariablePolicy="VISIBLE_VARIABLE",
+                outputSensitivity="PUBLIC",
+                success=True,
+                output={"ruleResult": "PASSED", "customerToken": "secret-token"},
+            ),
+        )
+
+        assert result.visibleVariables == []
+        assert result.resultRef["summary"]["outputVariablePolicy"] == "SUMMARY_ONLY"
+        assert result.resultRef["summary"]["outputSensitivity"] == "SENSITIVE"
+        refreshed = await task_service.get_task_run(task.taskRunId)
+        assert refreshed.visibleVariables == []
+        events = await task_service.list_events(task.taskRunId)
+        payload = events[-1].payload
+        assert payload["outputVariablePolicy"] == "SUMMARY_ONLY"
+        assert payload["outputSensitivity"] == "SENSITIVE"
+        assert payload["outputPreview"] is None
+    finally:
+        await close_engine()
+
+
+@pytest.mark.anyio
+async def test_apply_gdp_mcp_result_rejects_unregistered_capability(tmp_path):
+    db_path = tmp_path / "gdp-mcp-result-unknown.db"
+    await init_engine("sqlite", url=f"sqlite+aiosqlite:///{db_path}", sqlite_dir=str(tmp_path))
+    try:
+        session_factory = get_session_factory()
+        assert session_factory is not None
+        task_service = DatagenTaskService(DatagenTaskRepository(session_factory))
+        task = await task_service.create_task_run(
+            DatagenTaskRunCreateRequest(userIntent="归并未注册能力", envCode="DEV")
+        )
+
+        with pytest.raises(KeyError):
+            await apply_gdp_mcp_capability_result(
+                task_service,
+                GDPMCPCapabilityResultApplyRequest(
+                    taskRunId=task.taskRunId,
+                    capabilityName="raw-unregistered-capability",
+                    success=True,
+                    output={"data": 1},
+                ),
+            )
+
+        app = FastAPI()
+        app.include_router(mcp_router, prefix="/api/v1/datagen")
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/datagen/agent-mcp/capabilities/apply-result",
+                json={
+                    "taskRunId": task.taskRunId,
+                    "capabilityName": "raw-unregistered-capability",
+                    "success": True,
+                    "output": {"data": 1},
+                },
+            )
+        assert response.status_code == 404
+    finally:
+        await close_engine()

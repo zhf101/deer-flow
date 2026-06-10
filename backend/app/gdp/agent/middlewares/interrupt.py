@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from inspect import signature
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.middlewares.task_run_sync import build_gdp_task_context
 from app.gdp.agent.state import GDPState
 from app.gdp.datagen.config.task.models import DatagenTaskPhase, DatagenTaskStatus
@@ -26,10 +26,10 @@ def wrap_gdp_interrupt(
 ) -> GDPNodeCallable:
     """规范节点返回的等待用户状态，确保 checkpoint 与 TaskRun 中断语义一致。"""
 
-    accepts_config = len(signature(node).parameters) >= 2
+    invoke_node = make_gdp_node_invoker(node)
 
     async def interrupt_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
-        result = await node(state, config) if accepts_config else await node(state)
+        result = await invoke_node(state, config)
         if not enabled or not isinstance(result, dict) or not _is_waiting_user_result(result):
             return result
 

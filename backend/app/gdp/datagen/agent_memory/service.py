@@ -26,6 +26,7 @@ from app.gdp.datagen.agent_memory.repository import (
     GDPAgentMemoryNotFoundError,
     GDPAgentMemoryRepository,
 )
+from app.gdp.datagen.redaction import redact_sensitive_payload
 
 T = TypeVar("T")
 
@@ -37,6 +38,9 @@ class GDPAgentMemoryService:
         self._repo = repository
 
     async def create_fact(self, request: GDPAgentMemoryFactCreateRequest) -> GDPAgentMemoryFactResponse:
+        # 记忆契约要求 value 不得保存 token、连接串等敏感数据（见模型字段说明）。
+        # 写入路径统一做键名级脱敏兜底，不依赖写入方自觉。
+        request = request.model_copy(update={"value": redact_sensitive_payload(request.value)})
         return await self._guard(lambda: self._repo.create_fact(request))
 
     async def list_facts(
@@ -65,6 +69,8 @@ class GDPAgentMemoryService:
         )
 
     async def update_fact(self, request: GDPAgentMemoryFactUpdateRequest) -> GDPAgentMemoryFactResponse:
+        if request.value is not None:
+            request = request.model_copy(update={"value": redact_sensitive_payload(request.value)})
         return await self._guard(lambda: self._repo.update_fact(request))
 
     async def disable_fact(self, request: GDPAgentMemoryFactIdRequest) -> GDPAgentMemoryFactResponse:

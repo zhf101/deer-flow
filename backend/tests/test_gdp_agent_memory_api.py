@@ -92,3 +92,40 @@ async def test_agent_memory_routes_only_use_get_and_post(memory_client: AsyncCli
     }
 
     assert route_methods == {"GET", "POST"}
+
+@pytest.mark.anyio
+async def test_agent_memory_fact_value_redacts_sensitive_fields_on_write(memory_client: AsyncClient):
+    """记忆 value 写入路径必须做敏感字段脱敏兜底，不依赖写入方自觉。"""
+
+    created = await memory_client.post(
+        "/api/v1/datagen/agent-memory/facts/create",
+        json={
+            "userId": "user_redact",
+            "scopeType": "USER",
+            "scopeKey": "user_redact",
+            "category": "system_alias",
+            "memoryKey": "trade-system-credential",
+            "value": {
+                "sysCode": "TRADE",
+                "password": "secret-123",
+                "headers": {"Authorization": "Bearer raw-token"},
+            },
+            "confidence": 0.9,
+            "evidenceSummary": "试图把凭据写入记忆。",
+        },
+    )
+    assert created.status_code == 200, created.text
+    fact = created.json()
+    assert fact["value"]["sysCode"] == "TRADE"
+    assert fact["value"]["password"] == "***已脱敏***"
+    assert fact["value"]["headers"]["Authorization"] == "***已脱敏***"
+
+    updated = await memory_client.post(
+        "/api/v1/datagen/agent-memory/facts/update",
+        json={
+            "factId": fact["factId"],
+            "value": {"sysCode": "TRADE", "apiKey": "k-2"},
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["value"]["apiKey"] == "***已脱敏***"

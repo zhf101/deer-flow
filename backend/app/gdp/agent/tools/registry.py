@@ -1,4 +1,23 @@
-"""GDP Agent 工具能力注册表。"""
+"""GDP Agent 工具能力注册表。
+
+审批策略口径（产品已拍板）
+==========================
+
+``requiresApproval=True`` 的工具按副作用等级适用不同的放行策略，三条执行路径
+（模型工具入口 ``get_gdp_tools()``、主图节点、Agent API）必须保持同一口径：
+
+- **CONFIG_WRITE**（``upsert_*_from_agent`` / ``publish_scene_from_source``）：
+  用户显式提交配置 payload 即视为确认保存，**不要求二次审批**。放行上下文必须
+  通过 :func:`app.gdp.agent.middlewares.business_guardrail.user_submitted_config_write_context`
+  构造，禁止各调用点手写 ``allowConfigWrite`` 放行。
+  例外：``publish_scene_from_source`` 在主图自动发布路径上没有"用户提交 payload"
+  动作，仍走审批键（``SCENE_PUBLISH_APPROVAL`` 确认后放行）。
+- **BUSINESS_WRITE 探测类**（``test_http_source_from_agent`` / ``test_sql_source_from_agent``）：
+  用户显式提交探测请求即视为确认，经
+  :func:`app.gdp.agent.middlewares.business_guardrail.user_submitted_probe_context` 放行。
+- **BUSINESS_WRITE 执行类**（``run_datagen_scene_for_task``）：不适用"提交即确认"，
+  必须经用户确认（``WRITE_SCENE_APPROVAL``）或免确认场景的注册表声明放行。
+"""
 
 from __future__ import annotations
 

@@ -38,6 +38,7 @@ from app.gdp.datagen.config.scene.repository import SceneRepository
 from app.gdp.datagen.config.scene.service import SceneService
 from app.gdp.datagen.config.sqlsource.repository import SqlSourceRepository
 from app.gdp.datagen.config.sqlsource.service import SqlSourceService
+from app.gdp.datagen.config.task.models import DatagenTaskPhase
 from app.gdp.datagen.config.task.repository import DatagenTaskRepository
 from app.gdp.datagen.config.task.service import DatagenTaskService
 from app.gdp.datagen.config.task.subtask_repository import DatagenTaskSubtaskRepository
@@ -80,20 +81,45 @@ class GDPAgentRuntimeConfig:
 
 @dataclass(frozen=True)
 class GDPAgentPolicy:
-    """GDP Agent 运行策略开关。"""
+    """GDP Agent 运行策略开关。
 
-    llm_decision_enabled: bool
-    audit_enabled: bool
-    goal_guard_enabled: bool
-    memory_enabled: bool
-    skills_enabled: bool
-    progress_loop_enabled: bool
-    checkpointer_enabled: bool
-    runtime_context_enabled: bool
-    task_run_sync_enabled: bool
-    interrupt_enabled: bool
-    error_handling_enabled: bool
-    recovery_enabled: bool
+    可配置开关只有三个：``llm_decision_enabled``（config.yaml ``gdp_agent.llm_decision_enabled``）、
+    ``memory_enabled``（config.yaml ``memory.enabled``）、``checkpointer_enabled``（由运行时决定）。
+    **其余字段是内部常量**：生产路径恒为 True，仅供测试注入关闭，不通过 config.yaml
+    暴露，前端/运维不应将其视为可配置能力。字段默认值即生产默认策略，构造方只需
+    显式传入与默认不同的开关，避免字段清单多处手抄。
+    """
+
+    llm_decision_enabled: bool = False
+    audit_enabled: bool = True
+    goal_guard_enabled: bool = True
+    memory_enabled: bool = False
+    skills_enabled: bool = True
+    progress_loop_enabled: bool = True
+    checkpointer_enabled: bool = False
+    runtime_context_enabled: bool = True
+    task_run_sync_enabled: bool = True
+    interrupt_enabled: bool = True
+    error_handling_enabled: bool = True
+    recovery_enabled: bool = True
+
+    def as_metadata_dict(self) -> dict[str, Any]:
+        """policy → metadata 的唯一序列化出口，避免字段映射多处手抄。"""
+
+        return {
+            "llmDecisionEnabled": self.llm_decision_enabled,
+            "auditEnabled": self.audit_enabled,
+            "goalGuardEnabled": self.goal_guard_enabled,
+            "memoryEnabled": self.memory_enabled,
+            "skillsEnabled": self.skills_enabled,
+            "progressLoopEnabled": self.progress_loop_enabled,
+            "checkpointerEnabled": self.checkpointer_enabled,
+            "runtimeContextEnabled": self.runtime_context_enabled,
+            "taskRunSyncEnabled": self.task_run_sync_enabled,
+            "interruptEnabled": self.interrupt_enabled,
+            "errorHandlingEnabled": self.error_handling_enabled,
+            "recoveryEnabled": self.recovery_enabled,
+        }
 
 
 @dataclass(frozen=True)
@@ -144,20 +170,7 @@ def make_gdp_graph(
         operator=None,
         model_name=None,
     )
-    policy = policy or GDPAgentPolicy(
-        llm_decision_enabled=False,
-        audit_enabled=True,
-        goal_guard_enabled=True,
-        memory_enabled=False,
-        skills_enabled=True,
-        progress_loop_enabled=True,
-        checkpointer_enabled=checkpointer is not None,
-        runtime_context_enabled=True,
-        task_run_sync_enabled=True,
-        interrupt_enabled=True,
-        error_handling_enabled=True,
-        recovery_enabled=True,
-    )
+    policy = policy or GDPAgentPolicy(checkpointer_enabled=checkpointer is not None)
     metadata = metadata or GDPAgentMetadata(
         assistant_id=runtime.assistant_id,
         thread_id=runtime.thread_id,
@@ -166,20 +179,7 @@ def make_gdp_graph(
         operator=runtime.operator,
         model_name=runtime.model_name,
         log_level=None,
-        policy={
-            "llmDecisionEnabled": policy.llm_decision_enabled,
-            "auditEnabled": policy.audit_enabled,
-            "goalGuardEnabled": policy.goal_guard_enabled,
-            "memoryEnabled": policy.memory_enabled,
-            "skillsEnabled": policy.skills_enabled,
-            "progressLoopEnabled": policy.progress_loop_enabled,
-            "checkpointerEnabled": policy.checkpointer_enabled,
-            "runtimeContextEnabled": policy.runtime_context_enabled,
-            "taskRunSyncEnabled": policy.task_run_sync_enabled,
-            "interruptEnabled": policy.interrupt_enabled,
-            "errorHandlingEnabled": policy.error_handling_enabled,
-            "recoveryEnabled": policy.recovery_enabled,
-        },
+        policy=policy.as_metadata_dict(),
     )
 
     workflow = StateGraph(GDPState)
@@ -451,17 +451,12 @@ def _build_gdp_policy(app_config: AppConfig | None) -> GDPAgentPolicy:
 
     return GDPAgentPolicy(
         llm_decision_enabled=_gdp_agent_config_bool(app_config, "llm_decision_enabled", True),
-        audit_enabled=True,
-        goal_guard_enabled=True,
         memory_enabled=bool(getattr(getattr(app_config, "memory", None), "enabled", False)),
-        skills_enabled=True,
-        progress_loop_enabled=True,
-        checkpointer_enabled=getattr(app_config, "checkpointer", None) is not None,
-        runtime_context_enabled=True,
-        task_run_sync_enabled=True,
-        interrupt_enabled=True,
-        error_handling_enabled=True,
-        recovery_enabled=True,
+        # Gateway 工厂路径运行时恒有 checkpointer：worker（runtime/runs/worker.py）在构图后
+        # 总会挂载 make_checkpointer() 的结果，未配置 checkpointer/database 时也会回退
+        # InMemorySaver。因此 metadata 的 checkpointerEnabled 按运行时真实值写 True，
+        # 而不是按 app_config.checkpointer 是否配置判断。
+        checkpointer_enabled=True,
     )
 
 
@@ -480,20 +475,7 @@ def _build_gdp_metadata(
         operator=runtime.operator,
         model_name=runtime.model_name,
         log_level=getattr(app_config, "log_level", None),
-        policy={
-            "llmDecisionEnabled": policy.llm_decision_enabled,
-            "auditEnabled": policy.audit_enabled,
-            "goalGuardEnabled": policy.goal_guard_enabled,
-            "memoryEnabled": policy.memory_enabled,
-            "skillsEnabled": policy.skills_enabled,
-            "progressLoopEnabled": policy.progress_loop_enabled,
-            "checkpointerEnabled": policy.checkpointer_enabled,
-            "runtimeContextEnabled": policy.runtime_context_enabled,
-            "taskRunSyncEnabled": policy.task_run_sync_enabled,
-            "interruptEnabled": policy.interrupt_enabled,
-            "errorHandlingEnabled": policy.error_handling_enabled,
-            "recoveryEnabled": policy.recovery_enabled,
-        },
+        policy=policy.as_metadata_dict(),
     )
 
 
@@ -507,72 +489,87 @@ def _runtime_value(config: RunnableConfig | None, key: str) -> str | None:
     return None
 
 
+_PHASE_TO_NODE: dict[DatagenTaskPhase, str] = {
+    DatagenTaskPhase.SCENE_FULFILLMENT: "scene_fulfillment",
+    DatagenTaskPhase.SCENE_DESIGN: "scene_design",
+    DatagenTaskPhase.SOURCE_CONFIG: "source_config",
+    DatagenTaskPhase.INFRA_CONFIG: "infra_config",
+    DatagenTaskPhase.SCENE_EXECUTING: "scene_execute",
+    DatagenTaskPhase.WAITING_USER: "human_confirm",
+}
+"""阶段 → 图节点的唯一映射表。
+
+节点写入 phase 时使用 ``DatagenTaskPhase.X.value``，路由读取时统一经
+``_normalize_phase`` 还原为枚举后查本表，保证读写两侧同一份真相。
+"""
+
+
+def _normalize_phase(value: Any) -> DatagenTaskPhase | None:
+    if isinstance(value, DatagenTaskPhase):
+        return value
+    if value is None:
+        return None
+    try:
+        return DatagenTaskPhase(str(value))
+    except ValueError:
+        return None
+
+
+def _route_by_phase(state: GDPState, *, allowed: frozenset[str], default: str) -> str:
+    """按 current_phase 查表路由；目标不在当前节点出边集合内时走默认分支。"""
+
+    target = _PHASE_TO_NODE.get(_normalize_phase(state.get("current_phase")))
+    if target is not None and target in allowed:
+        return target
+    return default
+
+
 def _route_after_scene_fulfillment(state: GDPState) -> str:
-    if state.get("current_phase") == "WAITING_USER":
-        return "human_confirm"
-    if state.get("current_phase") == "SCENE_DESIGN":
-        return "scene_design"
-    if state.get("current_phase") == "SOURCE_CONFIG":
-        return "source_config"
-    return "progress_reflection"
+    return _route_by_phase(
+        state,
+        allowed=frozenset({"human_confirm", "scene_design", "source_config"}),
+        default="progress_reflection",
+    )
 
 
 def _route_after_scene_design(state: GDPState) -> str:
-    if state.get("current_phase") == "SCENE_FULFILLMENT":
-        return "scene_fulfillment"
-    if state.get("current_phase") == "SOURCE_CONFIG":
-        return "source_config"
-    if state.get("current_phase") == "WAITING_USER":
-        return "human_confirm"
-    return "progress_reflection"
+    return _route_by_phase(
+        state,
+        allowed=frozenset({"scene_fulfillment", "source_config", "human_confirm"}),
+        default="progress_reflection",
+    )
 
 
 def _route_after_source_config(state: GDPState) -> str:
-    if state.get("current_phase") == "SCENE_DESIGN":
-        return "scene_design"
-    if state.get("current_phase") == "INFRA_CONFIG":
-        return "infra_config"
-    if state.get("current_phase") == "WAITING_USER":
-        return "human_confirm"
-    return "progress_reflection"
+    return _route_by_phase(
+        state,
+        allowed=frozenset({"scene_design", "infra_config", "human_confirm"}),
+        default="progress_reflection",
+    )
 
 
 def _route_after_infra_config(state: GDPState) -> str:
-    if state.get("current_phase") == "SOURCE_CONFIG":
-        return "source_config"
-    if state.get("current_phase") == "WAITING_USER":
-        return "human_confirm"
-    return "progress_reflection"
+    return _route_by_phase(
+        state,
+        allowed=frozenset({"source_config", "human_confirm"}),
+        default="progress_reflection",
+    )
 
 
 def _route_after_human_confirm(state: GDPState) -> str:
-    if state.get("current_phase") == "SCENE_EXECUTING":
-        return "scene_execute"
-    if state.get("current_phase") == "SCENE_FULFILLMENT":
-        return "scene_fulfillment"
-    if state.get("current_phase") == "SCENE_DESIGN":
-        return "scene_design"
-    if state.get("current_phase") == "SOURCE_CONFIG":
-        return "source_config"
-    if state.get("current_phase") == "INFRA_CONFIG":
-        return "infra_config"
-    return "progress_reflection"
+    return _route_by_phase(
+        state,
+        allowed=frozenset({"scene_execute", "scene_fulfillment", "scene_design", "source_config", "infra_config"}),
+        default="progress_reflection",
+    )
 
 
 def _route_after_progress_reflection(state: GDPState) -> str:
-    if state.get("current_phase") == "SCENE_FULFILLMENT":
-        return "scene_fulfillment"
-    if state.get("current_phase") == "SCENE_DESIGN":
-        return "scene_design"
-    if state.get("current_phase") == "SOURCE_CONFIG":
-        return "source_config"
-    if state.get("current_phase") == "INFRA_CONFIG":
-        return "infra_config"
-    if state.get("current_phase") == "SCENE_EXECUTING":
-        return "scene_execute"
-    if state.get("current_phase") == "WAITING_USER":
-        return "human_confirm"
-    return "end"
+    return _route_by_phase(
+        state,
+        allowed=frozenset({"scene_fulfillment", "scene_design", "source_config", "infra_config", "scene_execute", "human_confirm"}),
+        default="end",
+    )
 
 
 def _build_services(

@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
+from app.gdp.agent.middlewares.business_guardrail import user_submitted_config_write_context
 from app.gdp.agent.middlewares.idempotency import find_successful_infra_config_step
 from app.gdp.agent.nodes.events import emit_waiting_user_event
 from app.gdp.agent.state import GDPState
@@ -27,6 +27,7 @@ from app.gdp.datagen.config.task.models import (
     DatagenTaskStepType,
 )
 from app.gdp.datagen.config.task.service import DatagenTaskService
+from app.gdp.datagen.redaction import redact_sensitive_payload, redact_validation_errors
 
 
 def build_infra_config_node(
@@ -135,13 +136,16 @@ def build_infra_config_node(
         try:
             saved = await _upsert_infra(base_repository, infra_payload)
         except ValidationError as exc:
+            # 校验失败的原始 payload 可能携带连接串、账号、token 等凭据，
+            # 必须在进入 TaskRun pending / checkpoint state 之前先脱敏。
+            redacted_errors = redact_validation_errors(exc.errors())
             pending = {
                 "taskRunId": task_run_id,
                 "phase": DatagenTaskPhase.INFRA_CONFIG.value,
                 "resumePhase": DatagenTaskPhase.INFRA_CONFIG.value,
                 "questionType": "INFRA_CONFIG_INVALID",
                 "question": "基础配置结构不完整或字段类型不正确，请修正后继续。",
-                "details": {"errors": exc.errors(), "received": infra_payload},
+                "details": {"errors": redacted_errors, "received": redact_sensitive_payload(infra_payload)},
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="基础配置校验失败，等待用户修正。")
             emit_waiting_user_event(pending, message="基础配置校验失败，等待用户修正。")
@@ -151,7 +155,7 @@ def build_infra_config_node(
                 "decision_context": {
                     "lastSceneResult": None,
                     "infraConfigInvalid": True,
-                    "infraConfigErrors": exc.errors(),
+                    "infraConfigErrors": redacted_errors,
                 },
             }
 
@@ -277,10 +281,7 @@ def _assert_infra_config_allowed(tool_name: str, config: SysConfig | Environment
     assert_gdp_registered_tool_allowed(
         tool_name,
         {"config": config},
-        GDPToolApprovalContext(
-            allowConfigWrite=True,
-            reason="用户已提交基础配置 payload，允许保存配置。",
-        ),
+        user_submitted_config_write_context(source="infra_config 节点"),
     )
 
 

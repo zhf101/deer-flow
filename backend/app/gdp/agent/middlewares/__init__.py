@@ -7,6 +7,8 @@ from app.gdp.agent.middlewares.business_guardrail import (
     GuardedGDPTool,
     build_gdp_tool_approval_key,
     evaluate_gdp_tool_guardrail,
+    user_submitted_config_write_context,
+    user_submitted_probe_context,
     wrap_gdp_tool_guardrail,
     wrap_gdp_tools_guardrail,
 )
@@ -57,6 +59,8 @@ __all__ = [
     "recover_task_steps_once",
     "start_gdp_subtask",
     "summarize_gdp_output",
+    "user_submitted_config_write_context",
+    "user_submitted_probe_context",
     "wrap_gdp_tool_guardrail",
     "wrap_gdp_tools_guardrail",
     "wrap_gdp_skill_context",

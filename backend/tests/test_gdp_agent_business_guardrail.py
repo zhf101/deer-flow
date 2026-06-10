@@ -13,6 +13,8 @@ from app.gdp.agent.middlewares.business_guardrail import (
     GuardedGDPTool,
     build_gdp_tool_approval_key,
     evaluate_gdp_tool_guardrail,
+    user_submitted_config_write_context,
+    user_submitted_probe_context,
     wrap_gdp_tool_guardrail,
 )
 from app.gdp.agent.tools.registry import get_gdp_tool_specs, get_gdp_tools
@@ -146,3 +148,32 @@ def _services() -> SimpleNamespace:
         sql_source_service=object(),
         sql_execution_service=object(),
     )
+
+
+def test_user_submitted_contexts_follow_submit_as_confirm_policy():
+    """「提交即确认」策略的标准审批上下文：配置写与探测各自只放行对应副作用等级。"""
+
+    config_context = user_submitted_config_write_context(source="source_config 节点", operator="op-1")
+    assert config_context.allowConfigWrite is True
+    assert config_context.allowBusinessWrite is False
+    assert config_context.operator == "op-1"
+    assert "提交即确认" in (config_context.reason or "")
+
+    probe_context = user_submitted_probe_context(source="Agent API")
+    assert probe_context.allowBusinessWrite is True
+    assert probe_context.allowConfigWrite is False
+    assert "提交即确认" in (probe_context.reason or "")
+
+
+def test_config_write_approval_context_is_centralized():
+    """配置写放行必须经 user_submitted_config_write_context 构造，禁止散落手写 allowConfigWrite=True。"""
+
+    from pathlib import Path
+
+    gdp_root = Path(__file__).resolve().parent.parent / "app" / "gdp"
+    offenders = [
+        str(path.relative_to(gdp_root))
+        for path in sorted(gdp_root.rglob("*.py"))
+        if path.name != "business_guardrail.py" and "allowConfigWrite=True" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], f"以下文件绕过统一护栏入口手写 allowConfigWrite=True：{offenders}"

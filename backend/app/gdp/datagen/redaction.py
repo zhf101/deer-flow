@@ -47,6 +47,29 @@ _SENSITIVE_KEY_PARTS = (
 )
 
 
+def redact_validation_errors(errors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """脱敏 Pydantic ``exc.errors()`` 列表，避免错误项的 ``input`` 字段泄露凭据。
+
+    字段级错误的 ``loc`` 命中敏感键时，整个 ``input`` 直接替换为脱敏占位；
+    其余错误项的 ``input`` 走通用递归脱敏（按键名识别敏感字段）。
+    """
+
+    redacted: list[dict[str, Any]] = []
+    for error in errors:
+        if not isinstance(error, dict):
+            redacted.append(error)
+            continue
+        item = dict(error)
+        loc = item.get("loc") or ()
+        if "input" in item:
+            if any(_is_sensitive_key(part) for part in loc):
+                item["input"] = REDACTED_VALUE
+            else:
+                item["input"] = redact_sensitive_payload(item["input"])
+        redacted.append(item)
+    return redacted
+
+
 def redact_sensitive_payload(value: Any) -> Any:
     """递归脱敏 payload 中常见凭据字段，保留原结构供前端定位问题。"""
 

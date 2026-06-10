@@ -131,8 +131,14 @@ class GDPMCPCapabilityResultApplyRequest(BaseModel):
     taskRunId: str = Field(..., min_length=1, description="造数任务运行 ID，用于把 MCP 结果绑定回任务生命周期。")
     capabilityName: str = Field(..., min_length=1, description="产生该结果的 GDP MCP capability 名称。")
     phase: DatagenTaskPhase | None = Field(default=None, description="结果归并所在 GDP Agent 阶段。为空时使用 TaskRun 当前阶段。")
-    outputVariablePolicy: GDPMCPOutputVariablePolicy = Field(..., description="MCP 输出进入任务上下文的策略。")
-    outputSensitivity: GDPMCPOutputSensitivity = Field(default=GDPMCPOutputSensitivity.PUBLIC, description="MCP 输出敏感等级。")
+    outputVariablePolicy: GDPMCPOutputVariablePolicy | None = Field(
+        default=None,
+        description="已废弃，仅为兼容保留。归并时永远以服务端 registry 按 capabilityName 注册的策略为准，本字段会被忽略。",
+    )
+    outputSensitivity: GDPMCPOutputSensitivity | None = Field(
+        default=None,
+        description="已废弃，仅为兼容保留。归并时永远以服务端 registry 按 capabilityName 注册的策略为准，本字段会被忽略。",
+    )
     success: bool = Field(..., description="MCP capability 是否执行成功。")
     output: dict[str, Any] = Field(default_factory=dict, description="MCP capability 结构化输出。完整输出只落业务表或外部存储，不直接进入 Prompt。")
     storageRef: str | None = Field(default=None, description="大对象或敏感输出的外置存储引用。")

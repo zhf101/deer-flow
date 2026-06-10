@@ -1,6 +1,25 @@
 export type SceneStatus = "DRAFT" | "PUBLISHED" | "DISABLED";
 export type VersionStatus = "DRAFT" | "PUBLISHED";
 export type ConfigStatus = "ENABLED" | "DISABLED";
+export type DatagenTaskStatus =
+  | "PLANNING"
+  | "RUNNING"
+  | "WAITING_USER"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+export type DatagenTaskPhase =
+  | "INTAKE"
+  | "SCENE_FULFILLMENT"
+  | "SCENE_EXECUTING"
+  | "PROGRESS_REFLECTION"
+  | "SCENE_DESIGN"
+  | "SOURCE_CONFIG"
+  | "INFRA_CONFIG"
+  | "WAITING_USER"
+  | "COMPLETED"
+  | "FAILED";
+export type DatagenTaskEnvSource = "USER_EXPLICIT" | "SYSTEM_DEFAULT";
 export type StepType = "HTTP" | "SQL" | "ASSERT" | "TRANSFORM";
 export type InputFieldType =
   | "string"
@@ -595,6 +614,103 @@ export interface TaskValidationIssue {
 export interface TaskValidationResult {
   valid: boolean;
   issues: TaskValidationIssue[];
+}
+
+export interface GoalStackItem {
+  goalType: string;
+  goal: string;
+  phase: DatagenTaskPhase;
+}
+
+export interface DatagenTaskPlanStep {
+  stepId: string;
+  title: string;
+  description?: string | null;
+  phase: DatagenTaskPhase;
+  status: string;
+}
+
+export interface DatagenTaskPlan {
+  summary?: string | null;
+  steps: DatagenTaskPlanStep[];
+}
+
+export interface VisibleVariable {
+  name: string;
+  source: string;
+  label?: string | null;
+  value: unknown;
+  valuePreview?: unknown;
+}
+
+export interface DatagenTaskRunCreateRequest {
+  userIntent: string;
+  envCode?: string | null;
+  inputs: Record<string, unknown>;
+  normalizedGoal?: Record<string, unknown>;
+}
+
+export interface DatagenTaskRunResponse {
+  id: string;
+  taskRunId: string;
+  deerflowThreadId?: string | null;
+  deerflowRunId?: string | null;
+  lastCheckpointId?: string | null;
+  userIntent: string;
+  normalizedGoal: Record<string, unknown>;
+  envCode: string;
+  envSource: DatagenTaskEnvSource;
+  status: DatagenTaskStatus;
+  phase: DatagenTaskPhase;
+  pendingInterrupts?: Record<string, unknown> | null;
+  goalStack: GoalStackItem[];
+  plan?: DatagenTaskPlan | null;
+  visibleVariables: VisibleVariable[];
+  reflection?: Record<string, unknown> | null;
+  failureType?: string | null;
+  failureMessage?: string | null;
+  finalSummary?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt?: string | null;
+}
+
+export interface DatagenTaskEventResponse {
+  id: string;
+  taskRunId: string;
+  eventId: string;
+  eventNo: number;
+  eventType: string;
+  phase: DatagenTaskPhase;
+  message: string;
+  payload: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface DatagenTaskContinueResponse {
+  taskRun: DatagenTaskRunResponse;
+  message: string;
+}
+
+export interface DeerflowRunResponse {
+  run_id: string;
+  thread_id: string;
+  assistant_id?: string | null;
+  status: string;
+  metadata: Record<string, unknown>;
+  kwargs: Record<string, unknown>;
+  multitask_strategy: string;
+  created_at: string;
+  updated_at: string;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_tokens: number;
+  llm_call_count: number;
+  lead_agent_tokens: number;
+  subagent_tokens: number;
+  middleware_tokens: number;
+  message_count: number;
 }
 
 // ── 执行引擎相关类型 ─────────────────────────────────────────────────

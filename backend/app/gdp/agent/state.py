@@ -2,6 +2,17 @@
 
 本模块只描述 LangGraph checkpoint 需要保存的轻量运行快照。造数任务的
 业务权威事实仍然以 TaskRun、TaskStep、TaskEvent 和 visibleVariables 为准。
+
+设计边界声明
+============
+
+``GDPState`` 与通用 LeadAgent 的 ``ThreadState``（``deerflow.agents.thread_state``）
+是**两套独立体系**：GDP 业务图不继承 ``sandbox`` / ``thread_data`` / ``artifacts`` /
+``todos`` / ``uploaded_files`` / ``viewed_images`` 等字段，也不经过通用沙箱
+（``SandboxMiddleware``）。GDP 的执行面是受控业务执行器（HTTP Source 服务、
+``SqlExecutionService`` / ``SceneExecutor``），隔离边界由各执行器自身的环境白名单、
+超时、脱敏和审计策略保证，**不依赖通用沙箱隔离**。不要假设 GDP 图具备
+LeadAgent 的沙箱 / artifact / todo 能力。
 """
 
 from __future__ import annotations

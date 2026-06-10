@@ -82,4 +82,7 @@ async def apply_agent_mcp_capability_result(
     body: GDPMCPCapabilityResultApplyRequest,
     task_service: DatagenTaskService = Depends(_get_task_service),
 ) -> GDPMCPCapabilityResultApplyResponse:
-    return await apply_gdp_mcp_capability_result(task_service, body)
+    try:
+        return await apply_gdp_mcp_capability_result(task_service, body)
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"MCP capability 未注册：{body.capabilityName}") from None

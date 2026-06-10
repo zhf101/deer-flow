@@ -1,4 +1,12 @@
-"""造数子任务业务服务层。"""
+"""造数子任务业务服务层。
+
+命名澄清：本模块（及 ``DatagenTaskSubagentType`` 枚举）是**子任务控制面/记录系统**，
+用于任务分解、进度记录和审计载体——**不是通用子智能体调度系统**。
+``SOURCE_ANALYSIS_AGENT`` / ``SCENE_VALIDATION_AGENT`` 等类型只是子任务的语义分类，
+不会启动真实的子 Agent（没有 ``SubagentExecutor`` / ``task_tool`` 调用，也没有
+父子 run、token 统计、取消、超时等执行协议）。若未来需要真实异步子智能体调度，
+需另行设计完整协议，不应在本控制面上隐式扩展。
+"""
 
 from __future__ import annotations
 

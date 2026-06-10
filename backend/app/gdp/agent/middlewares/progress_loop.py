@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from inspect import signature
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
+from app.gdp.agent.middlewares.node_invoke import make_gdp_node_invoker
 from app.gdp.agent.state import GDPState
 from app.gdp.datagen.config.task.models import DatagenTaskPhase
 from app.gdp.datagen.config.task.service import DatagenTaskService
@@ -26,10 +26,10 @@ def wrap_gdp_progress_loop_detection(
 ) -> GDPNodeCallable:
     """给 GDP 节点出口增加阶段振荡检测。"""
 
-    accepts_config = len(signature(node).parameters) >= 2
+    invoke_node = make_gdp_node_invoker(node)
 
     async def progress_loop_node(state: GDPState, config: RunnableConfig | None = None) -> GDPState:
-        result = await node(state, config) if accepts_config else await node(state)
+        result = await invoke_node(state, config)
         if not enabled or not isinstance(result, dict):
             return result
 
@@ -59,7 +59,9 @@ def wrap_gdp_progress_loop_detection(
         return {
             **result,
             "phase_history": [entry],
-            "errors": [warning],
+            # errors 写入约定：wrapper 只追加自身错误，必须保留内层 wrapper /
+            # 节点已写入 result["errors"] 的诊断（reducer 在整个节点函数返回后才介入）。
+            "errors": [*list(result.get("errors") or []), warning],
         }
 
     return progress_loop_node

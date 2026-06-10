@@ -34,6 +34,13 @@ async def _source_config_node(state):
     return {"current_phase": DatagenTaskPhase.SOURCE_CONFIG.value}
 
 
+async def _source_config_node_with_inner_errors(state):
+    return {
+        "current_phase": DatagenTaskPhase.SOURCE_CONFIG.value,
+        "errors": [{"errorType": "GOAL_DRIFT_DETECTED", "nodeName": "source_config"}],
+    }
+
+
 @pytest.mark.anyio
 async def test_progress_loop_records_phase_history_without_warning_before_threshold():
     task_service = _FakeTaskService()
@@ -117,3 +124,32 @@ async def test_progress_loop_skips_duplicate_warning_for_same_phase():
 
     assert "errors" not in result
     assert task_service.events == []
+
+
+@pytest.mark.anyio
+async def test_progress_loop_preserves_inner_wrapper_errors_when_appending_warning():
+    """wrapper 追加振荡告警时必须保留内层 wrapper 已写入 result["errors"] 的诊断。"""
+
+    task_service = _FakeTaskService()
+    node = wrap_gdp_progress_loop_detection(
+        node_name="source_config",
+        node=_source_config_node_with_inner_errors,
+        task_service=task_service,
+        enabled=True,
+        warn_threshold=3,
+        window_size=6,
+    )
+
+    result = await node(
+        {
+            "task_run_id": "task_loop_4",
+            "phase_history": [
+                {"nodeName": "scene_design", "phase": "SOURCE_CONFIG", "visitNo": 1},
+                {"nodeName": "infra_config", "phase": "INFRA_CONFIG", "visitNo": 2},
+                {"nodeName": "human_confirm", "phase": "SOURCE_CONFIG", "visitNo": 3},
+            ],
+        }
+    )
+
+    error_types = [item["errorType"] for item in result["errors"]]
+    assert error_types == ["GOAL_DRIFT_DETECTED", "PROGRESS_LOOP_DETECTED"]
