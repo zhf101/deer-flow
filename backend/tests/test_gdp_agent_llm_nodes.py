@@ -492,10 +492,14 @@ async def test_source_config_includes_llm_draft_when_waiting_for_user(task_servi
     assert details["llmDraft"]["missingInformation"] == ["服务端点 Base URL"]
     assert details["llmDraft"]["infraReadiness"]["missingInfraFields"] == ["HTTP.serviceEndpoint"]
     assert details["infraSummary"]["availableSystems"][0]["sysCode"] == "TRADE"
+    assert details["infraSummary"]["availableSystems"][0]["usable"] is True
     assert details["infraSummary"]["availableDatasources"][0]["datasourceCode"] == "ORDER_DB"
+    assert details["infraSummary"]["availableDatasources"][0]["usable"] is True
     assert "HTTP.serviceEndpoint" in details["infraMissingFields"]
     assert "TRADE" in model.calls[0]["messages"][1].content
     assert "ORDER_DB" in model.calls[0]["messages"][1].content
+    assert "secret" not in model.calls[0]["messages"][1].content
+    assert "127.0.0.1" not in model.calls[0]["messages"][1].content
     assert result["decision_context"]["llmSourceConfigDraft"]["sourceType"] == "HTTP"
     assert result["decision_context"]["sourceConfigInfraSummary"]["availableSystemCodes"] == ["TRADE"]
     assert result["last_llm_decision"]["decisionType"] == "source_config_draft"

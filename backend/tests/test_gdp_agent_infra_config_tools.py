@@ -14,6 +14,7 @@ from app.gdp.agent.tools.infra_config_tools import (
 )
 from app.gdp.datagen.config.base.models import DatasourceConfig, EnvironmentConfig, ServiceEndpointConfig, SysConfig
 from app.gdp.datagen.config.base.repository import BaseConfigRepository
+from app.gdp.datagen.config.common.models import ConfigStatus
 from deerflow.persistence.engine import close_engine, get_session_factory, init_engine
 
 
@@ -84,6 +85,52 @@ async def test_upsert_datasource_then_resolve_sql_ready(base_repo: BaseConfigRep
 
     assert result["ready"] is True
     assert result["matchedDatasources"][0]["datasourceCode"] == "tradeDb"
+
+
+@pytest.mark.anyio
+async def test_resolve_infra_basis_treats_disabled_dependencies_as_missing(base_repo: BaseConfigRepository):
+    await upsert_system_from_agent(base_repo, config=SysConfig(sysCode="TRADE", sysName="交易系统"))
+    await upsert_environment_from_agent(base_repo, config=EnvironmentConfig(envCode="DEV", envName="开发环境"))
+    await upsert_service_endpoint_from_agent(
+        base_repo,
+        config=ServiceEndpointConfig(
+            envCode="DEV",
+            sysCode="TRADE",
+            baseUrl="http://trade-dev.example",
+            status=ConfigStatus.DISABLED,
+        ),
+    )
+    await upsert_datasource_from_agent(
+        base_repo,
+        config=DatasourceConfig(
+            envCode="DEV",
+            sysCode="TRADE",
+            datasourceCode="tradeDb",
+            datasourceName="交易库",
+            dbType="sqlite",
+            host="localhost",
+            port=1,
+            databaseName="trade.sqlite",
+            status=ConfigStatus.DISABLED,
+        ),
+    )
+
+    http_result = await resolve_infra_basis(base_repo, query="交易订单", env_code="DEV", sys_code="TRADE")
+    sql_result = await resolve_infra_basis(
+        base_repo,
+        query="交易订单",
+        env_code="DEV",
+        sys_code="TRADE",
+        datasource_code="tradeDb",
+        resource_type="SQL",
+    )
+
+    assert http_result["ready"] is False
+    assert http_result["missingFields"] == ["serviceEndpoint"]
+    assert http_result["matchedServiceEndpoints"] == []
+    assert sql_result["ready"] is False
+    assert sql_result["missingFields"] == ["datasource"]
+    assert sql_result["matchedDatasources"] == []
 
 
 @pytest.mark.anyio

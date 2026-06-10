@@ -519,10 +519,12 @@ def _datasource_summary(item: Any) -> dict[str, Any]:
 
 
 def _system_dict_summary(item: dict[str, Any]) -> dict[str, Any]:
+    status = item.get("status")
     return {
         "sysCode": item.get("sysCode"),
         "sysName": item.get("sysName"),
-        "status": item.get("status"),
+        "status": status,
+        "usable": status == "ENABLED",
         "remark": item.get("remark"),
         "score": item.get("score"),
         "reasons": item.get("reasons") or [],
@@ -530,24 +532,30 @@ def _system_dict_summary(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _environment_dict_summary(item: dict[str, Any]) -> dict[str, Any]:
+    status = item.get("status")
     return {
         "envCode": item.get("envCode"),
         "envName": item.get("envName"),
-        "status": item.get("status"),
+        "status": status,
+        "usable": status == "ENABLED",
         "remark": item.get("remark"),
     }
 
 
 def _service_endpoint_dict_summary(item: dict[str, Any]) -> dict[str, Any]:
+    status = item.get("status")
+    configured = bool(item.get("baseUrl"))
     return {
         "envCode": item.get("envCode"),
         "sysCode": item.get("sysCode"),
-        "status": item.get("status"),
-        "configured": bool(item.get("baseUrl")),
+        "status": status,
+        "configured": configured,
+        "usable": status == "ENABLED" and configured,
     }
 
 
 def _datasource_dict_summary(item: dict[str, Any]) -> dict[str, Any]:
+    status = item.get("status")
     return {
         "envCode": item.get("envCode"),
         "sysCode": item.get("sysCode"),
@@ -555,7 +563,8 @@ def _datasource_dict_summary(item: dict[str, Any]) -> dict[str, Any]:
         "datasourceName": item.get("datasourceName"),
         "dbType": item.get("dbType"),
         "databaseName": item.get("databaseName"),
-        "status": item.get("status"),
+        "status": status,
+        "usable": status == "ENABLED",
     }
 
 

@@ -14,6 +14,7 @@ from app.gdp.datagen.config.base.models import (
     SysConfig,
 )
 from app.gdp.datagen.config.base.repository import BaseConfigRepository
+from app.gdp.datagen.config.common.models import ConfigStatus
 
 
 async def resolve_infra_basis(
@@ -32,19 +33,30 @@ async def resolve_infra_basis(
     endpoints = await base_repository.list_service_endpoints(env_code=env_code, sys_code=sys_code)
     datasources = await base_repository.list_datasources(env_code=env_code, sys_code=sys_code)
 
-    matched_systems = _score_systems(systems, query=query, sys_code=sys_code)
-    matched_envs = [item for item in environments if item.envCode == env_code]
+    matched_systems = _score_systems(_enabled_items(systems), query=query, sys_code=sys_code)
+    matched_envs = [item for item in environments if item.envCode == env_code and _is_enabled(item)]
+    matched_sys_codes = {str(item.get("sysCode")) for item in matched_systems if item.get("sysCode")}
+    enabled_endpoints = [
+        item
+        for item in endpoints
+        if _is_enabled(item) and (not matched_sys_codes or item.sysCode in matched_sys_codes)
+    ]
+    enabled_datasources = [
+        item
+        for item in datasources
+        if _is_enabled(item) and (not matched_sys_codes or item.sysCode in matched_sys_codes)
+    ]
     missing_fields: list[str] = []
     if not matched_systems:
         missing_fields.append("system")
     if not matched_envs:
         missing_fields.append("environment")
-    if resource_type.upper() == "HTTP" and not endpoints:
+    if resource_type.upper() == "HTTP" and not enabled_endpoints:
         missing_fields.append("serviceEndpoint")
     if resource_type.upper() == "SQL":
         datasource_matches = [
             item
-            for item in datasources
+            for item in enabled_datasources
             if datasource_code is None or item.datasourceCode == datasource_code
         ]
         if not datasource_matches:
@@ -56,7 +68,7 @@ async def resolve_infra_basis(
     return {
         "matchedSystems": [item for item in matched_systems],
         "matchedEnvironments": [item.model_dump(mode="json") for item in matched_envs],
-        "matchedServiceEndpoints": [item.model_dump(mode="json") for item in endpoints],
+        "matchedServiceEndpoints": [item.model_dump(mode="json") for item in enabled_endpoints],
         "matchedDatasources": [item.model_dump(mode="json") for item in datasource_matches],
         "confidence": confidence,
         "missingFields": missing_fields,
@@ -206,6 +218,18 @@ def _score_systems(systems, *, query: str, sys_code: str | None) -> list[dict[st
         )
     candidates.sort(key=lambda item: item["score"], reverse=True)
     return candidates
+
+
+def _enabled_items(items):
+    """仅保留启用状态配置，作为 Agent 可直接复用的基础配置。"""
+
+    return [item for item in items if _is_enabled(item)]
+
+
+def _is_enabled(item: Any) -> bool:
+    """判断基础配置是否处于启用状态。"""
+
+    return getattr(item, "status", None) == ConfigStatus.ENABLED
 
 
 def _terms(text: str) -> list[str]:
