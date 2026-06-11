@@ -56,8 +56,6 @@ async def test_skill_context_wrapper_injects_phase_skills_and_records_event():
         "gdp-sql-source-design",
         "gdp-http-source-design",
     }
-    assert result["skill_trace"][0]["nodeName"] == "scene_design"
-    assert result["skill_trace"][0]["skillIds"]
     assert task_service.events[0]["eventType"] == "AGENT_SKILLS_SELECTED"
     assert task_service.events[0]["payload"]["skillIds"] == result["skill_context"]["skillIds"]
 
@@ -97,5 +95,4 @@ async def test_skill_context_wrapper_handles_terminal_phase_without_event():
 
     assert result["skill_context"]["phase"] == "FAILED"
     assert result["skill_context"]["skillIds"] == []
-    assert result["skill_trace"][0]["skillIds"] == []
     assert task_service.events == []

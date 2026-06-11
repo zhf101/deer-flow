@@ -7,8 +7,7 @@ from typing import Any
 from langchain_core.runnables import RunnableConfig
 from pydantic import ValidationError
 
-from app.gdp.agent.llm.decision import draft_gdp_source_config
-from app.gdp.agent.llm.events import llm_decision_payload, llm_failure_payload
+from app.gdp.agent.llm.decision import draft_gdp_source_config, llm_decision_payload, llm_failure_payload
 from app.gdp.agent.llm.schemas import GDPSourceConfigDraftDecision
 from app.gdp.agent.middlewares.business_guardrail import user_submitted_config_write_context
 from app.gdp.agent.middlewares.idempotency import find_successful_source_config_step
@@ -310,16 +309,16 @@ async def _try_draft_source_config_with_llm(
             model=llm_model,
         )
         _validate_source_config_draft_decision(decision)
-        event = await task_service.record_event(
+        await task_service.record_event(
             task_run_id,
             event_type="LLM_SOURCE_CONFIG_DRAFTED",
             phase=DatagenTaskPhase.SOURCE_CONFIG,
             message="模型已生成 Source 配置草稿或追问信息。",
             payload=llm_decision_payload(decision),
         )
-        return decision, _source_draft_llm_state_update(decision, event.eventId, event.eventType)
+        return decision, _source_draft_llm_state_update(decision)
     except Exception as exc:
-        event = await task_service.record_event(
+        await task_service.record_event(
             task_run_id,
             event_type="LLM_SOURCE_CONFIG_DRAFT_FAILED",
             phase=DatagenTaskPhase.SOURCE_CONFIG,
@@ -332,13 +331,6 @@ async def _try_draft_source_config_with_llm(
                 "decisionSource": "fallback_rule",
                 "errorType": type(exc).__name__,
             },
-            "llm_decision_refs": [
-                {
-                    "eventId": event.eventId,
-                    "eventType": event.eventType,
-                    "decisionType": "source_config_draft",
-                }
-            ],
         }
 
 
@@ -383,11 +375,7 @@ def _source_config_required_details(
     return details
 
 
-def _source_draft_llm_state_update(
-    decision: GDPSourceConfigDraftDecision,
-    event_id: str,
-    event_type: str,
-) -> dict[str, Any]:
+def _source_draft_llm_state_update(decision: GDPSourceConfigDraftDecision) -> dict[str, Any]:
     """生成 Source 配置草稿模型决策的 checkpoint 摘要。"""
 
     return {
@@ -398,13 +386,6 @@ def _source_draft_llm_state_update(
             "confidence": decision.confidence,
             "reason": decision.reason,
         },
-        "llm_decision_refs": [
-            {
-                "eventId": event_id,
-                "eventType": event_type,
-                "decisionType": "source_config_draft",
-            }
-        ],
     }
 
 

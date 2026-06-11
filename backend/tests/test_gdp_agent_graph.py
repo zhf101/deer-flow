@@ -339,8 +339,6 @@ async def test_gdp_graph_runs_query_scene_and_completes_task(gdp_services):
     )
 
     assert result["current_phase"] == "COMPLETED"
-    assert result["phase_history"]
-    assert result["phase_history"][-1]["phase"] == "COMPLETED"
     assert result["node_attempts"]["intake"] == 1
     assert result["node_attempts"]["scene_fulfillment"] == 1
     assert result["node_attempts"]["progress_reflection"] == 1

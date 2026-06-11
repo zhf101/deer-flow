@@ -9,10 +9,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from app.gdp.agent.middlewares.error_handling import wrap_gdp_error_handling
-from app.gdp.agent.middlewares.goal_guard import wrap_gdp_goal_guard
 from app.gdp.agent.middlewares.interrupt import wrap_gdp_interrupt
 from app.gdp.agent.middlewares.node_audit import wrap_gdp_node_audit
-from app.gdp.agent.middlewares.progress_loop import wrap_gdp_progress_loop_detection
 from app.gdp.agent.middlewares.recovery import wrap_gdp_task_recovery
 from app.gdp.agent.middlewares.runtime_context import wrap_gdp_runtime_context
 from app.gdp.agent.middlewares.skill_context import wrap_gdp_skill_context
@@ -180,6 +178,7 @@ def make_gdp_graph(
             ),
             services,
             metadata,
+            entry=True,
         ),
     )
     workflow.add_node(
@@ -216,7 +215,7 @@ def make_gdp_graph(
     )
     workflow.add_node(
         "human_confirm",
-        _wrap_node("human_confirm", build_human_confirm_node(services.task_service), services, metadata),
+        _wrap_node("human_confirm", build_human_confirm_node(services.task_service), services, metadata, entry=True),
     )
     workflow.add_node(
         "source_config",
@@ -349,44 +348,41 @@ def _wrap_node(
     node,
     services: GDPAgentServices,
     metadata: GDPAgentMetadata,
+    *,
+    entry: bool = False,
 ):
     """给图节点套用运行时 wrapper。
 
-    这些 wrapper（运行时上下文 / 任务恢复 / TaskRun 同步 / 中断规范化 / 技能 /
-    目标锚点 / 进度环检测 / 审计 / 错误处理）生产路径恒为开启，故在此无条件套用，
-    不再受 policy 伪开关控制（见 ``GDPAgentPolicy`` 文档）。
+    所有节点恒套四层横切（中断规范化 / 技能 / 审计 / 错误处理），不受 policy
+    伪开关控制（见 ``GDPAgentPolicy`` 文档）。
+
+    ``entry=True`` 的图运行入口节点（``intake`` 新运行入口、``human_confirm``
+    resume 入口）额外套「每次图运行一次」的运行级 wrapper：运行时上下文注入、
+    遗留非终态步骤恢复、TaskRun 权威状态同步。这些语义按运行生效而非按节点
+    生效（recovery 本就以 run_key 自行去重；运行绑定同步已由审计层在每个节点
+    前后兜底），故不再逐节点重复套用。
     """
 
-    node = wrap_gdp_runtime_context(
-        node=node,
-        metadata=metadata,
-    )
-    node = wrap_gdp_task_recovery(
-        node_name=node_name,
-        node=node,
-        task_service=services.task_service,
-    )
-    node = wrap_gdp_task_run_sync(
-        node=node,
-        task_service=services.task_service,
-    )
+    if entry:
+        node = wrap_gdp_runtime_context(
+            node=node,
+            metadata=metadata,
+        )
+        node = wrap_gdp_task_recovery(
+            node_name=node_name,
+            node=node,
+            task_service=services.task_service,
+        )
+        node = wrap_gdp_task_run_sync(
+            node=node,
+            task_service=services.task_service,
+        )
     node = wrap_gdp_interrupt(
         node_name=node_name,
         node=node,
         task_service=services.task_service,
     )
     node = wrap_gdp_skill_context(
-        node_name=node_name,
-        node=node,
-        task_service=services.task_service,
-    )
-    node = wrap_gdp_goal_guard(
-        node_name=node_name,
-        node=node,
-        task_service=services.task_service,
-        subtask_service=services.subtask_service,
-    )
-    node = wrap_gdp_progress_loop_detection(
         node_name=node_name,
         node=node,
         task_service=services.task_service,

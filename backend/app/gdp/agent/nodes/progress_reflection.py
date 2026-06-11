@@ -6,8 +6,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from app.gdp.agent.llm.decision import reflect_gdp_scene_result
-from app.gdp.agent.llm.events import llm_decision_payload, llm_failure_payload
+from app.gdp.agent.llm.decision import llm_decision_payload, llm_failure_payload, reflect_gdp_scene_result
 from app.gdp.agent.llm.schemas import GDPReflectionDecision
 from app.gdp.agent.middlewares.context_compression import load_gdp_context_summary
 from app.gdp.agent.state import NODE_ATTEMPT_CAP, GDPState, node_attempt_cap_exceeded
@@ -227,16 +226,16 @@ async def _reflect_with_llm_or_rules(
                 app_config=app_config,
                 model=llm_model,
             )
-            event = await task_service.record_event(
+            await task_service.record_event(
                 task_run_id,
                 event_type="LLM_RESULT_REFLECTED",
                 phase=DatagenTaskPhase.PROGRESS_REFLECTION,
                 message="模型已判断场景执行结果是否满足总体造数目标。",
                 payload=llm_decision_payload(decision),
             )
-            return decision.model_dump(mode="json"), _reflection_llm_state_update(decision, event.eventId, event.eventType)
+            return decision.model_dump(mode="json"), _reflection_llm_state_update(decision)
         except Exception as exc:
-            event = await task_service.record_event(
+            await task_service.record_event(
                 task_run_id,
                 event_type="LLM_RESULT_REFLECTION_FAILED",
                 phase=DatagenTaskPhase.PROGRESS_REFLECTION,
@@ -250,22 +249,11 @@ async def _reflect_with_llm_or_rules(
                     "decisionSource": "fallback_rule",
                     "errorType": type(exc).__name__,
                 },
-                "llm_decision_refs": [
-                    {
-                        "eventId": event.eventId,
-                        "eventType": event.eventType,
-                        "decisionType": "result_reflection",
-                    }
-                ],
             }
     return await reflect_scene_result(goal=goal, scene_result=scene_result), {}
 
 
-def _reflection_llm_state_update(
-    decision: GDPReflectionDecision,
-    event_id: str,
-    event_type: str,
-) -> dict[str, Any]:
+def _reflection_llm_state_update(decision: GDPReflectionDecision) -> dict[str, Any]:
     """生成反思模型决策的 checkpoint 轻量摘要。"""
 
     return {
@@ -276,13 +264,6 @@ def _reflection_llm_state_update(
             "confidence": decision.confidence,
             "reason": decision.reason,
         },
-        "llm_decision_refs": [
-            {
-                "eventId": event_id,
-                "eventType": event_type,
-                "decisionType": "result_reflection",
-            }
-        ],
     }
 
 

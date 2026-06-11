@@ -7,8 +7,7 @@ from typing import Any
 from langchain_core.messages import BaseMessage
 from langchain_core.runnables import RunnableConfig
 
-from app.gdp.agent.llm.decision import normalize_gdp_goal
-from app.gdp.agent.llm.events import llm_decision_payload, llm_failure_payload
+from app.gdp.agent.llm.decision import llm_decision_payload, llm_failure_payload, normalize_gdp_goal
 from app.gdp.agent.llm.schemas import GDPGoalNormalizationDecision
 from app.gdp.agent.middlewares.context_compression import load_gdp_context_summary
 from app.gdp.agent.middlewares.memory_context import load_gdp_memory_context
@@ -37,7 +36,7 @@ def build_intake_node(
         runtime_context = _extract_runtime_context(config)
         if task_run_id:
             task_run = await task_service.get_task_run(task_run_id)
-            memory_context, memory_trace = await load_gdp_memory_context(
+            memory_context, _ = await load_gdp_memory_context(
                 memory_service,
                 user_id=runtime_context.get("user_id"),
                 user_intent=task_run.userIntent,
@@ -56,7 +55,6 @@ def build_intake_node(
                 "user_inputs": _extract_user_inputs(state),
                 "context_summary": context_summary,
                 "memory_context": memory_context,
-                "memory_trace": memory_trace,
             }
 
         user_intent = _extract_user_intent(state)
@@ -97,7 +95,7 @@ def build_intake_node(
             message="造数任务进入已有场景满足阶段。",
             payload={"from": DatagenTaskPhase.INTAKE.value, "to": DatagenTaskPhase.SCENE_FULFILLMENT.value},
         )
-        memory_context, memory_trace = await load_gdp_memory_context(
+        memory_context, _ = await load_gdp_memory_context(
             memory_service,
             user_id=runtime_context.get("user_id"),
             user_intent=task_run.userIntent,
@@ -121,7 +119,6 @@ def build_intake_node(
             **llm_state_update,
             "context_summary": context_summary,
             "memory_context": memory_context,
-            "memory_trace": memory_trace,
         }
 
     return intake
@@ -259,7 +256,7 @@ async def _record_llm_goal_event(
     """记录 intake 模型决策事件，并返回 checkpoint 轻量摘要。"""
 
     if llm_decision is not None:
-        event = await task_service.record_event(
+        await task_service.record_event(
             task_run_id,
             event_type="LLM_GOAL_NORMALIZED",
             phase=DatagenTaskPhase.INTAKE,
@@ -273,17 +270,10 @@ async def _record_llm_goal_event(
                 "confidence": decision_payload.get("confidence"),
                 "reason": decision_payload.get("reason"),
             },
-            "llm_decision_refs": [
-                {
-                    "eventId": event.eventId,
-                    "eventType": event.eventType,
-                    "decisionType": "goal_normalization",
-                }
-            ],
         }
     if llm_error is None:
         return {}
-    event = await task_service.record_event(
+    await task_service.record_event(
         task_run_id,
         event_type="LLM_GOAL_NORMALIZATION_FAILED",
         phase=DatagenTaskPhase.INTAKE,
@@ -296,13 +286,6 @@ async def _record_llm_goal_event(
             "decisionSource": "fallback_rule",
             "errorType": type(llm_error).__name__,
         },
-        "llm_decision_refs": [
-            {
-                "eventId": event.eventId,
-                "eventType": event.eventType,
-                "decisionType": "goal_normalization",
-            }
-        ],
     }
 
 

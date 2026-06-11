@@ -30,12 +30,6 @@ def wrap_gdp_skill_context(
 
         phase = result.get("current_phase") or state.get("current_phase")
         skill_context = get_gdp_skill_context(phase)
-        trace = {
-            "nodeName": node_name,
-            "phase": skill_context.get("phase"),
-            "skillIds": skill_context.get("skillIds") or [],
-            "reason": "按当前 GDP 阶段注入方法论技能引用。",
-        }
         task_run_id = result.get("task_run_id") or state.get("task_run_id")
         if _should_record_skill_event(state, skill_context) and task_run_id:
             await task_service.record_event(
@@ -58,7 +52,7 @@ def wrap_gdp_skill_context(
                     ],
                 },
             )
-        return {**result, "skill_context": skill_context, "skill_trace": [trace]}
+        return {**result, "skill_context": skill_context}
 
     return skill_context_node
 

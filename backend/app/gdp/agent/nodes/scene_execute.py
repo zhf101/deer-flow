@@ -88,7 +88,6 @@ def build_scene_execute_node(
                 "lastSceneResult": scene_result,
             },
             "last_result_ref": result_ref,
-            "result_refs": [result_ref],
         }
 
     return scene_execute

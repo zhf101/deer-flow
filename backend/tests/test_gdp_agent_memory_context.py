@@ -54,7 +54,6 @@ async def test_intake_injects_user_memory_context_without_changing_task_fact(mem
     assert result["memory_context"]["userId"] == "user_1"
     assert result["memory_context"]["facts"][0]["factId"] == fact.factId
     assert result["memory_context"]["categories"]["system_alias"][0]["value"]["sysCode"] == "TRADE"
-    assert result["memory_trace"][0]["factId"] == fact.factId
     task = await task_service.get_task_run(result["task_run_id"])
     assert task.normalizedGoal["rawIntent"] == "帮我造一笔交易订单"
     assert "memory_context" not in task.normalizedGoal
@@ -86,4 +85,3 @@ async def test_intake_ignores_disabled_memory_context(memory_context_services):
 
     assert result["memory_context"]["enabled"] is True
     assert result["memory_context"]["facts"] == []
-    assert result["memory_trace"] == []

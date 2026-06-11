@@ -15,6 +15,7 @@ from app.gdp.datagen.config.scene.api import router as scene_router
 from app.gdp.datagen.config.sqlsource.api import router as sqlsource_router
 from app.gdp.datagen.config.task.api import router as task_router
 from app.gdp.datagen.config.task.subtask_api import router as task_subtask_router
+from app.gdp.agent_runtime.api import router as agent_runtime_router
 
 router = APIRouter(prefix="/api/v1/datagen", tags=["datagen"])
 router.include_router(base_router)
@@ -28,3 +29,4 @@ router.include_router(agent_memory_router)
 router.include_router(agent_scene_design_router)
 router.include_router(agent_skill_router)
 router.include_router(agent_mcp_router)
+router.include_router(agent_runtime_router)

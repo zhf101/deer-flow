@@ -6,8 +6,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from app.gdp.agent.llm.decision import select_gdp_source_candidate
-from app.gdp.agent.llm.events import llm_decision_payload, llm_failure_payload
+from app.gdp.agent.llm.decision import llm_decision_payload, llm_failure_payload, select_gdp_source_candidate
 from app.gdp.agent.llm.schemas import GDPSourceCandidateDecision
 from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
 from app.gdp.agent.nodes.events import emit_waiting_user_event
@@ -276,10 +275,6 @@ def build_scene_design_node(
             }
             await task_service.mark_waiting_user(task_run_id, pending_interrupts=pending, message="场景自动发布前需要用户确认。")
             emit_waiting_user_event(pending, message="场景自动发布前需要用户确认。")
-            combined_llm_state_update = _merge_llm_state_updates(
-                llm_state_update,
-                _scene_draft_preview_llm_state_update(scene_preview),
-            )
             return {
                 "current_phase": DatagenTaskPhase.WAITING_USER.value,
                 "pending_confirmation": pending,
@@ -289,7 +284,7 @@ def build_scene_design_node(
                     **_scene_draft_preview_context(scene_preview),
                     "scenePublishGuardrail": publish_decision.model_dump(mode="json"),
                 },
-                **combined_llm_state_update,
+                **llm_state_update,
             }
         assert_gdp_registered_tool_allowed(
             "publish_scene_from_source",
@@ -410,16 +405,16 @@ async def _try_select_source_candidate_with_llm(
             model=llm_model,
         )
         _validate_source_candidate_decision(decision, candidates)
-        event = await task_service.record_event(
+        await task_service.record_event(
             task_run_id,
             event_type="LLM_SOURCE_SELECTED",
             phase=DatagenTaskPhase.SCENE_DESIGN,
             message="模型已在 Source 候选中给出选择建议。",
             payload=llm_decision_payload(decision),
         )
-        return decision, _source_llm_state_update(decision, event.eventId, event.eventType)
+        return decision, _source_llm_state_update(decision)
     except Exception as exc:
-        event = await task_service.record_event(
+        await task_service.record_event(
             task_run_id,
             event_type="LLM_SOURCE_SELECTION_FAILED",
             phase=DatagenTaskPhase.SCENE_DESIGN,
@@ -432,13 +427,6 @@ async def _try_select_source_candidate_with_llm(
                 "decisionSource": "fallback_rule",
                 "errorType": type(exc).__name__,
             },
-            "llm_decision_refs": [
-                {
-                    "eventId": event.eventId,
-                    "eventType": event.eventType,
-                    "decisionType": "source_candidate_selection",
-                }
-            ],
         }
 
 
@@ -470,11 +458,7 @@ def _llm_source_needs_confirmation(decision: GDPSourceCandidateDecision) -> bool
     )
 
 
-def _source_llm_state_update(
-    decision: GDPSourceCandidateDecision,
-    event_id: str,
-    event_type: str,
-) -> dict[str, Any]:
+def _source_llm_state_update(decision: GDPSourceCandidateDecision) -> dict[str, Any]:
     """生成 Source 候选模型决策的 checkpoint 摘要。"""
 
     return {
@@ -485,13 +469,6 @@ def _source_llm_state_update(
             "confidence": decision.confidence,
             "reason": decision.reason,
         },
-        "llm_decision_refs": [
-            {
-                "eventId": event_id,
-                "eventType": event_type,
-                "decisionType": "source_candidate_selection",
-            }
-        ],
     }
 
 
@@ -533,14 +510,6 @@ def _scene_draft_preview_context(preview: SceneDraftCompositionResult | None) ->
     }
 
 
-def _scene_draft_preview_llm_state_update(preview: SceneDraftCompositionResult | None) -> dict[str, Any]:
-    """生成场景草稿补全模型事件引用，不覆盖候选选择的 last_llm_decision。"""
-
-    if preview is None or preview.llm_event_ref is None:
-        return {}
-    return {"llm_decision_refs": [preview.llm_event_ref]}
-
-
 def _scene_draft_decision_summary(preview: SceneDraftCompositionResult) -> dict[str, Any] | None:
     decision = preview.llm_decision
     if decision is None:
@@ -553,22 +522,6 @@ def _scene_draft_decision_summary(preview: SceneDraftCompositionResult) -> dict[
         "assumptions": decision.assumptions,
         "evidence": decision.evidence,
     }
-
-
-def _merge_llm_state_updates(*updates: dict[str, Any]) -> dict[str, Any]:
-    """合并多个模型决策状态增量，保留最后一次非空摘要和所有事件引用。"""
-
-    merged: dict[str, Any] = {}
-    refs: list[dict[str, Any]] = []
-    for update in updates:
-        for key, value in update.items():
-            if key == "llm_decision_refs":
-                refs.extend(value or [])
-            elif value is not None:
-                merged[key] = value
-    if refs:
-        merged["llm_decision_refs"] = refs
-    return merged
 
 
 def _select_source_candidate(candidates: list[dict[str, Any]], selected_code: Any) -> dict[str, Any] | None:

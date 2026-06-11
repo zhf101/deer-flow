@@ -9,7 +9,6 @@ from app.gateway.auth_middleware import AuthMiddleware
 from app.gateway.config import get_gateway_config
 from app.gateway.csrf_middleware import CSRFMiddleware, get_configured_cors_origins
 from app.gateway.deps import langgraph_runtime
-from app.gdp.router import router as gdp_router
 from app.gateway.routers import (
     agents,
     artifacts,
@@ -26,6 +25,8 @@ from app.gateway.routers import (
     threads,
     uploads,
 )
+from app.gdp.agent_logging import configure_gdp_agent_file_logging
+from app.gdp.router import router as gdp_router
 from deerflow.config import app_config as deerflow_app_config
 from deerflow.config.app_config import apply_logging_level
 
@@ -164,6 +165,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         startup_config = get_app_config()
         apply_logging_level(startup_config.log_level)
+        gdp_agent_log_path = configure_gdp_agent_file_logging(startup_config.log_level)
+        logger.info("GDP Agent file logging configured at %s", gdp_agent_log_path)
         logger.info("Configuration loaded successfully")
     except Exception as e:
         error_msg = f"Failed to load configuration during gateway startup: {e}"

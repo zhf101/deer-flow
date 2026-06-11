@@ -1,0 +1,65 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug Backend Gateway",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.gateway.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/../.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+        "DEER_FLOW_CONFIG_PATH": "${workspaceFolder}/../config.yaml"
+      },
+      "justMyCode": false
+    },
+    {
+      "name": "Debug Backend Gateway (reload)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "app.gateway.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+        "--reload",
+        "--reload-include",
+        "*.yaml",
+        "--reload-include",
+        ".env",
+        "--reload-exclude",
+        "*.pyc",
+        "--reload-exclude",
+        "__pycache__",
+        "--reload-exclude",
+        "sandbox/",
+        "--reload-exclude",
+        ".deer-flow/"
+      ],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/../.env",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}",
+        "PYTHONIOENCODING": "utf-8",
+        "PYTHONUTF8": "1",
+        "DEER_FLOW_CONFIG_PATH": "${workspaceFolder}/../config.yaml"
+      },
+      "subProcess": true,
+      "justMyCode": false
+    }
+  ]
+}

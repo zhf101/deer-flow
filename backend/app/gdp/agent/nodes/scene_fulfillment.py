@@ -6,8 +6,7 @@ from typing import Any
 
 from langchain_core.runnables import RunnableConfig
 
-from app.gdp.agent.llm.decision import select_gdp_scene_candidate
-from app.gdp.agent.llm.events import llm_decision_payload, llm_failure_payload
+from app.gdp.agent.llm.decision import llm_decision_payload, llm_failure_payload, select_gdp_scene_candidate
 from app.gdp.agent.llm.schemas import GDPSceneCandidateDecision
 from app.gdp.agent.middlewares.business_guardrail import GDPToolApprovalContext
 from app.gdp.agent.nodes.events import emit_waiting_user_event
@@ -281,7 +280,6 @@ def build_scene_fulfillment_node(
                 "lastSceneResult": scene_result,
             },
             "last_result_ref": result_ref,
-            "result_refs": [result_ref],
             **llm_state_update,
         }
 
@@ -318,16 +316,16 @@ async def _try_select_scene_candidate_with_llm(
             model=llm_model,
         )
         _validate_scene_candidate_decision(decision, candidates)
-        event = await task_service.record_event(
+        await task_service.record_event(
             task_run_id,
             event_type="LLM_SCENE_SELECTED",
             phase=DatagenTaskPhase.SCENE_FULFILLMENT,
             message="模型已在历史场景候选中给出选择建议。",
             payload=llm_decision_payload(decision),
         )
-        return decision, _scene_llm_state_update(decision, event.eventId, event.eventType)
+        return decision, _scene_llm_state_update(decision)
     except Exception as exc:
-        event = await task_service.record_event(
+        await task_service.record_event(
             task_run_id,
             event_type="LLM_SCENE_SELECTION_FAILED",
             phase=DatagenTaskPhase.SCENE_FULFILLMENT,
@@ -340,13 +338,6 @@ async def _try_select_scene_candidate_with_llm(
                 "decisionSource": "fallback_rule",
                 "errorType": type(exc).__name__,
             },
-            "llm_decision_refs": [
-                {
-                    "eventId": event.eventId,
-                    "eventType": event.eventType,
-                    "decisionType": "scene_candidate_selection",
-                }
-            ],
         }
 
 
@@ -378,11 +369,7 @@ def _llm_scene_needs_confirmation(decision: GDPSceneCandidateDecision) -> bool:
     )
 
 
-def _scene_llm_state_update(
-    decision: GDPSceneCandidateDecision,
-    event_id: str,
-    event_type: str,
-) -> dict[str, Any]:
+def _scene_llm_state_update(decision: GDPSceneCandidateDecision) -> dict[str, Any]:
     """生成场景候选模型决策的 checkpoint 摘要。"""
 
     return {
@@ -393,13 +380,6 @@ def _scene_llm_state_update(
             "confidence": decision.confidence,
             "reason": decision.reason,
         },
-        "llm_decision_refs": [
-            {
-                "eventId": event_id,
-                "eventType": event_type,
-                "decisionType": "scene_candidate_selection",
-            }
-        ],
     }
 
 
