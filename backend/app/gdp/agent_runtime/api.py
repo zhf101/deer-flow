@@ -10,11 +10,13 @@ import logging
 from types import SimpleNamespace
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from .decision import build_approval_requirement_decision, build_user_scene_selection_decision
 from .log_text import describe_code, describe_content, describe_optional
-from .models import ProposalStatus, RequirementStatus, SelectionSource, TaskRun, TaskRunStatus
+from .models import DecisionRecord, ProposalStatus, RequirementStatus, SelectionSource, TaskRun, TaskRunStatus
+from .repository import AgentRuntimeRepository
 from .runner import collect_preflight_missing, execute_scene, pending_start_ref
 from .selection import apply_selection
 from .store import EntityNotFoundError, Store
@@ -29,6 +31,40 @@ _store = Store()
 def get_store() -> Store:
     """获取全局 Store 实例。测试可替换。"""
     return _store
+
+
+def _get_repository() -> AgentRuntimeRepository | None:
+    """获取数据库仓储。内存数据库配置下返回 None。"""
+    from deerflow.persistence.engine import get_session_factory
+
+    session_factory = get_session_factory()
+    if session_factory is None:
+        return None
+    return AgentRuntimeRepository(session_factory)
+
+
+async def _persist_task_run(task_run_id: str, store: Store | None = None) -> None:
+    """在数据库可用时持久化单个 TaskRun 账本。"""
+    repository = _get_repository()
+    if repository is None:
+        return
+    await repository.persist_store(store or get_store(), task_run_id)
+
+
+async def _load_store_for_task_run(task_run_id: str) -> Store:
+    """优先读内存 Store，未命中时从数据库恢复。"""
+    global _store
+
+    store = get_store()
+    try:
+        store.get_task_run(task_run_id)
+        return store
+    except EntityNotFoundError:
+        repository = _get_repository()
+        if repository is None:
+            raise
+        _store = await repository.hydrate_store(task_run_id)
+        return _store
 
 
 # ---------- Request / Response Models ----------
@@ -80,7 +116,44 @@ class TaskRunResponse(BaseModel):
     finished_at: str | None = Field(default=None, description="结束时间，非终态为空。")
 
 
+class RuntimePayloadResponse(BaseModel):
+    """Runtime payload 详情响应。"""
+
+    ref: str = Field(description="payload 引用。")
+    payload: Any = Field(description="payload 完整内容。")
+
+
 # ---------- Endpoints ----------
+
+
+@router.get("/task-runs", response_model=list[TaskRunResponse])
+async def list_task_runs(
+    status: TaskRunStatus | None = Query(default=None, description="按任务状态过滤。"),
+    env_code: str | None = Query(default=None, alias="envCode", description="按目标环境编码过滤。"),
+    user_id: str | None = Query(default=None, alias="userId", description="按用户 ID 过滤。"),
+    limit: int = Query(default=20, ge=1, le=200, description="返回数量。"),
+    offset: int = Query(default=0, ge=0, description="分页偏移。"),
+) -> list[TaskRunResponse]:
+    """分页查询历史 TaskRun。"""
+    repository = _get_repository()
+    if repository is not None:
+        task_runs = await repository.list_task_runs(
+            status=status,
+            env_code=env_code,
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+        )
+    else:
+        task_runs = get_store().list_task_runs()
+        if status is not None:
+            task_runs = [item for item in task_runs if item.status == status]
+        if env_code:
+            task_runs = [item for item in task_runs if item.env_code == env_code]
+        if user_id:
+            task_runs = [item for item in task_runs if item.user_id == user_id]
+        task_runs = task_runs[offset : offset + limit]
+    return [_to_response(item) for item in task_runs]
 
 
 @router.post("/task-runs", response_model=TaskRunResponse)
@@ -98,6 +171,7 @@ async def create_task_run(request: CreateTaskRunRequest) -> TaskRunResponse:
         env_code=request.env_code,
     )
     get_store().save_task_run(task_run)
+    await _persist_task_run(task_run.task_run_id)
     logger.info(
         "GDP Agent 运行时接口已创建任务：任务ID=%s，状态=%s，环境=%s",
         task_run.task_run_id,
@@ -112,7 +186,6 @@ async def start_task_run(task_run_id: str, request: StartTaskRunRequest) -> Task
     """启动 TaskRun，指定 scene_code + inputs。"""
     from .runner import run_task
 
-    store = get_store()
     logger.info(
         "GDP Agent 运行时接口准备启动任务：任务ID=%s，场景编码=%s，用户输入请求报文=%s",
         task_run_id,
@@ -120,6 +193,7 @@ async def start_task_run(task_run_id: str, request: StartTaskRunRequest) -> Task
         describe_content(request.inputs),
     )
     try:
+        store = await _load_store_for_task_run(task_run_id)
         task_run = store.get_task_run(task_run_id)
     except EntityNotFoundError:
         logger.warning("GDP Agent 运行时接口启动失败，任务不存在：任务ID=%s", task_run_id)
@@ -134,6 +208,7 @@ async def start_task_run(task_run_id: str, request: StartTaskRunRequest) -> Task
         raise HTTPException(status_code=409, detail=f"TaskRun 状态为 {task_run.status}，不能 start")
 
     task_run = await run_task(task_run, request, store)
+    await _persist_task_run(task_run.task_run_id, store)
     logger.info(
         "GDP Agent 运行时接口启动完成：任务ID=%s，状态=%s，失败原因=%s，待用户确认=%s",
         task_run.task_run_id,
@@ -147,9 +222,9 @@ async def start_task_run(task_run_id: str, request: StartTaskRunRequest) -> Task
 @router.post("/task-runs/{task_run_id}/cancel", response_model=TaskRunResponse)
 async def cancel_task_run(task_run_id: str) -> TaskRunResponse:
     """取消 TaskRun。"""
-    store = get_store()
     logger.info("GDP Agent 运行时接口准备取消任务：任务ID=%s", task_run_id)
     try:
+        store = await _load_store_for_task_run(task_run_id)
         task_run = store.get_task_run(task_run_id)
     except EntityNotFoundError:
         logger.warning("GDP Agent 运行时接口取消失败，任务不存在：任务ID=%s", task_run_id)
@@ -166,6 +241,7 @@ async def cancel_task_run(task_run_id: str) -> TaskRunResponse:
         raise HTTPException(status_code=409, detail=f"TaskRun 状态为 {task_run.status}，不能取消")
 
     store.save_task_run(task_run)
+    await _persist_task_run(task_run.task_run_id, store)
     logger.info("GDP Agent 运行时接口已取消任务：任务ID=%s，状态=%s", task_run_id, describe_code(task_run.status))
     return _to_response(task_run)
 
@@ -173,7 +249,6 @@ async def cancel_task_run(task_run_id: str) -> TaskRunResponse:
 @router.post("/task-runs/{task_run_id}/reply", response_model=TaskRunResponse)
 async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> TaskRunResponse:
     """恢复 WAITING_USER 状态的任务。MVP 阶段仅做状态校验和基础回复。"""
-    store = get_store()
     logger.info(
         "GDP Agent 运行时接口收到任务回复：任务ID=%s，回复类型=%s，回复内容=%s",
         task_run_id,
@@ -181,6 +256,7 @@ async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> Task
         describe_content(request.payload),
     )
     try:
+        store = await _load_store_for_task_run(task_run_id)
         task_run = store.get_task_run(task_run_id)
     except EntityNotFoundError:
         logger.warning("GDP Agent 运行时接口回复失败，任务不存在：任务ID=%s", task_run_id)
@@ -207,6 +283,7 @@ async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> Task
     else:
         raise HTTPException(status_code=422, detail=f"不支持的 reply_type: {request.reply_type}")
 
+    await _persist_task_run(task_run.task_run_id, store)
     logger.info("GDP Agent 运行时接口已处理任务回复：任务ID=%s，状态=%s", task_run_id, describe_code(task_run.status))
     return _to_response(task_run)
 
@@ -214,9 +291,9 @@ async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> Task
 @router.get("/task-runs/{task_run_id}", response_model=TaskRunResponse)
 async def get_task_run(task_run_id: str) -> TaskRunResponse:
     """查询 TaskRun 当前状态。"""
-    store = get_store()
     logger.debug("GDP Agent 运行时接口查询任务：任务ID=%s", task_run_id)
     try:
+        store = await _load_store_for_task_run(task_run_id)
         task_run = store.get_task_run(task_run_id)
     except EntityNotFoundError:
         logger.warning("GDP Agent 运行时接口查询失败，任务不存在：任务ID=%s", task_run_id)
@@ -227,9 +304,9 @@ async def get_task_run(task_run_id: str) -> TaskRunResponse:
 @router.get("/task-runs/{task_run_id}/timeline")
 async def get_task_run_timeline(task_run_id: str) -> dict[str, Any]:
     """查询 TaskRun 的完整时间线。"""
-    store = get_store()
     logger.debug("GDP Agent 运行时接口查询任务时间线：任务ID=%s", task_run_id)
     try:
+        store = await _load_store_for_task_run(task_run_id)
         store.get_task_run(task_run_id)
     except EntityNotFoundError:
         logger.warning("GDP Agent 运行时接口查询时间线失败，任务不存在：任务ID=%s", task_run_id)
@@ -241,6 +318,37 @@ async def get_task_run_timeline(task_run_id: str) -> dict[str, Any]:
         describe_content(timeline, max_chars=4000),
     )
     return timeline
+
+
+@router.get("/task-runs/{task_run_id}/decisions", response_model=list[DecisionRecord])
+async def get_task_run_decisions(task_run_id: str) -> list[DecisionRecord]:
+    """查询 TaskRun 的决策审计记录。"""
+    try:
+        store = await _load_store_for_task_run(task_run_id)
+        store.get_task_run(task_run_id)
+    except EntityNotFoundError:
+        raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found") from None
+    return store.list_decisions(task_run_id)
+
+
+@router.get("/task-runs/{task_run_id}/payloads", response_model=RuntimePayloadResponse)
+async def get_task_run_payload(
+    task_run_id: str,
+    ref: str = Query(..., description="payload 引用。"),
+) -> RuntimePayloadResponse:
+    """查询 TaskRun 的完整 payload。"""
+    try:
+        store = await _load_store_for_task_run(task_run_id)
+        payload = store.get_payload(ref)
+    except EntityNotFoundError:
+        repository = _get_repository()
+        if repository is None:
+            raise HTTPException(status_code=404, detail=f"Payload {ref} not found") from None
+        try:
+            payload = await repository.get_payload(task_run_id, ref)
+        except EntityNotFoundError:
+            raise HTTPException(status_code=404, detail=f"Payload {ref} not found") from None
+    return RuntimePayloadResponse(ref=ref, payload=payload)
 
 
 # ---------- Helpers ----------
@@ -332,6 +440,15 @@ async def _select_scene(task_run: TaskRun, payload: dict[str, Any], store: Store
     requirement = transition_requirement(requirement, RequirementStatus.SATISFIED)
     store.save_requirement(requirement)
     store.save_proposal(proposal)
+    store.save_decision(
+        build_user_scene_selection_decision(
+            task_run,
+            requirement,
+            proposal,
+            scene_code,
+            input_ref=pending_start_ref(task_run.task_run_id),
+        )
+    )
 
     missing_fields = collect_preflight_missing(task_run, candidate)
     if missing_fields:
@@ -341,6 +458,16 @@ async def _select_scene(task_run: TaskRun, payload: dict[str, Any], store: Store
 
     approved = payload.get("approved") is True
     if candidate.requires_confirmation and not approved:
+        store.save_decision(
+            build_approval_requirement_decision(
+                task_run,
+                requirement,
+                proposal,
+                candidate,
+                approved=False,
+                input_ref=pending_start_ref(task_run.task_run_id),
+            )
+        )
         task_run.pending_question = (
             f"场景 {candidate.scene_name}（{candidate.scene_code}）已选定，但执行有写副作用。"
             "请批准后继续。"
@@ -350,6 +477,16 @@ async def _select_scene(task_run: TaskRun, payload: dict[str, Any], store: Store
 
     if candidate.requires_confirmation:
         _save_approval_record(store, task_run.task_run_id, requirement.requirement_id, proposal.proposal_id, candidate.scene_code)
+        store.save_decision(
+            build_approval_requirement_decision(
+                task_run,
+                requirement,
+                proposal,
+                candidate,
+                approved=True,
+                input_ref=pending_start_ref(task_run.task_run_id),
+            )
+        )
 
     task_run.pending_question = None
     task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
@@ -376,6 +513,15 @@ async def _supply_scene_code(task_run: TaskRun, payload: dict[str, Any], store: 
     requirement = transition_requirement(requirement, RequirementStatus.SATISFIED)
     store.save_requirement(requirement)
     store.save_proposal(proposal)
+    store.save_decision(
+        build_user_scene_selection_decision(
+            task_run,
+            requirement,
+            proposal,
+            scene_code,
+            input_ref=pending_start_ref(task_run.task_run_id),
+        )
+    )
 
     missing_fields = collect_preflight_missing(task_run, resolved)
     if missing_fields:
@@ -385,6 +531,16 @@ async def _supply_scene_code(task_run: TaskRun, payload: dict[str, Any], store: 
 
     approved = payload.get("approved") is True
     if resolved.requires_confirmation and not approved:
+        store.save_decision(
+            build_approval_requirement_decision(
+                task_run,
+                requirement,
+                proposal,
+                resolved,
+                approved=False,
+                input_ref=pending_start_ref(task_run.task_run_id),
+            )
+        )
         task_run.pending_question = (
             f"场景 {resolved.scene_name}（{resolved.scene_code}）已补录，但执行有写副作用。请批准后继续。"
         )
@@ -393,6 +549,16 @@ async def _supply_scene_code(task_run: TaskRun, payload: dict[str, Any], store: 
 
     if resolved.requires_confirmation:
         _save_approval_record(store, task_run.task_run_id, requirement.requirement_id, proposal.proposal_id, resolved.scene_code)
+        store.save_decision(
+            build_approval_requirement_decision(
+                task_run,
+                requirement,
+                proposal,
+                resolved,
+                approved=True,
+                input_ref=pending_start_ref(task_run.task_run_id),
+            )
+        )
 
     task_run.pending_question = None
     task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
@@ -419,6 +585,16 @@ async def _approve_scene(task_run: TaskRun, payload: dict[str, Any], store: Stor
         return task_run
 
     _save_approval_record(store, task_run.task_run_id, requirement.requirement_id, proposal.proposal_id, proposal.selected_scene_code)
+    store.save_decision(
+        build_approval_requirement_decision(
+            task_run,
+            requirement,
+            proposal,
+            candidate,
+            approved=True,
+            input_ref=pending_start_ref(task_run.task_run_id),
+        )
+    )
     task_run.pending_question = None
     task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
     return await execute_scene(

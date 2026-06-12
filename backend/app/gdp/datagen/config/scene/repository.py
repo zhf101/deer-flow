@@ -279,6 +279,7 @@ class DataFactorySceneRunStepRow(Base):
     finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="节点执行结束时间。")
     duration_ms: Mapped[float] = mapped_column(Float, nullable=False, comment="节点执行耗时，单位毫秒。")
     outputs_json: Mapped[str] = mapped_column(Text, nullable=False, comment="节点输出变量 JSON。")
+    request_snapshot_json: Mapped[str | None] = mapped_column(Text, comment="节点实际执行请求快照 JSON。")
     raw_response_json: Mapped[str | None] = mapped_column(Text, comment="节点原始执行结果 JSON。")
     error: Mapped[str | None] = mapped_column(Text, comment="节点错误信息。")
     status_code: Mapped[int | None] = mapped_column(Integer, comment="HTTP 节点响应状态码。")
@@ -476,6 +477,7 @@ class SceneRepository:
                         finished_at=step.finishedAt,
                         duration_ms=step.durationMs,
                         outputs_json=_dumps(_model_dump(step.outputs)),
+                        request_snapshot_json=_dumps(_model_dump(step.requestSnapshot)) if step.requestSnapshot is not None else None,
                         raw_response_json=_dumps(_model_dump(step.rawResponse)) if step.rawResponse is not None else None,
                         error=step.error,
                         status_code=step.statusCode,
@@ -1090,6 +1092,7 @@ class SceneRepository:
             finishedAt=row.finished_at,
             durationMs=row.duration_ms,
             outputs=_loads(row.outputs_json, {}),
+            requestSnapshot=_loads(row.request_snapshot_json, None),
             rawResponse=_loads(row.raw_response_json, None),
             error=row.error,
             statusCode=row.status_code,

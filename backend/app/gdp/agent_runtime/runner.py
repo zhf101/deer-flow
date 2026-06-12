@@ -14,8 +14,16 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
+from fastapi import HTTPException
+
 from .adapters.catalog import SceneCatalogPort
 from .catalog import create_scene_requirement, resolve_explicit_scene, search_scenes
+from .decision import (
+    build_approval_requirement_decision,
+    build_scene_search_decision,
+    build_scene_selection_decision,
+    build_user_scene_selection_decision,
+)
 from .flow import create_input_variables, create_single_step, make_scene_action
 from .log_text import (
     describe_bool,
@@ -79,6 +87,7 @@ async def run_task(
     """主循环：解析/搜索 Scene → 选定 → 执行 → 判定。"""
     catalog = catalog or get_catalog()
     scene_code = getattr(request, "scene_code", None)
+    original_task_run = task_run.model_copy(deep=True)
 
     logger.info(
         "GDP Agent 运行时任务开始运行：任务ID=%s，原状态=%s，场景编码=%s，输入内容=%s",
@@ -106,12 +115,18 @@ async def run_task(
         step.goal,
     )
 
-    if scene_code:
-        return await _run_explicit_scene(
-            task_run, step, requirement, scene_code, request.inputs, store, catalog
-        )
+    try:
+        if scene_code:
+            return await _run_explicit_scene(
+                task_run, step, requirement, scene_code, request.inputs, store, catalog
+            )
 
-    return await _run_search(task_run, step, requirement, request.inputs, store, catalog)
+        return await _run_search(task_run, step, requirement, request.inputs, store, catalog)
+    except HTTPException:
+        # Catalog 失败发生在写请求前；恢复启动前状态，避免任务卡在 RUNNING。
+        if not store.get_timeline(task_run.task_run_id)["attempts"]:
+            store.save_task_run(original_task_run)
+        raise
 
 
 # ---------- 分支 1：显式 scene_code ----------
@@ -131,6 +146,15 @@ async def _run_explicit_scene(
     proposal = await resolve_explicit_scene(requirement, scene_code, inputs, catalog)
     store.save_requirement(requirement)  # 仍 PENDING
     store.save_proposal(proposal)
+    store.save_decision(
+        build_user_scene_selection_decision(
+            task_run,
+            requirement,
+            proposal,
+            scene_code,
+            input_ref=pending_start_ref(task_run.task_run_id),
+        )
+    )
 
     requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
     store.save_requirement(requirement)
@@ -169,6 +193,14 @@ async def _run_search(
     """搜索路径：调 Catalog → decide_selection → 自动执行 / 等用户 / 零候选收口。"""
     proposal = await search_scenes(requirement, inputs, task_run.env_code, catalog)
     store.save_proposal(proposal)
+    store.save_decision(
+        build_scene_search_decision(
+            task_run,
+            requirement,
+            proposal,
+            input_ref=pending_start_ref(task_run.task_run_id),
+        )
+    )
     logger.info(
         "GDP Agent 运行时搜索完成：任务ID=%s，候选数=%s，检索词=%s",
         task_run.task_run_id,
@@ -177,6 +209,15 @@ async def _run_search(
     )
 
     outcome = decide_selection(proposal)
+    store.save_decision(
+        build_scene_selection_decision(
+            task_run,
+            requirement,
+            proposal,
+            outcome,
+            input_ref=pending_start_ref(task_run.task_run_id),
+        )
+    )
     logger.info(
         "GDP Agent 运行时选择决策：任务ID=%s，决策=%s，场景编码=%s，原因=%s",
         task_run.task_run_id,
@@ -209,6 +250,17 @@ async def _run_search(
         )
 
     # NEED_USER：多候选 / 低分 / 缺参 / 需审批，挂起等用户选择或审批。
+    if len(proposal.candidates) == 1 and proposal.candidates[0].requires_confirmation:
+        store.save_decision(
+            build_approval_requirement_decision(
+                task_run,
+                requirement,
+                proposal,
+                proposal.candidates[0],
+                approved=False,
+                input_ref=pending_start_ref(task_run.task_run_id),
+            )
+        )
     return _suspend_for_user(task_run, step, outcome.question, store)
 
 
@@ -260,6 +312,16 @@ async def _select_and_maybe_execute(
 
     # 审批 gate：有写副作用且未批准 -> 挂起等审批（与选择正交）。
     if candidate.requires_confirmation and not approved:
+        store.save_decision(
+            build_approval_requirement_decision(
+                task_run,
+                requirement,
+                proposal,
+                candidate,
+                approved=False,
+                input_ref=pending_start_ref(task_run.task_run_id),
+            )
+        )
         logger.info(
             "GDP Agent 运行时选定场景需审批，等待用户批准：任务ID=%s，场景编码=%s",
             task_run.task_run_id,

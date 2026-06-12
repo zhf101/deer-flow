@@ -49,6 +49,21 @@ try:
     )
     from app.gdp.datagen.config.task.subtask_repository import DataFactoryDatagenTaskSubtaskRow
     from app.gdp.datagen.agent_memory.repository import DataFactoryGDPAgentMemoryFactRow
+    from app.gdp.agent_runtime.repository import (
+        AgentRuntimeActionRow,
+        AgentRuntimeApprovalRow,
+        AgentRuntimeAttemptRow,
+        AgentRuntimeDecisionRow,
+        AgentRuntimeEvidenceRow,
+        AgentRuntimeObservationRow,
+        AgentRuntimePayloadRow,
+        AgentRuntimeProposalRow,
+        AgentRuntimeRequirementRow,
+        AgentRuntimeStepRow,
+        AgentRuntimeTaskRunRow,
+        AgentRuntimeVariableRow,
+        AgentRuntimeVerdictRow,
+    )
 except ImportError:
     DataFactoryConfigAuditRow = None
     DataFactoryDatasourceRow = None
@@ -72,6 +87,19 @@ except ImportError:
     DataFactoryDatagenTaskStepRow = None
     DataFactoryDatagenTaskSubtaskRow = None
     DataFactoryGDPAgentMemoryFactRow = None
+    AgentRuntimeActionRow = None
+    AgentRuntimeApprovalRow = None
+    AgentRuntimeAttemptRow = None
+    AgentRuntimeDecisionRow = None
+    AgentRuntimeEvidenceRow = None
+    AgentRuntimeObservationRow = None
+    AgentRuntimePayloadRow = None
+    AgentRuntimeProposalRow = None
+    AgentRuntimeRequirementRow = None
+    AgentRuntimeStepRow = None
+    AgentRuntimeTaskRunRow = None
+    AgentRuntimeVariableRow = None
+    AgentRuntimeVerdictRow = None
 
 __all__ = [
     "FeedbackRow",
@@ -101,4 +129,17 @@ __all__ = [
     "DataFactoryDatagenTaskStepRow",
     "DataFactoryDatagenTaskSubtaskRow",
     "DataFactoryGDPAgentMemoryFactRow",
+    "AgentRuntimeActionRow",
+    "AgentRuntimeApprovalRow",
+    "AgentRuntimeAttemptRow",
+    "AgentRuntimeDecisionRow",
+    "AgentRuntimeEvidenceRow",
+    "AgentRuntimeObservationRow",
+    "AgentRuntimePayloadRow",
+    "AgentRuntimeProposalRow",
+    "AgentRuntimeRequirementRow",
+    "AgentRuntimeStepRow",
+    "AgentRuntimeTaskRunRow",
+    "AgentRuntimeVariableRow",
+    "AgentRuntimeVerdictRow",
 ]

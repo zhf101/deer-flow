@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -169,6 +169,7 @@ class ActionAttempt(BaseModel):
     request_ref: StorageRef = Field(description="完整请求快照引用。")
     response_ref: StorageRef | None = Field(default=None, description="完整响应快照引用。")
     response_preview: dict[str, Any] = Field(default_factory=dict, description="可展示响应摘要。")
+    scene_run_id: str | None = Field(default=None, description="关联的场景执行记录 ID。未进入场景执行持久化时为空。")
     error_type: str | None = Field(default=None, description="错误类型。")
     error_message: str | None = Field(default=None, description="错误摘要。")
     started_at: datetime = Field(description="开始时间。")
@@ -360,3 +361,79 @@ class SceneSelectionSuggestion(BaseModel):
 
     ranked_scene_codes: list[str] = Field(default_factory=list, description="LLM 建议的候选优先级，倒序。")
     explanation: str = Field(default="", description="LLM 给出的选择解释。")
+
+
+# ---------- Decision Ledger（审计解释账本） ----------
+
+
+class DecisionKind(StrEnum):
+    SCENE_SEARCH = "SCENE_SEARCH"
+    SCENE_SELECTION = "SCENE_SELECTION"
+    SCENE_CREATION = "SCENE_CREATION"
+    STEP_TYPE_SELECTION = "STEP_TYPE_SELECTION"
+    HTTP_SOURCE_SELECTION = "HTTP_SOURCE_SELECTION"
+    SQL_SOURCE_SELECTION = "SQL_SOURCE_SELECTION"
+    FIELD_MAPPING = "FIELD_MAPPING"
+    STEP_ORDERING = "STEP_ORDERING"
+    APPROVAL_REQUIREMENT = "APPROVAL_REQUIREMENT"
+    RECOVERY_SELECTION = "RECOVERY_SELECTION"
+
+
+class DecisionSource(StrEnum):
+    RULE = "RULE"
+    CATALOG = "CATALOG"
+    LLM = "LLM"
+    USER = "USER"
+    SYSTEM_DEFAULT = "SYSTEM_DEFAULT"
+
+
+class DecisionStatus(StrEnum):
+    DECIDED = "DECIDED"
+    WAITING_USER = "WAITING_USER"
+    SUPERSEDED = "SUPERSEDED"
+    FAILED = "FAILED"
+
+
+class DecisionOption(BaseModel):
+    """决策候选项，用于解释当时有哪些可选方案。"""
+
+    option_id: str = Field(description="候选项 ID，例如 scene_code 或 source_code。")
+    option_type: str = Field(description="候选项类型，例如 scene、http_source、sql_source。")
+    label: str = Field(description="候选项展示名称。")
+    score: float | None = Field(default=None, ge=0.0, le=1.0, description="候选项评分，没有评分时为空。")
+    reasons: list[str] = Field(default_factory=list, description="候选项进入候选集的理由。")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="候选项补充元数据，默认只放非敏感摘要。")
+
+
+class DecisionRejection(BaseModel):
+    """未选候选项及其拒绝原因。"""
+
+    option_id: str = Field(description="未选候选项 ID。")
+    reason: str = Field(description="未选择该候选项的人类可读原因。")
+
+
+class DecisionRecord(BaseModel):
+    """一次关键决策的结构化审计记录。"""
+
+    decision_id: str = Field(description="决策记录 ID。")
+    task_run_id: TaskRunId = Field(description="所属 TaskRun。")
+    step_id: StepId | None = Field(default=None, description="关联 PlanStep，无法关联时为空。")
+    requirement_id: str | None = Field(default=None, description="关联 Requirement，无法关联时为空。")
+    proposal_id: str | None = Field(default=None, description="关联 Proposal，无法关联时为空。")
+    action_id: ActionId | None = Field(default=None, description="关联 Action，无法关联时为空。")
+    scene_run_id: str | None = Field(default=None, description="关联场景运行 ID，决策发生在执行前时为空。")
+    decision_kind: DecisionKind = Field(description="决策类型。")
+    decision_source: DecisionSource = Field(description="决策来源。")
+    status: DecisionStatus = Field(description="决策记录状态。")
+    target_type: str | None = Field(default=None, description="决策目标类型，例如 scene、step、http_source。")
+    target_id: str | None = Field(default=None, description="决策目标 ID，例如被选中的 scene_code。")
+    input_ref: StorageRef | None = Field(default=None, description="决策输入快照 payload 引用，默认只供审计权限读取。")
+    options: list[DecisionOption] = Field(default_factory=list, description="本次决策的候选项列表。")
+    selected_option: DecisionOption | None = Field(default=None, description="最终选中的候选项，未决定时为空。")
+    selected_reasons: list[str] = Field(default_factory=list, description="选择目标的结构化原因。")
+    rejected_reasons: list[DecisionRejection] = Field(default_factory=list, description="未选候选项及拒绝原因。")
+    criteria: list[str] = Field(default_factory=list, description="本次决策采用的判断标准。")
+    evidence_refs: list[str] = Field(default_factory=list, description="支撑本次决策的账本对象引用。")
+    model_info: dict[str, Any] | None = Field(default=None, description="模型参与信息摘要，不包含隐藏思维链。")
+    summary: str = Field(description="面向审计展示的一句话中文解释。")
+    created_at: datetime = Field(description="创建时间。")

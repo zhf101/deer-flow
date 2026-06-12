@@ -43,9 +43,11 @@ import type {
 import { AgentRuntimeChat } from "./agent-runtime-chat";
 import { AgentRuntimeDetailPanel } from "./agent-runtime-detail-panel";
 import {
+  deriveAuditDecisions,
+  deriveAuditExecutions,
+  deriveAuditSteps,
   deriveChatMessages,
   deriveCompletionResult,
-  deriveTimelineDetailItems,
   deriveWaitingInteraction,
 } from "./agent-runtime-view-model";
 
@@ -105,7 +107,6 @@ export function AgentRuntimePage() {
   const [busy, setBusy] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [selectedDetailKey, setSelectedDetailKey] = useState<string | null>(null);
 
   // 轮询 ref
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -115,9 +116,18 @@ export function AgentRuntimePage() {
   // 派生数据
   const messages = useMemo(() => deriveChatMessages(taskRun, timeline), [taskRun, timeline]);
   const interaction = useMemo(() => deriveWaitingInteraction(taskRun, timeline), [taskRun, timeline]);
-  const detailItems = useMemo(() => deriveTimelineDetailItems(timeline), [timeline]);
+  const auditDecisions = useMemo(() => deriveAuditDecisions(timeline), [timeline]);
+  const auditSteps = useMemo(() => deriveAuditSteps(timeline), [timeline]);
+  const auditExecutions = useMemo(() => deriveAuditExecutions(timeline), [timeline]);
   const completionResult = useMemo(() => deriveCompletionResult(taskRun, timeline), [taskRun, timeline]);
   const canCancel = taskRun ? !TERMINAL_STATUSES.has(taskRun.status) : false;
+
+  // 任务到达终态时自动展开详情面板
+  useEffect(() => {
+    if (taskRun && TERMINAL_STATUSES.has(taskRun.status) && !detailOpen) {
+      setDetailOpen(true);
+    }
+  }, [taskRun?.status]);
 
   // 加载环境和场景
   useEffect(() => {
@@ -386,20 +396,15 @@ export function AgentRuntimePage() {
     }
   }, [loadTimeline, taskRun]);
 
-  // 查看执行尝试
-  const handleViewAttempts = useCallback(() => {
+  // 打开审计面板
+  const handleOpenAudit = useCallback(() => {
     setDetailOpen(true);
-    const attemptItem = detailItems.find((item) => item.kind === "attempt");
-    if (attemptItem) {
-      setSelectedDetailKey(attemptItem.key);
-    }
-  }, [detailItems]);
+  }, []);
 
   // 重置
   const reset = useCallback(() => {
     setTaskRun(null);
     setTimeline(null);
-    setSelectedDetailKey(null);
   }, []);
 
   const hasTaskRun = !!taskRun;
@@ -501,16 +506,17 @@ export function AgentRuntimePage() {
           onSupplySceneCode={handleSupplySceneCode}
           onSupplyInput={handleSupplyInput}
           onConfirmUnknownState={handleConfirmUnknownState}
-          onViewAttempts={handleViewAttempts}
+          onViewAttempts={handleOpenAudit}
+          onViewDetails={handleOpenAudit}
           userGoal={userGoal}
           onUserGoalChange={setUserGoal}
         />
 
         <AgentRuntimeDetailPanel
           taskRun={taskRun}
-          items={detailItems}
-          selectedKey={selectedDetailKey}
-          onSelect={setSelectedDetailKey}
+          decisions={auditDecisions}
+          steps={auditSteps}
+          executions={auditExecutions}
           open={detailOpen}
           onClose={() => setDetailOpen(false)}
         />

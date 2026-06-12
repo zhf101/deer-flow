@@ -45,6 +45,21 @@ from app.gdp.datagen.config.sqlsource.models import SqlSourceConfig
 from app.gdp.datagen.config.sqlsource.repository import DataFactorySqlSourceRow, SqlSourceRepository
 from app.gdp.datagen.config.sqlsource.service import SqlSourceService
 from app.gdp.datagen.config.task.repository import DataFactoryDatagenTaskEventRow, DataFactoryDatagenTaskRunRow, DataFactoryDatagenTaskStepRow
+from app.gdp.agent_runtime.repository import (
+    AgentRuntimeActionRow,
+    AgentRuntimeApprovalRow,
+    AgentRuntimeAttemptRow,
+    AgentRuntimeDecisionRow,
+    AgentRuntimeEvidenceRow,
+    AgentRuntimeObservationRow,
+    AgentRuntimePayloadRow,
+    AgentRuntimeProposalRow,
+    AgentRuntimeRequirementRow,
+    AgentRuntimeStepRow,
+    AgentRuntimeTaskRunRow,
+    AgentRuntimeVariableRow,
+    AgentRuntimeVerdictRow,
+)
 from deerflow.persistence import models as grouped_persistence_models
 from deerflow.persistence.base import Base
 from deerflow.persistence.engine import close_engine, get_session_factory, init_engine
@@ -82,6 +97,19 @@ CURRENT_ROW_CLASSES = {
     "DataFactoryDatagenTaskEventRow": DataFactoryDatagenTaskEventRow,
     "DataFactoryDatagenTaskRunRow": DataFactoryDatagenTaskRunRow,
     "DataFactoryDatagenTaskStepRow": DataFactoryDatagenTaskStepRow,
+    "AgentRuntimeActionRow": AgentRuntimeActionRow,
+    "AgentRuntimeApprovalRow": AgentRuntimeApprovalRow,
+    "AgentRuntimeAttemptRow": AgentRuntimeAttemptRow,
+    "AgentRuntimeDecisionRow": AgentRuntimeDecisionRow,
+    "AgentRuntimeEvidenceRow": AgentRuntimeEvidenceRow,
+    "AgentRuntimeObservationRow": AgentRuntimeObservationRow,
+    "AgentRuntimePayloadRow": AgentRuntimePayloadRow,
+    "AgentRuntimeProposalRow": AgentRuntimeProposalRow,
+    "AgentRuntimeRequirementRow": AgentRuntimeRequirementRow,
+    "AgentRuntimeStepRow": AgentRuntimeStepRow,
+    "AgentRuntimeTaskRunRow": AgentRuntimeTaskRunRow,
+    "AgentRuntimeVariableRow": AgentRuntimeVariableRow,
+    "AgentRuntimeVerdictRow": AgentRuntimeVerdictRow,
 }
 
 
@@ -161,6 +189,19 @@ def test_grouped_persistence_models_register_datagen_tables():
         "df_datagen_task_event",
         "df_datagen_task_run",
         "df_datagen_task_step",
+        "df_agent_runtime_action",
+        "df_agent_runtime_approval",
+        "df_agent_runtime_attempt",
+        "df_agent_runtime_decision",
+        "df_agent_runtime_evidence",
+        "df_agent_runtime_observation",
+        "df_agent_runtime_payload",
+        "df_agent_runtime_proposal",
+        "df_agent_runtime_requirement",
+        "df_agent_runtime_step",
+        "df_agent_runtime_task_run",
+        "df_agent_runtime_variable",
+        "df_agent_runtime_verdict",
     }
 
     assert table_names.issubset(Base.metadata.tables)

@@ -7,6 +7,7 @@ from typing import Any
 from .models import (
     Action,
     ActionAttempt,
+    DecisionRecord,
     Evidence,
     Observation,
     PlanStep,
@@ -69,6 +70,7 @@ class Store:
         self._variables: dict[str, Variable] = {}
         self._requirements: dict[str, Requirement] = {}
         self._proposals: dict[str, RequirementProposal] = {}
+        self._decisions: dict[str, DecisionRecord] = {}
         self._approval_records: list[dict[str, Any]] = []
         self._payloads: dict[str, Any] = {}
 
@@ -79,6 +81,10 @@ class Store:
         if task_run_id not in self._task_runs:
             raise EntityNotFoundError("TaskRun", task_run_id)
         return self._task_runs[task_run_id]
+
+    def list_task_runs(self) -> list[TaskRun]:
+        """返回内存中的 TaskRun 列表。"""
+        return sorted(self._task_runs.values(), key=lambda item: item.updated_at, reverse=True)
 
     def save_step(self, step: PlanStep) -> None:
         self._steps[step.step_id] = step
@@ -166,6 +172,15 @@ class Store:
             return None
         return max(proposals, key=lambda p: p.created_at)
 
+    def save_decision(self, decision: DecisionRecord) -> None:
+        """保存一条决策审计记录。"""
+        self._decisions[decision.decision_id] = decision
+
+    def list_decisions(self, task_run_id: str) -> list[DecisionRecord]:
+        """返回该 TaskRun 的决策审计记录。"""
+        decisions = [item for item in self._decisions.values() if item.task_run_id == task_run_id]
+        return sorted(decisions, key=lambda item: item.created_at)
+
     def save_approval_record(self, record: dict[str, Any]) -> None:
         """保存审批事实。"""
         self._approval_records.append(record)
@@ -191,6 +206,36 @@ class Store:
             raise EntityNotFoundError("Payload", ref)
         return self._payloads[ref]
 
+    def export_task_run(self, task_run_id: str) -> dict[str, Any]:
+        """导出单个 TaskRun 的完整账本快照，供数据库仓储持久化。"""
+        task_run = self.get_task_run(task_run_id)
+        steps = [s for s in self._steps.values() if s.task_run_id == task_run_id]
+        actions = [a for a in self._actions.values() if a.task_run_id == task_run_id]
+        action_ids = {action.action_id for action in actions}
+        attempts = [a for a in self._attempts.values() if a.action_id in action_ids]
+        observations = [o for o in self._observations.values() if o.task_run_id == task_run_id]
+        evidences = [e for e in self._evidences.values() if e.task_run_id == task_run_id]
+        verdicts = [v for v in self._verdicts.values() if v.task_run_id == task_run_id]
+        variables = [v for v in self._variables.values() if v.task_run_id == task_run_id]
+        requirements = [r for r in self._requirements.values() if r.task_run_id == task_run_id]
+        proposals = [p for p in self._proposals.values() if p.task_run_id == task_run_id]
+        decisions = self.list_decisions(task_run_id)
+        return {
+            "task_run": task_run.model_dump(mode="json"),
+            "steps": [item.model_dump(mode="json") for item in steps],
+            "actions": [item.model_dump(mode="json") for item in actions],
+            "attempts": [item.model_dump(mode="json") for item in attempts],
+            "observations": [item.model_dump(mode="json") for item in observations],
+            "evidences": [item.model_dump(mode="json") for item in evidences],
+            "verdicts": [item.model_dump(mode="json") for item in verdicts],
+            "variables": [item.model_dump(mode="json") for item in variables],
+            "requirements": [item.model_dump(mode="json") for item in requirements],
+            "proposals": [item.model_dump(mode="json") for item in proposals],
+            "decisions": [item.model_dump(mode="json") for item in decisions],
+            "approval_records": self.list_approval_records(task_run_id),
+            "payloads": [{"ref": ref, "payload": payload} for ref, payload in self._payloads.items()],
+        }
+
     def get_timeline(self, task_run_id: str) -> dict[str, Any]:
         """获取 TaskRun 的完整时间线：Steps + Actions + Attempts + Evidence + Verdicts。"""
         steps = [s for s in self._steps.values() if s.task_run_id == task_run_id]
@@ -202,6 +247,7 @@ class Store:
         variables = [v for v in self._variables.values() if v.task_run_id == task_run_id]
         requirements = [r for r in self._requirements.values() if r.task_run_id == task_run_id]
         proposals = [p for p in self._proposals.values() if p.task_run_id == task_run_id]
+        decisions = self.list_decisions(task_run_id)
         approval_records = self.list_approval_records(task_run_id)
         return {
             "task_run_id": task_run_id,
@@ -214,6 +260,7 @@ class Store:
             "variables": [v.model_dump(mode="json") for v in variables],
             "requirements": [r.model_dump(mode="json") for r in requirements],
             "proposals": [_proposal_view(p) for p in proposals],
+            "decisions": [d.model_dump(mode="json") for d in decisions],
             "approval_records": approval_records,
         }
 

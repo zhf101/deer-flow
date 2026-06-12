@@ -27,6 +27,7 @@ from app.gdp.datagen.config.scene.models import (
     StepExecutionResult,
 )
 from app.gdp.datagen.config.sqlsource.models import SqlSourceParameter
+from app.gdp.datagen.runtime.sql.errors import SqlExecutionError
 from app.gdp.datagen.runtime.sql.models import SqlExecutionOptions, SqlExecutionRequest
 from app.gdp.datagen.runtime.sql.parameters import bind_source_parameters
 from app.gdp.datagen.runtime.sql.service import SqlExecutionService
@@ -191,13 +192,14 @@ class SceneExecutor:
                     finishedAt=_now(),
                     durationMs=round((perf_counter() - started) * 1000, 3),
                     outputs=http_result.extractedOutputs,
+                    requestSnapshot=http_result.request.model_dump(mode="json"),
                     rawResponse=http_result.model_dump(mode="json"),
                     error=error,
                     statusCode=http_result.response.statusCode if http_result.response else None,
                 )
             if not isinstance(step, SqlStepDefinition):
                 raise SceneExecutionError(f"{step.type.value} step execution is not implemented yet")
-            sql_result = await self._execute_sql_step(step, env_code, context)
+            sql_request, sql_result = await self._execute_sql_step(step, env_code, context)
             error = sql_result.error.message if sql_result.error else None
             return StepExecutionResult(
                 stepId=step.stepId,
@@ -208,14 +210,19 @@ class SceneExecutor:
                 finishedAt=_now(),
                 durationMs=round((perf_counter() - started) * 1000, 3),
                 outputs=sql_result.extractedOutputs,
+                requestSnapshot=sql_request.model_dump(mode="json"),
                 rawResponse=sql_result.model_dump(mode="json"),
                 error=error,
             )
         except Exception as exc:
             logger.error("【步骤执行异常】步骤 %s 发生未预期异常: %s: %s",
                          step.stepId, type(exc).__name__, str(exc))
-            # 返回给前端的错误信息只包含友好描述，不暴露内部堆栈
-            safe_error = str(exc) if isinstance(exc, SceneExecutionError) else f"{step.stepName} 执行过程中发生异常，请检查配置。"
+            # 已知领域异常直接透传消息；未知异常只给友好描述，不暴露内部堆栈
+            safe_error = (
+                str(exc)
+                if isinstance(exc, (SceneExecutionError, SqlExecutionError, BaseConfigNotFoundError))
+                else f"{step.stepName} 执行过程中发生异常，请检查配置。"
+            )
             return StepExecutionResult(
                 stepId=step.stepId,
                 stepName=step.stepName,
@@ -323,7 +330,7 @@ class SceneExecutor:
             options=SqlExecutionOptions(maxRows=200),
             outputMapping=step.outputMapping,
         )
-        return await self._sql.execute(request)
+        return request, await self._sql.execute(request)
 
 
 def _initial_context(scene: SceneDefinition, inputs: dict[str, Any]) -> dict[str, Any]:

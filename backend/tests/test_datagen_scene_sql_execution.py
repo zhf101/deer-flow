@@ -67,6 +67,9 @@ async def test_run_scene_executes_published_sqlite_sql_step(datagen_client: Asyn
     assert detail_body["runId"] == body["runId"]
     assert detail_body["inputs"] == {"skuId": "SKU10001"}
     assert detail_body["stepResults"][0]["outputs"] == {"stockNum": 120}
+    assert detail_body["stepResults"][0]["requestSnapshot"]["sqlText"] == "SELECT sku_id, stock_num FROM inventory WHERE sku_id = :skuId"
+    assert detail_body["stepResults"][0]["requestSnapshot"]["parameters"] == {"skuId": "SKU10001"}
+    assert detail_body["stepResults"][0]["requestSnapshot"]["datasourceCode"] == "tradeDb"
     assert detail_body["stepResults"][0]["rawResponse"]["rows"] == [{"sku_id": "SKU10001", "stock_num": 120}]
 
 
@@ -114,8 +117,16 @@ async def test_run_scene_executes_http_step_then_sql_step(datagen_client: AsyncC
         detail = await datagen_client.get(f"/api/v1/datagen/scenes/runs/{body['runId']}")
         assert detail.status_code == 200, detail.text
         detail_body = detail.json()
+        assert detail_body["stepResults"][0]["requestSnapshot"]["url"].endswith("/oauth/token")
+        assert detail_body["stepResults"][0]["requestSnapshot"]["method"] == "POST"
+        assert detail_body["stepResults"][0]["requestSnapshot"]["body"] == {"username": "U10001"}
         assert detail_body["stepResults"][0]["rawResponse"]["request"]["url"].endswith("/oauth/token")
         assert detail_body["stepResults"][0]["rawResponse"]["response"]["body"]["data"]["accessToken"] == "token_for_U10001"
+        assert detail_body["stepResults"][1]["requestSnapshot"]["sqlText"] == "SELECT sku_id, stock_num FROM inventory WHERE sku_id = :skuId AND owner_token = :token"
+        assert detail_body["stepResults"][1]["requestSnapshot"]["parameters"] == {
+            "skuId": "SKU10001",
+            "token": "token_for_U10001",
+        }
         assert detail_body["stepResults"][1]["rawResponse"]["rows"] == [{"sku_id": "SKU10001", "stock_num": 120}]
     finally:
         http_server.stop()

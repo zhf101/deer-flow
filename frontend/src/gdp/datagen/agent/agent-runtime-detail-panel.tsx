@@ -1,14 +1,17 @@
-import { FileJsonIcon, XIcon } from "lucide-react";
+import { XCircleIcon, XIcon } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 
 import type { AgentRuntimeTaskRunResponse } from "../common/lib/types";
-import type { TimelineDetailItem } from "./agent-runtime-view-model";
+import { AgentRuntimeAuditPanel } from "./agent-runtime-audit-panel";
+import type {
+  AuditDecision,
+  AuditExecution,
+  AuditStep,
+} from "./agent-runtime-view-model";
 
 function statusTone(status?: string) {
   switch (status) {
@@ -32,132 +35,77 @@ function statusTone(status?: string) {
   }
 }
 
-function formatJson(value: unknown) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
-  }
-}
-
-function InfoRow({ label, value }: { label: string; value?: string | null }) {
-  return (
-    <div className="grid grid-cols-[80px_1fr] gap-2 text-xs">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="min-w-0 break-all font-mono text-foreground">{value ?? "-"}</span>
-    </div>
-  );
-}
-
 function formatTime(value?: string | null) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
+  if (!value) return "";
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
+
+// ── 详情面板主组件 ──────────────────────────────────────────────────────
 
 export function AgentRuntimeDetailPanel({
   taskRun,
-  items,
-  selectedKey,
-  onSelect,
+  decisions,
+  steps,
+  executions,
   open,
   onClose,
 }: {
   taskRun: AgentRuntimeTaskRunResponse | null;
-  items: TimelineDetailItem[];
-  selectedKey: string | null;
-  onSelect: (key: string) => void;
+  decisions: AuditDecision[];
+  steps: AuditStep[];
+  executions: AuditExecution[];
   open: boolean;
   onClose: () => void;
 }) {
-  const selectedItem = items.find((item) => item.key === selectedKey) ?? null;
-
   if (!open) return null;
 
   return (
-    <aside className="flex min-h-0 w-[400px] flex-col border-l bg-muted/10">
+    <aside className="flex min-h-0 w-[440px] flex-col border-l bg-muted/10">
       <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
-        <h2 className="text-sm font-semibold">运行细节</h2>
+        <h2 className="text-sm font-semibold">运行审计</h2>
         <Button variant="ghost" size="icon" className="size-7" onClick={onClose}>
           <XIcon className="size-4" />
         </Button>
       </div>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="space-y-4 p-4">
-          {taskRun ? (
-            <section className="space-y-1.5 rounded-md border bg-background p-3">
-              <InfoRow label="TaskRun" value={taskRun.task_run_id} />
-              <InfoRow label="目标" value={taskRun.user_goal} />
-              <InfoRow label="环境" value={taskRun.env_code} />
-              <InfoRow label="状态" value={taskRun.status} />
-              <InfoRow label="创建" value={formatTime(taskRun.created_at)} />
-              <InfoRow label="更新" value={formatTime(taskRun.updated_at)} />
-            </section>
-          ) : null}
+      {/* TaskRun 摘要 */}
+      {taskRun ? (
+        <div className="shrink-0 border-b p-3">
+          <section className="space-y-1 rounded-lg border bg-background p-3 text-xs">
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[11px] text-muted-foreground">
+                {taskRun.task_run_id.slice(0, 12)}
+              </span>
+              <Badge variant="outline" className={cn("text-[10px]", statusTone(taskRun.status))}>
+                {taskRun.status}
+              </Badge>
+            </div>
+            <p className="font-medium">{taskRun.user_goal}</p>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <span>{taskRun.env_code ?? "-"}</span>
+              <span className="text-border">·</span>
+              <span>{formatTime(taskRun.created_at)}</span>
+            </div>
+          </section>
 
-          {taskRun?.failure_reason ? (
-            <Alert variant="destructive">
+          {taskRun.failure_reason ? (
+            <Alert variant="destructive" className="mt-2 text-xs">
+              <XCircleIcon className="size-4" />
               <AlertTitle>失败原因</AlertTitle>
               <AlertDescription>{taskRun.failure_reason}</AlertDescription>
             </Alert>
           ) : null}
-
-          <Separator />
-
-          {/* 时间线条目列表 */}
-          {items.length > 0 ? (
-            <div className="space-y-1">
-              {items.map((item) => (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => onSelect(item.key)}
-                  className={cn(
-                    "flex w-full items-start gap-2 rounded-md border px-3 py-2 text-left transition-colors",
-                    selectedKey === item.key
-                      ? "border-primary bg-primary/5"
-                      : "bg-background hover:bg-muted/50",
-                  )}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate text-xs font-medium">{item.title}</span>
-                      {item.status ? (
-                        <Badge variant="outline" className={cn("text-[10px]", statusTone(item.status))}>
-                          {item.status}
-                        </Badge>
-                      ) : null}
-                    </div>
-                    <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{item.subtitle}</p>
-                  </div>
-                </button>
-              ))}
-            </div>
-          ) : (
-            <Alert>
-              <FileJsonIcon className="size-4" />
-              <AlertTitle>暂无记录</AlertTitle>
-              <AlertDescription>启动 TaskRun 后显示运行账本。</AlertDescription>
-            </Alert>
-          )}
-
-          <Separator />
-
-          {/* 选中条目的 JSON 详情 */}
-          {selectedItem ? (
-            <section className="space-y-2">
-              <div>
-                <div className="text-[11px] font-semibold uppercase text-muted-foreground">{selectedItem.kind}</div>
-                <h3 className="mt-1 text-sm font-medium">{selectedItem.title}</h3>
-                <p className="mt-0.5 break-words text-xs text-muted-foreground">{selectedItem.subtitle}</p>
-              </div>
-              <pre className="max-h-[400px] overflow-auto rounded-md border bg-background p-3 text-xs leading-5">
-                {formatJson(selectedItem.payload)}
-              </pre>
-            </section>
-          ) : null}
         </div>
-      </ScrollArea>
+      ) : null}
+
+      {/* 三层审计面板 */}
+      <AgentRuntimeAuditPanel
+        decisions={decisions}
+        steps={steps}
+        executions={executions}
+      />
     </aside>
   );
 }

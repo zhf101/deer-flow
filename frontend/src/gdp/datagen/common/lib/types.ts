@@ -920,6 +920,7 @@ export interface AgentRuntimeActionAttempt {
   request_ref: string;
   response_ref?: string | null;
   response_preview: Record<string, unknown>;
+  scene_run_id?: string | null;
   error_type?: string | null;
   error_message?: string | null;
   started_at: string;
@@ -987,6 +988,59 @@ export interface AgentRuntimeVariable {
   created_at: string;
 }
 
+// ── 决策审计记录（Decision Ledger）──────────────────────────────────────
+
+export type DecisionKind =
+  | "SCENE_SEARCH"
+  | "SCENE_SELECTION"
+  | "SCENE_CREATION"
+  | "STEP_TYPE_SELECTION"
+  | "HTTP_SOURCE_SELECTION"
+  | "SQL_SOURCE_SELECTION"
+  | "FIELD_MAPPING"
+  | "STEP_ORDERING"
+  | "APPROVAL_REQUIREMENT"
+  | "RECOVERY_SELECTION";
+
+export type DecisionSource = "RULE" | "CATALOG" | "LLM" | "USER" | "SYSTEM_DEFAULT";
+export type DecisionStatus = "DECIDED" | "WAITING_USER" | "SUPERSEDED" | "FAILED";
+
+export interface DecisionOption {
+  option_id: string;
+  option_type: string;
+  label: string;
+  score: number | null;
+  reasons: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface DecisionRejection {
+  option_id: string;
+  reason: string;
+}
+
+export interface AgentRuntimeDecisionRecord {
+  decision_id: string;
+  task_run_id: string;
+  step_id?: string | null;
+  requirement_id?: string | null;
+  proposal_id?: string | null;
+  action_id?: string | null;
+  scene_run_id?: string | null;
+  decision_kind: DecisionKind;
+  decision_source: DecisionSource;
+  status: DecisionStatus;
+  target_type?: string | null;
+  target_id?: string | null;
+  options: DecisionOption[];
+  selected_option?: DecisionOption | null;
+  selected_reasons: string[];
+  rejected_reasons: DecisionRejection[];
+  criteria: string[];
+  summary: string;
+  created_at: string;
+}
+
 export interface AgentRuntimeTimelineResponse {
   task_run_id: string;
   steps: AgentRuntimePlanStep[];
@@ -998,6 +1052,7 @@ export interface AgentRuntimeTimelineResponse {
   variables: AgentRuntimeVariable[];
   requirements: AgentRuntimeRequirement[];
   proposals: AgentRuntimeProposal[];
+  decisions: AgentRuntimeDecisionRecord[];
   approval_records: AgentRuntimeApprovalRecord[];
 }
 

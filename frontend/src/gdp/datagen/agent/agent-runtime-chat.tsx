@@ -26,6 +26,7 @@ export function AgentRuntimeChat({
   onSupplyInput,
   onConfirmUnknownState,
   onViewAttempts,
+  onViewDetails,
   userGoal,
   onUserGoalChange,
 }: {
@@ -42,6 +43,7 @@ export function AgentRuntimeChat({
   onSupplyInput: (inputs: Record<string, unknown>) => void;
   onConfirmUnknownState: () => void;
   onViewAttempts: () => void;
+  onViewDetails?: () => void;
   userGoal: string;
   onUserGoalChange: (value: string) => void;
 }) {
@@ -74,7 +76,7 @@ export function AgentRuntimeChat({
           )}
 
           {completionResult ? (
-            <AgentRuntimeResultCard result={completionResult} />
+            <AgentRuntimeResultCard result={completionResult} onViewDetails={onViewDetails} />
           ) : null}
 
           {interaction ? (

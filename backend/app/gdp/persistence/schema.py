@@ -94,6 +94,7 @@ def _json_default(name: str) -> str:
         "result_ref_json",
         "token_usage_json",
         "request_mapping_json",
+        "request_snapshot_json",
         "output_mapping_json",
         "safety_json",
         "batch_config_json",

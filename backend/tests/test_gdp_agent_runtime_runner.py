@@ -5,13 +5,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from _agent_runtime_catalog_fakes import FakeSceneCatalog, make_candidate
 
 from app.gdp.agent_runtime.flow import create_task_run
 from app.gdp.agent_runtime.models import TaskRunStatus
 from app.gdp.agent_runtime.runner import run_task
 from app.gdp.agent_runtime.store import Store
-
-from _agent_runtime_catalog_fakes import FakeSceneCatalog, make_candidate
 
 
 @pytest.mark.anyio
@@ -174,6 +173,46 @@ async def test_runner_without_scene_code_auto_selects_and_executes(monkeypatch: 
     assert result.status == TaskRunStatus.COMPLETED
     assert timeline["requirements"][0]["status"] == "SATISFIED"
     assert timeline["proposals"][0]["selected_scene_code"] == "create_paid_order"
+    assert [item["decision_kind"] for item in timeline["decisions"]] == ["SCENE_SEARCH", "SCENE_SELECTION"]
+    assert timeline["decisions"][1]["status"] == "DECIDED"
+    assert timeline["decisions"][1]["target_id"] == "create_paid_order"
+    assert timeline["decisions"][1]["decision_source"] == "RULE"
+
+
+@pytest.mark.anyio
+async def test_runner_multiple_candidates_records_waiting_selection_decision(monkeypatch: pytest.MonkeyPatch):
+    """多候选时挂起等待用户，并记录等待用户的场景选择决策。"""
+    called = False
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        nonlocal called
+        called = True
+        return {"status": "SUCCESS", "finalOutput": {}, "errors": []}
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    store = Store()
+    task_run = create_task_run("造一笔已支付订单", env_code="SIT1")
+    store.save_task_run(task_run)
+
+    result = await run_task(
+        task_run,
+        SimpleNamespace(scene_code=None, inputs={"buyer_id": "U1"}),
+        store,
+        catalog=FakeSceneCatalog(
+            candidates=[
+                make_candidate("create_paid_order", score=0.9),
+                make_candidate("create_unpaid_order", score=0.88),
+            ]
+        ),
+    )
+
+    timeline = store.get_timeline(result.task_run_id)
+    assert called is False
+    assert result.status == TaskRunStatus.WAITING_USER
+    assert timeline["decisions"][-1]["decision_kind"] == "SCENE_SELECTION"
+    assert timeline["decisions"][-1]["status"] == "WAITING_USER"
+    assert timeline["decisions"][-1]["selected_option"] is None
+    assert len(timeline["decisions"][-1]["options"]) == 2
 
 
 @pytest.mark.anyio
@@ -231,6 +270,8 @@ async def test_runner_selection_with_approval_waits_before_scene_write(monkeypat
     assert called is False
     assert result.status == TaskRunStatus.WAITING_USER
     assert timeline["attempts"] == []
+    assert timeline["decisions"][-1]["decision_kind"] == "APPROVAL_REQUIREMENT"
+    assert timeline["decisions"][-1]["target_id"] == "create_paid_order"
 
 
 @pytest.mark.anyio

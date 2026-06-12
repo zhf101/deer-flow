@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
+from _agent_runtime_catalog_fakes import FakeSceneCatalog, make_candidate
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from app.gdp.agent_runtime import api as runtime_api
 from app.gdp.agent_runtime import runner as runtime_runner
 from app.gdp.agent_runtime.store import Store
-
-from _agent_runtime_catalog_fakes import FakeSceneCatalog, make_candidate
 
 
 def _make_app(monkeypatch: pytest.MonkeyPatch, *, catalog: FakeSceneCatalog | None = None) -> FastAPI:
@@ -262,6 +259,13 @@ async def test_api_reply_select_scene_requires_approval_before_execution(monkeyp
         assert called is False
         assert body["requirements"][0]["status"] == "SATISFIED"
         assert body["proposals"][0]["status"] == "SELECTED"
+        user_decisions = [
+            item
+            for item in body["decisions"]
+            if item["decision_kind"] == "SCENE_SELECTION" and item["decision_source"] == "USER"
+        ]
+        assert user_decisions[0]["target_id"] == "create_paid_order"
+        assert user_decisions[0]["selected_reasons"] == ["用户在候选场景中选择了 create_paid_order。"]
         assert body["approval_records"] == []
 
 
@@ -538,3 +542,15 @@ async def test_api_start_returns_503_when_catalog_persistence_missing(monkeypatc
             json={"inputs": {}},
         )
         assert start.status_code == 503
+
+        get_after_failure = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}")
+        assert get_after_failure.status_code == 200
+        assert get_after_failure.json()["status"] == "CREATED"
+
+        monkeypatch.setattr(runtime_runner, "get_catalog", lambda: FakeSceneCatalog())
+        retry = await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/start",
+            json={"scene_code": "create_paid_order", "inputs": {}},
+        )
+        assert retry.status_code == 200, retry.text
+        assert retry.json()["status"] == "WAITING_USER"

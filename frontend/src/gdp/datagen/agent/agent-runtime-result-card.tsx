@@ -3,6 +3,7 @@ import {
   CheckCircle2Icon,
   ChevronDownIcon,
   ChevronUpIcon,
+  ExternalLinkIcon,
   FileJsonIcon,
   XCircleIcon,
 } from "lucide-react";
@@ -36,7 +37,13 @@ function formatValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-export function AgentRuntimeResultCard({ result }: { result: CompletionResult }) {
+export function AgentRuntimeResultCard({
+  result,
+  onViewDetails,
+}: {
+  result: CompletionResult;
+  onViewDetails?: () => void;
+}) {
   const [showResponse, setShowResponse] = useState(false);
   const [showFacts, setShowFacts] = useState(false);
 
@@ -76,6 +83,15 @@ export function AgentRuntimeResultCard({ result }: { result: CompletionResult })
           <div>{formatTime(result.finished_at)}</div>
         </div>
       </div>
+
+      {onViewDetails ? (
+        <div className="border-t px-4 py-2">
+          <Button variant="outline" size="sm" className="w-full text-xs" onClick={onViewDetails}>
+            <ExternalLinkIcon className="mr-1.5 size-3.5" />
+            查看执行详情
+          </Button>
+        </div>
+      ) : null}
 
       {/* 事实摘要 */}
       {totalCount > 0 ? (

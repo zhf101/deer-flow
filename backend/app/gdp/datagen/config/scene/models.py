@@ -11,7 +11,6 @@ from app.gdp.datagen.config.common.models import (
     CapabilityCondition,
     CapabilitySideEffect,
     CapabilityType,
-    ConditionRule,
     ErrorMapping,
     HttpMethod,
     HttpTimeoutConfig,
@@ -273,6 +272,7 @@ class StepExecutionResult(BaseModel):
     finishedAt: datetime = Field(..., description="步骤结束时间。")
     durationMs: float = Field(..., description="步骤执行耗时，单位毫秒。")
     outputs: dict[str, Any] = Field(default_factory=dict, description="步骤输出变量。")
+    requestSnapshot: Any = Field(default=None, description="步骤实际执行请求快照，用于审计本次 HTTP 或 SQL 的请求内容。")
     rawResponse: Any = Field(default=None, description="步骤原始响应摘要，可能来自 HTTP 响应或 SQL 执行结果。")
     error: str | None = Field(default=None, description="步骤失败说明。")
     statusCode: int | None = Field(default=None, description="HTTP 步骤响应状态码；非 HTTP 步骤为空。")

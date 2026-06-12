@@ -12,6 +12,7 @@ from typing import Any
 
 from app.gdp.datagen.config.base.models import DatasourceConfig
 from app.gdp.datagen.config.common.models import SqlOperation
+from app.gdp.datagen.runtime.sql.errors import SqlDatabaseError
 from app.gdp.datagen.runtime.sql.models import SqlExecutionRequest, SqlExecutionResult, SqlResultColumn
 from app.gdp.datagen.runtime.sql.result import jsonable
 
@@ -148,7 +149,7 @@ def _resolve_sqlite_path(database_name: str) -> str:
         return database_name
     path = Path(database_name).expanduser()
     if not path.exists():
-        raise FileNotFoundError(f"SQLite database file not found: {database_name}")
+        raise SqlDatabaseError(f"SQLite 数据库文件不存在: {database_name}")
     return str(path)
 
 

@@ -1,16 +1,17 @@
 import type {
   AgentRuntimeAction,
   AgentRuntimeActionAttempt,
-  AgentRuntimeApprovalRecord,
+  AgentRuntimeDecisionRecord,
   AgentRuntimeEvidence,
-  AgentRuntimeObservation,
-  AgentRuntimePlanStep,
   AgentRuntimeProposal,
   AgentRuntimeSceneCandidate,
   AgentRuntimeTaskRunResponse,
   AgentRuntimeTimelineResponse,
-  AgentRuntimeVariable,
   AgentRuntimeVerdict,
+  DecisionKind,
+  DecisionOption,
+  DecisionRejection,
+  DecisionSource,
 } from "../common/lib/types";
 
 // ── 等待交互类型 ────────────────────────────────────────────────────────
@@ -35,17 +36,6 @@ export interface ChatMessage {
   detail?: unknown;
 }
 
-// ── 详情面板数据 ────────────────────────────────────────────────────────
-
-export interface TimelineDetailItem {
-  key: string;
-  kind: string;
-  title: string;
-  subtitle: string;
-  status?: string;
-  payload: unknown;
-}
-
 // ── 完成结果数据 ────────────────────────────────────────────────────────
 
 export interface CompletionFact {
@@ -67,6 +57,13 @@ export interface CompletionResult {
 }
 
 // ── 派生函数 ────────────────────────────────────────────────────────────
+
+function normalizeMissingInputField(field: string): string {
+  return field
+    .replace(/[。；;].*$/, "")
+    .replace(/^inputs\./, "")
+    .trim();
+}
 
 /** 从 taskRun + timeline 派生当前等待交互 */
 export function deriveWaitingInteraction(
@@ -110,9 +107,12 @@ export function deriveWaitingInteraction(
 
   // 5. pending_question 包含缺少必填信息
   if (taskRun.pending_question) {
-    const missingMatch = taskRun.pending_question.match(/缺少[：:]\s*(.+)/);
+    const missingMatch = taskRun.pending_question.match(/缺少(?:必填信息)?[：:]\s*(.+)/);
     if (missingMatch && missingMatch[1]) {
-      const fields = missingMatch[1].split(/[,，、]/).map((s) => s.trim());
+      const fields = missingMatch[1]
+        .split(/[,，、]/)
+        .map((s) => normalizeMissingInputField(s))
+        .filter(Boolean);
       return { type: "missing_input", fields };
     }
   }
@@ -300,76 +300,6 @@ export function deriveChatMessages(
   return messages;
 }
 
-/** 从 timeline 派生详情面板时间线条目 */
-export function deriveTimelineDetailItems(
-  timeline: AgentRuntimeTimelineResponse | null,
-): TimelineDetailItem[] {
-  if (!timeline) return [];
-  return [
-    ...timeline.steps.map((step) => ({
-      key: `step:${step.step_id}`,
-      kind: "step",
-      title: `Step #${step.step_no}`,
-      subtitle: step.goal,
-      status: step.status,
-      payload: step as unknown,
-    })),
-    ...timeline.actions.map((action) => ({
-      key: `action:${action.action_id}`,
-      kind: "action",
-      title: "Action",
-      subtitle: action.scene_code,
-      status: action.status,
-      payload: action as unknown,
-    })),
-    ...timeline.attempts.map((attempt) => ({
-      key: `attempt:${attempt.attempt_id}`,
-      kind: "attempt",
-      title: `Attempt #${attempt.attempt_no}`,
-      subtitle: attempt.error_message ?? attempt.request_ref,
-      status: attempt.status,
-      payload: attempt as unknown,
-    })),
-    ...timeline.observations.map((observation) => ({
-      key: `observation:${observation.observation_id}`,
-      kind: "observation",
-      title: "Observation",
-      subtitle: observation.raw_ref,
-      payload: observation as unknown,
-    })),
-    ...timeline.evidences.map((evidence) => ({
-      key: `evidence:${evidence.evidence_id}`,
-      kind: "evidence",
-      title: "Evidence",
-      subtitle: `${evidence.facts.length} facts / ${evidence.missing_facts.length} missing / ${evidence.unknown_facts.length} unknown`,
-      status:
-        evidence.unknown_facts.length > 0
-          ? "UNKNOWN_STATE"
-          : evidence.missing_facts.length > 0
-            ? "NEED_USER"
-            : evidence.facts.every((fact) => fact.passed)
-              ? "DONE"
-              : "FAILED",
-      payload: evidence as unknown,
-    })),
-    ...timeline.verdicts.map((verdict) => ({
-      key: `verdict:${verdict.verdict_id}`,
-      kind: "verdict",
-      title: "Verdict",
-      subtitle: verdict.reason,
-      status: verdict.verdict_type,
-      payload: verdict as unknown,
-    })),
-    ...timeline.variables.map((variable) => ({
-      key: `variable:${variable.variable_id}`,
-      kind: "variable",
-      title: variable.name,
-      subtitle: variable.semantic_type,
-      status: variable.tainted ? "FAILED" : variable.sensitive ? "NEED_USER" : "DONE",
-      payload: variable as unknown,
-    })),
-  ];
-}
 
 /** 从 taskRun + timeline 派生完成结果，仅在终态时有值 */
 export function deriveCompletionResult(
@@ -401,4 +331,100 @@ export function deriveCompletionResult(
     missing_facts: evidence?.missing_facts ?? [],
     finished_at: taskRun.finished_at ?? taskRun.updated_at,
   };
+}
+
+// ── 审计数据派生 ────────────────────────────────────────────────────────
+
+/** 决策层审计数据 */
+export interface AuditDecision {
+  decision_id: string;
+  kind: DecisionKind;
+  source: DecisionSource;
+  summary: string;
+  options: DecisionOption[];
+  selected?: DecisionOption | null;
+  selectedReasons: string[];
+  rejections: DecisionRejection[];
+  criteria: string[];
+  createdAt: string;
+}
+
+/** 编排层审计数据 */
+export interface AuditStep {
+  stepId: string;
+  stepNo: number;
+  goal: string;
+  status: string;
+  dependsOn: string[];
+  consumes: string[];
+  produces: string[];
+}
+
+/** 执行层审计数据 */
+export interface AuditExecution {
+  action: AgentRuntimeAction;
+  attempts: AgentRuntimeActionAttempt[];
+  evidence?: AgentRuntimeEvidence;
+  verdict?: AgentRuntimeVerdict;
+}
+
+/** 从 timeline 派生决策层审计数据 */
+export function deriveAuditDecisions(
+  timeline: AgentRuntimeTimelineResponse | null,
+): AuditDecision[] {
+  if (!timeline) return [];
+  return timeline.decisions.map((d) => ({
+    decision_id: d.decision_id,
+    kind: d.decision_kind,
+    source: d.decision_source,
+    summary: d.summary,
+    options: d.options,
+    selected: d.selected_option,
+    selectedReasons: d.selected_reasons,
+    rejections: d.rejected_reasons,
+    criteria: d.criteria,
+    createdAt: d.created_at,
+  }));
+}
+
+/** 从 timeline 派生编排层审计数据 */
+export function deriveAuditSteps(
+  timeline: AgentRuntimeTimelineResponse | null,
+): AuditStep[] {
+  if (!timeline) return [];
+  return timeline.steps.map((step) => ({
+    stepId: step.step_id,
+    stepNo: step.step_no,
+    goal: step.goal,
+    status: step.status,
+    dependsOn: step.depends_on,
+    consumes: step.consumes,
+    produces: step.produces,
+  }));
+}
+
+/** 从 timeline 派生执行层审计数据 */
+export function deriveAuditExecutions(
+  timeline: AgentRuntimeTimelineResponse | null,
+): AuditExecution[] {
+  if (!timeline) return [];
+
+  const verdictByStep = new Map<string, AgentRuntimeVerdict>();
+  for (const v of timeline.verdicts) {
+    verdictByStep.set(v.step_id, v);
+  }
+
+  return timeline.actions.map((action) => {
+    const step = timeline.steps.find((s) => s.step_id === action.step_id);
+    const attempts = timeline.attempts.filter((a) => a.action_id === action.action_id);
+    const evidence = timeline.evidences.find((e) => e.action_id === action.action_id);
+    const verdict = step ? verdictByStep.get(step.step_id) : undefined;
+
+    return {
+      action,
+      attempts,
+      evidence,
+      verdict,
+    };
+  });
 }
