@@ -46,6 +46,26 @@ export interface TimelineDetailItem {
   payload: unknown;
 }
 
+// ── 完成结果数据 ────────────────────────────────────────────────────────
+
+export interface CompletionFact {
+  subject: string;
+  passed: boolean;
+  expected: unknown;
+  actual: unknown;
+  detail?: string | null;
+}
+
+export interface CompletionResult {
+  verdict_type: "DONE" | "FAILED" | "UNKNOWN_STATE";
+  reason: string;
+  scene_code: string;
+  response_preview: Record<string, unknown>;
+  facts: CompletionFact[];
+  missing_facts: string[];
+  finished_at: string;
+}
+
 // ── 派生函数 ────────────────────────────────────────────────────────────
 
 /** 从 taskRun + timeline 派生当前等待交互 */
@@ -349,4 +369,36 @@ export function deriveTimelineDetailItems(
       payload: variable as unknown,
     })),
   ];
+}
+
+/** 从 taskRun + timeline 派生完成结果，仅在终态时有值 */
+export function deriveCompletionResult(
+  taskRun: AgentRuntimeTaskRunResponse | null,
+  timeline: AgentRuntimeTimelineResponse | null,
+): CompletionResult | null {
+  if (!taskRun || !timeline) return null;
+  if (taskRun.status !== "COMPLETED" && taskRun.status !== "FAILED") return null;
+
+  const verdict = timeline.verdicts.at(-1);
+  if (!verdict) return null;
+
+  const action = timeline.actions.at(-1);
+  const attempt = timeline.attempts.at(-1);
+  const evidence = timeline.evidences.at(-1);
+
+  return {
+    verdict_type: verdict.verdict_type === "NEED_USER" ? "UNKNOWN_STATE" : verdict.verdict_type as "DONE" | "FAILED" | "UNKNOWN_STATE",
+    reason: verdict.reason,
+    scene_code: action?.scene_code ?? "",
+    response_preview: attempt?.response_preview ?? {},
+    facts: evidence?.facts.map((f) => ({
+      subject: f.subject,
+      passed: f.passed,
+      expected: f.expected,
+      actual: f.actual,
+      detail: f.detail,
+    })) ?? [],
+    missing_facts: evidence?.missing_facts ?? [],
+    finished_at: taskRun.finished_at ?? taskRun.updated_at,
+  };
 }

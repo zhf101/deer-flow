@@ -8,12 +8,14 @@ import { cn } from "@/lib/utils";
 
 import { ActionCard } from "./agent-runtime-action-cards";
 import { AgentRuntimeMessage } from "./agent-runtime-message";
-import type { ChatMessage, WaitingInteraction } from "./agent-runtime-view-model";
+import { AgentRuntimeResultCard } from "./agent-runtime-result-card";
+import type { ChatMessage, CompletionResult, WaitingInteraction } from "./agent-runtime-view-model";
 import type { AgentRuntimeSceneCandidate } from "../common/lib/types";
 
 export function AgentRuntimeChat({
   messages,
   interaction,
+  completionResult,
   busy,
   canStart,
   onStart,
@@ -29,6 +31,7 @@ export function AgentRuntimeChat({
 }: {
   messages: ChatMessage[];
   interaction: WaitingInteraction | null;
+  completionResult: CompletionResult | null;
   busy: boolean;
   canStart: boolean;
   onStart: () => void;
@@ -50,7 +53,7 @@ export function AgentRuntimeChat({
     if (el) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [messages, interaction]);
+  }, [messages, interaction, completionResult]);
 
   const hasMessages = messages.length > 0;
 
@@ -69,6 +72,10 @@ export function AgentRuntimeChat({
           ) : (
             messages.map((message) => <AgentRuntimeMessage key={message.id} message={message} />)
           )}
+
+          {completionResult ? (
+            <AgentRuntimeResultCard result={completionResult} />
+          ) : null}
 
           {interaction ? (
             <div className="space-y-2">

@@ -44,6 +44,7 @@ import { AgentRuntimeChat } from "./agent-runtime-chat";
 import { AgentRuntimeDetailPanel } from "./agent-runtime-detail-panel";
 import {
   deriveChatMessages,
+  deriveCompletionResult,
   deriveTimelineDetailItems,
   deriveWaitingInteraction,
 } from "./agent-runtime-view-model";
@@ -115,6 +116,7 @@ export function AgentRuntimePage() {
   const messages = useMemo(() => deriveChatMessages(taskRun, timeline), [taskRun, timeline]);
   const interaction = useMemo(() => deriveWaitingInteraction(taskRun, timeline), [taskRun, timeline]);
   const detailItems = useMemo(() => deriveTimelineDetailItems(timeline), [timeline]);
+  const completionResult = useMemo(() => deriveCompletionResult(taskRun, timeline), [taskRun, timeline]);
   const canCancel = taskRun ? !TERMINAL_STATUSES.has(taskRun.status) : false;
 
   // 加载环境和场景
@@ -489,6 +491,7 @@ export function AgentRuntimePage() {
         <AgentRuntimeChat
           messages={messages}
           interaction={interaction}
+          completionResult={completionResult}
           busy={busy}
           canStart={!busy && !!userGoal.trim() && !!envCode}
           onStart={handleStart}
