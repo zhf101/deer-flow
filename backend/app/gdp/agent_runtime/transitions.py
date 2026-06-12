@@ -11,6 +11,8 @@ from .models import (
     Action,
     ActionStatus,
     PlanStep,
+    Requirement,
+    RequirementStatus,
     StepStatus,
     TaskRun,
     TaskRunStatus,
@@ -100,3 +102,23 @@ def transition_action(action: Action, target: ActionStatus) -> Action:
         raise IllegalTransition(action.status, target)
     action.status = target
     return action
+
+
+# ---------- Requirement 状态机（第二阶段） ----------
+
+REQUIREMENT_LEGAL_TRANSITIONS: dict[RequirementStatus, set[RequirementStatus]] = {
+    RequirementStatus.PENDING: {RequirementStatus.RESOLVING, RequirementStatus.FAILED},
+    RequirementStatus.RESOLVING: {RequirementStatus.SATISFIED, RequirementStatus.FAILED},
+    RequirementStatus.SATISFIED: set(),
+    RequirementStatus.FAILED: set(),
+}
+
+
+def transition_requirement(requirement: Requirement, target: RequirementStatus) -> Requirement:
+    """Requirement 状态转移 guard。拒绝 LMProposal 和非法转移。"""
+    reject_lm_proposal(target)
+    if target not in REQUIREMENT_LEGAL_TRANSITIONS[requirement.status]:
+        raise IllegalTransition(requirement.status, target)
+    requirement.status = target
+    requirement.updated_at = _now()
+    return requirement

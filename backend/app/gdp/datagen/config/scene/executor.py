@@ -14,7 +14,7 @@ from app.gdp.datagen.config.base.repository import BaseConfigNotFoundError, Base
 from app.gdp.datagen.config.common.models import ConditionRule, InputFieldType, SceneSuccessCriteria
 from app.gdp.datagen.config.httpsource.executor import execute_http_test
 from app.gdp.datagen.config.httpsource.models import HttpSourceConfig
-from app.gdp.datagen.config.scene.expression import resolve_mapping, resolve_path
+from app.gdp.datagen.config.scene.expression import resolve_mapping, resolve_path, resolve_value
 from app.gdp.datagen.config.scene.models import (
     HttpStepDefinition,
     SceneBusinessResult,
@@ -240,7 +240,10 @@ class SceneExecutor:
         logger.info("【HTTP 步骤详情】")
         logger.info("  系统编码: %s", step.sysCode)
         logger.info("  请求方法: %s", step.method.value)
-        logger.info("  请求路径: %s", step.path)
+        resolved_path = resolve_value(step.path, context)
+        if not isinstance(resolved_path, str) or not resolved_path:
+            raise SceneExecutionError("HTTP step path cannot be resolved")
+        logger.info("  请求路径: %s", resolved_path)
 
         try:
             endpoint = await self._base_repo.get_enabled_service_endpoint(
@@ -261,7 +264,7 @@ class SceneExecutor:
             sourceCode=step.stepId,
             sourceName=step.sourceName or step.stepName or step.stepId,
             sysCode=step.sysCode,
-            path=step.path,
+            path=resolved_path,
             method=step.method,
             timeoutConfig=step.timeoutConfig,
             requestMapping=request_mapping,

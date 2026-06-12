@@ -107,6 +107,17 @@ export interface InputFieldValidation {
   maximum?: number | null;
 }
 
+export interface CapabilitySideEffect {
+  effectType: string;
+  target?: string | null;
+  description?: string | null;
+}
+
+export interface CapabilityCondition {
+  condition: string;
+  description?: string | null;
+}
+
 export interface InputFieldDefinition {
   name: string;
   label?: string | null;
@@ -284,6 +295,12 @@ export interface SceneDefinition {
   sceneName: string;
   sceneRemark?: string | null;
   sceneType?: string | null;
+  tags?: string[];
+  capabilityType?: "CREATE" | "UPDATE" | "QUERY" | "ASSERT" | "COMPOSITE";
+  businessDomain?: string | null;
+  preconditions?: CapabilityCondition[];
+  sideEffects?: CapabilitySideEffect[];
+  agentDescription?: string | null;
   environmentField: "env";
   inputSchema: InputFieldDefinition[];
   steps: StepDefinition[];
@@ -301,6 +318,11 @@ export interface SceneSummary {
   sceneName: string;
   sceneRemark?: string | null;
   sceneType?: string | null;
+  tags?: string[];
+  capabilityType?: "CREATE" | "UPDATE" | "QUERY" | "ASSERT" | "COMPOSITE";
+  businessDomain?: string | null;
+  sideEffects?: CapabilitySideEffect[];
+  agentDescription?: string | null;
   status: SceneStatus;
   currentVersionNo?: number | null;
   publishedVersionNo?: number | null;
@@ -790,13 +812,64 @@ export interface AgentRuntimeTaskRunCreateRequest {
 }
 
 export interface AgentRuntimeTaskRunStartRequest {
-  scene_code: string;
+  scene_code?: string | null;
   inputs: Record<string, unknown>;
 }
 
 export interface AgentRuntimeTaskRunReplyRequest {
-  reply_type: "APPROVE" | "SUPPLY_INPUT" | "CONFIRM_UNKNOWN_STATE" | string;
+  reply_type:
+    | "APPROVE"
+    | "SUPPLY_INPUT"
+    | "CONFIRM_UNKNOWN_STATE"
+    | "SELECT_SCENE"
+    | "SUPPLY_SCENE_CODE"
+    | string;
   payload: Record<string, unknown>;
+}
+
+export interface AgentRuntimeRequirement {
+  requirement_id: string;
+  task_run_id: string;
+  step_id: string;
+  layer: "SCENE";
+  goal: string;
+  status: "PENDING" | "RESOLVING" | "SATISFIED" | "FAILED";
+  proposal_id?: string | null;
+  selected_scene_code?: string | null;
+  blacklist: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentRuntimeSceneCandidate {
+  scene_code: string;
+  scene_name: string;
+  score: number;
+  reasons: string[];
+  missing_inputs: string[];
+  requires_confirmation: boolean;
+}
+
+export interface AgentRuntimeProposal {
+  proposal_id: string;
+  task_run_id: string;
+  step_id: string;
+  requirement_id: string;
+  status: "PENDING" | "SELECTED" | "REJECTED";
+  selected_scene_code?: string | null;
+  selection_source?: "AUTO" | "USER" | "LLM" | "EXPLICIT" | null;
+  query_terms: string[];
+  created_at: string;
+  candidates: AgentRuntimeSceneCandidate[];
+}
+
+export interface AgentRuntimeApprovalRecord {
+  task_run_id: string;
+  requirement_id: string;
+  proposal_id: string;
+  scene_code: string;
+  approved_by: string;
+  approved_at: string;
 }
 
 export interface AgentRuntimeTaskRunResponse {
@@ -923,6 +996,9 @@ export interface AgentRuntimeTimelineResponse {
   evidences: AgentRuntimeEvidence[];
   verdicts: AgentRuntimeVerdict[];
   variables: AgentRuntimeVariable[];
+  requirements: AgentRuntimeRequirement[];
+  proposals: AgentRuntimeProposal[];
+  approval_records: AgentRuntimeApprovalRecord[];
 }
 
 // ── 执行引擎相关类型 ─────────────────────────────────────────────────

@@ -17,6 +17,8 @@ from app.gdp.agent_runtime.runner import run_task
 from app.gdp.agent_runtime.store import Store
 from app.gdp.agent_runtime.transitions import IllegalTransition, transition_task_run
 
+from _agent_runtime_catalog_fakes import FakeSceneCatalog
+
 
 @pytest.mark.anyio
 async def test_runtime_mvp_happy_path_completes_from_scene_evidence(monkeypatch: pytest.MonkeyPatch, caplog):
@@ -46,6 +48,7 @@ async def test_runtime_mvp_happy_path_completes_from_scene_evidence(monkeypatch:
         task_run,
         SimpleNamespace(scene_code="create_paid_order", inputs={"buyer_id": "U1"}),
         store,
+        catalog=FakeSceneCatalog(),
     )
 
     timeline = store.get_timeline(result.task_run_id)
@@ -91,6 +94,7 @@ async def test_runtime_mvp_unknown_state_waits_for_user(monkeypatch: pytest.Monk
         task_run,
         SimpleNamespace(scene_code="create_paid_order", inputs={"buyer_id": "U1"}),
         store,
+        catalog=FakeSceneCatalog(),
     )
 
     timeline = store.get_timeline(result.task_run_id)
@@ -131,6 +135,7 @@ async def test_runtime_mvp_completes_when_scene_business_rules_succeed(monkeypat
             inputs={"accountId": "10001", "orderNo": "T202606110101"},
         ),
         store,
+        catalog=FakeSceneCatalog(),
     )
 
     timeline = store.get_timeline(result.task_run_id)
@@ -175,6 +180,7 @@ async def test_runtime_mvp_business_result_failure_carries_exact_reason(monkeypa
         task_run,
         SimpleNamespace(scene_code="create_paid_order", inputs={"buyer_id": "U1"}),
         store,
+        catalog=FakeSceneCatalog(),
     )
 
     timeline = store.get_timeline(result.task_run_id)
@@ -220,6 +226,7 @@ async def test_runtime_mvp_business_result_success_completes(monkeypatch: pytest
         task_run,
         SimpleNamespace(scene_code="some_configured_scene", inputs={"k": "v"}),
         store,
+        catalog=FakeSceneCatalog(),
     )
 
     timeline = store.get_timeline(result.task_run_id)
@@ -252,6 +259,7 @@ async def test_runtime_mvp_scene_failure_fails_task_run(monkeypatch: pytest.Monk
         task_run,
         SimpleNamespace(scene_code="create_paid_order", inputs={"buyer_id": "U1"}),
         store,
+        catalog=FakeSceneCatalog(),
     )
 
     timeline = store.get_timeline(result.task_run_id)
@@ -303,6 +311,7 @@ async def test_runtime_mvp_http_failure_surfaces_friendly_reason(monkeypatch: py
         task_run,
         SimpleNamespace(scene_code="create_paid_order", inputs={"buyer_id": "U1"}),
         store,
+        catalog=FakeSceneCatalog(),
     )
 
     assert result.status == TaskRunStatus.FAILED
@@ -359,6 +368,7 @@ async def test_runtime_mvp_api_create_start_query_timeline(monkeypatch: pytest.M
         }
 
     monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    monkeypatch.setattr("app.gdp.agent_runtime.runner.get_catalog", lambda: FakeSceneCatalog())
     monkeypatch.setattr(runtime_api, "_store", Store())
 
     app = FastAPI()
@@ -370,13 +380,22 @@ async def test_runtime_mvp_api_create_start_query_timeline(monkeypatch: pytest.M
             json={"user_goal": "造一笔已支付订单", "env_code": "SIT1"},
         )
         assert create.status_code == 200, create.text
-        task_run_id = create.json()["task_run_id"]
+        waiting_task_run_id = create.json()["task_run_id"]
 
         empty_scene = await client.post(
-            f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/start",
+            f"/api/v1/datagen/agent-runtime/task-runs/{waiting_task_run_id}/start",
             json={"scene_code": "", "inputs": {}},
         )
-        assert empty_scene.status_code == 422
+        assert empty_scene.status_code == 200, empty_scene.text
+        assert empty_scene.json()["status"] == "WAITING_USER"
+        assert "没有找到匹配的 Scene" in (empty_scene.json()["pending_question"] or "")
+
+        create_for_explicit = await client.post(
+            "/api/v1/datagen/agent-runtime/task-runs",
+            json={"user_goal": "造一笔已支付订单", "env_code": "SIT1"},
+        )
+        assert create_for_explicit.status_code == 200, create_for_explicit.text
+        task_run_id = create_for_explicit.json()["task_run_id"]
 
         start = await client.post(
             f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/start",

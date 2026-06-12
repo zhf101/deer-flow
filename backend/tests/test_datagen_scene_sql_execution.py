@@ -122,6 +122,37 @@ async def test_run_scene_executes_http_step_then_sql_step(datagen_client: AsyncC
 
 
 @pytest.mark.anyio
+async def test_run_scene_resolves_http_step_path_expressions(datagen_client: AsyncClient, tmp_path):
+    business_db = tmp_path / "trade.sqlite"
+    _create_business_db(business_db)
+    http_server = _start_token_server()
+    try:
+        await _create_base_sqlite_config(datagen_client, business_db)
+        await _create_http_base_config(datagen_client, http_server.base_url)
+        await _create_http_path_expression_scene(datagen_client)
+
+        publish = await datagen_client.post("/api/v1/datagen/scenes/httpPathScene/publish")
+        assert publish.status_code == 200, publish.text
+
+        response = await datagen_client.post(
+            "/api/v1/datagen/scenes/run",
+            json={
+                "sceneCode": "httpPathScene",
+                "envCode": "DEV",
+                "inputs": {"userId": "U10001"},
+            },
+        )
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["status"] == "SUCCESS"
+        request_url = body["stepResults"][0]["rawResponse"]["request"]["url"]
+        assert request_url.endswith("/oauth/U10001/token")
+    finally:
+        http_server.stop()
+
+
+@pytest.mark.anyio
 async def test_stop_on_error_respects_scene_step_order(datagen_client: AsyncClient, tmp_path):
     business_db = tmp_path / "trade.sqlite"
     _create_business_db(business_db)
@@ -397,6 +428,67 @@ async def _create_http_sql_scene(client: AsyncClient) -> None:
             "resultMapping": {
                 "accessToken": "${steps.getToken.outputs.accessToken}",
                 "stockNum": "${steps.queryInventory.outputs.stockNum}",
+            },
+            "batchConfig": {
+                "enabled": False,
+                "failurePolicy": "STOP_ON_ERROR",
+                "maxConcurrency": 1,
+            },
+            "status": "DRAFT",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
+async def _create_http_path_expression_scene(client: AsyncClient) -> None:
+    response = await client.post(
+        "/api/v1/datagen/scenes",
+        json={
+            "sceneCode": "httpPathScene",
+            "sceneName": "HTTP path expression scene",
+            "sceneRemark": "验证 HTTP 步骤 path 支持运行时变量。",
+            "tags": ["auth", "path"],
+            "capabilityType": "QUERY",
+            "businessDomain": "trade",
+            "agentDescription": "根据用户 ID 拼装认证接口路径。",
+            "inputSchema": [
+                {
+                    "name": "userId",
+                    "label": "User",
+                    "type": "string",
+                    "required": True,
+                    "batchEnabled": False,
+                }
+            ],
+            "steps": [
+                {
+                    "stepId": "getToken",
+                    "stepName": "获取 Token",
+                    "type": "HTTP",
+                    "enabled": True,
+                    "dependsOn": [],
+                    "sysCode": "AUTH",
+                    "method": "POST",
+                    "path": "/oauth/${input.userId}/token",
+                    "timeoutConfig": {
+                        "connectTimeoutSeconds": 5,
+                        "readTimeoutSeconds": 5,
+                        "writeTimeoutSeconds": 5,
+                        "poolTimeoutSeconds": 5,
+                    },
+                    "requestMapping": {
+                        "headers": {"Content-Type": "application/json"},
+                        "bodyType": "raw-json",
+                        "rawBody": "{\"username\":\"${input.userId}\"}",
+                    },
+                    "httpParamMapping": {},
+                    "outputMapping": {
+                        "accessToken": "${RES_BODY(data.accessToken)}",
+                    },
+                },
+            ],
+            "resultMapping": {
+                "accessToken": "${steps.getToken.outputs.accessToken}",
             },
             "batchConfig": {
                 "enabled": False,

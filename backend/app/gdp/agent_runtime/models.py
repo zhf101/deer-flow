@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -277,3 +277,86 @@ class Variable(BaseModel):
     provenance: VariableProvenance = Field(description="变量来源。")
     consumed_by: list[StepId] = Field(default_factory=list, description="消费该变量的步骤。")
     created_at: datetime = Field(description="创建时间。")
+
+
+# ---------- Requirement（第二阶段：Catalog 驱动的 Scene 选择缺口） ----------
+
+
+class RequirementLayer(StrEnum):
+    SCENE = "SCENE"  # 第二阶段只支持 SCENE，SOURCE/INFRA 留给 Phase 4
+
+
+class RequirementStatus(StrEnum):
+    PENDING = "PENDING"        # 已创建，尚未搜索
+    RESOLVING = "RESOLVING"    # 已出候选，等待选定（自动或用户）
+    SATISFIED = "SATISFIED"    # 已选定 scene_code
+    FAILED = "FAILED"          # 无候选或用户放弃
+
+
+class Requirement(BaseModel):
+    """一个待解决的资源缺口。第二阶段只表达 SCENE 层缺口。"""
+
+    requirement_id: str = Field(description="缺口 ID。")
+    task_run_id: TaskRunId = Field(description="所属 TaskRun。")
+    step_id: StepId = Field(description="所属 PlanStep。")
+    layer: RequirementLayer = Field(description="缺口层级。第二阶段固定 SCENE。")
+    goal: str = Field(min_length=1, description="该缺口要满足的目标，通常继承 step.goal。")
+    status: RequirementStatus = Field(description="缺口状态。")
+    proposal_id: str | None = Field(default=None, description="当前候选集 Proposal。")
+    selected_scene_code: str | None = Field(default=None, description="已选定的 Scene 编码。")
+    blacklist: list[str] = Field(default_factory=list, description="已失败或被拒的 scene_code，重搜时排除。")
+    created_at: datetime = Field(description="创建时间。")
+    updated_at: datetime = Field(description="更新时间。")
+
+
+# ---------- Proposal / SceneCandidate ----------
+
+
+class SceneCandidate(BaseModel):
+    """一个搜索命中的 Scene 候选。来自 Catalog 的确定性检索，是事实，不是 LMProposal。"""
+
+    scene_code: str = Field(description="候选 Scene 编码。")
+    scene_name: str = Field(description="候选 Scene 名称。")
+    score: float = Field(ge=0.0, le=1.0, description="Catalog 综合评分，仅用于排序。")
+    reasons: list[str] = Field(default_factory=list, description="命中理由，可直接展示给用户。")
+    missing_inputs: list[str] = Field(default_factory=list, description="当前入参和变量栈尚不能绑定的必填入参。")
+    requires_confirmation: bool = Field(description="执行前是否需要用户审批（写副作用）。")
+    contract_hash: HashValue = Field(description="候选契约快照哈希，执行前记录，Phase 5 检测契约漂移用。")
+
+
+class ProposalStatus(StrEnum):
+    PENDING = "PENDING"      # 候选已生成，等待选定
+    SELECTED = "SELECTED"    # 某候选被选定
+    REJECTED = "REJECTED"    # 全部候选被拒或用户放弃
+
+
+class SelectionSource(StrEnum):
+    AUTO = "AUTO"            # 规则自动选定（单候选高置信）
+    USER = "USER"            # 用户在多候选中选定
+    LLM = "LLM"             # 采纳了 LLM 重排建议（仍经规则校验）
+    EXPLICIT = "EXPLICIT"    # start 显式 scene_code（向后兼容路径）
+
+
+class RequirementProposal(BaseModel):
+    """一次搜索产出的候选集和选择结果。"""
+
+    proposal_id: str = Field(description="候选集 ID。")
+    task_run_id: TaskRunId = Field(description="所属 TaskRun。")
+    step_id: StepId = Field(description="所属 PlanStep。")
+    requirement_id: str = Field(description="所属 Requirement。")
+    candidates: list[SceneCandidate] = Field(default_factory=list, description="按评分倒序的候选。")
+    query_terms: list[str] = Field(default_factory=list, description="参与检索的关键词和别名。")
+    status: ProposalStatus = Field(description="候选集状态。")
+    selected_scene_code: str | None = Field(default=None, description="被选定的 scene_code。")
+    selection_source: SelectionSource | None = Field(default=None, description="选定来源：AUTO / USER / LLM / EXPLICIT。")
+    created_at: datetime = Field(description="创建时间。")
+
+
+# ---------- LLM 重排建议（可选，默认关闭） ----------
+
+
+class SceneSelectionSuggestion(BaseModel):
+    """LLM 在已检索候选中给出的排序/解释建议。只能用于排序，不能直接定案。"""
+
+    ranked_scene_codes: list[str] = Field(default_factory=list, description="LLM 建议的候选优先级，倒序。")
+    explanation: str = Field(default="", description="LLM 给出的选择解释。")

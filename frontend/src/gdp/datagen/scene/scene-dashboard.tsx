@@ -192,6 +192,10 @@ export function SceneDashboard({ onEdit, onView, onRun, onCreate }: SceneDashboa
             <tr>
               <th className="p-4 font-medium">场景名称</th>
               <th className="p-4 font-medium">业务分类</th>
+              <th className="p-4 font-medium">业务域</th>
+              <th className="p-4 font-medium">能力类型</th>
+              <th className="p-4 font-medium">标签</th>
+              <th className="p-4 font-medium">副作用</th>
               <th className="p-4 font-medium">状态</th>
               <th className="p-4 font-medium">当前版本</th>
               <th className="p-4 font-medium">发布版本</th>
@@ -202,13 +206,13 @@ export function SceneDashboard({ onEdit, onView, onRun, onCreate }: SceneDashboa
           <tbody>
             {loading && scenes.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                <td colSpan={11} className="p-8 text-center text-muted-foreground">
                   加载中...
                 </td>
               </tr>
             ) : scenes.length === 0 ? (
               <tr>
-                <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                <td colSpan={11} className="p-8 text-center text-muted-foreground">
                   未找到匹配的场景
                 </td>
               </tr>
@@ -226,6 +230,48 @@ export function SceneDashboard({ onEdit, onView, onRun, onCreate }: SceneDashboa
                     </div>
                   </td>
                   <td className="p-4">{scene.sceneType ?? "-"}</td>
+                  <td className="p-4">
+                    <div className="text-sm">{scene.businessDomain ?? "-"}</div>
+                  </td>
+                  <td className="p-4">
+                    <CapabilityTypeBadge type={scene.capabilityType} />
+                  </td>
+                  <td className="p-4">
+                    <div className="flex flex-wrap gap-1">
+                      {(scene.tags ?? []).length > 0 ? (
+                        scene.tags!.slice(0, 3).map((tag, i) => (
+                          <Badge key={i} variant="outline" className="text-xs">
+                            {tag}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-muted-foreground text-sm">-</span>
+                      )}
+                      {(scene.tags ?? []).length > 3 && (
+                        <Badge variant="outline" className="text-xs">
+                          +{scene.tags!.length - 3}
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex flex-wrap gap-1">
+                      {(scene.sideEffects ?? []).length > 0 ? (
+                        scene.sideEffects!.slice(0, 2).map((effect, i) => (
+                          <Badge key={i} variant="destructive" className="text-xs" title={effect.description ?? ""}>
+                            {effect.effectType}
+                          </Badge>
+                        ))
+                      ) : (
+                        <span className="text-muted-foreground text-sm">无</span>
+                      )}
+                      {(scene.sideEffects ?? []).length > 2 && (
+                        <Badge variant="destructive" className="text-xs">
+                          +{scene.sideEffects!.length - 2}
+                        </Badge>
+                      )}
+                    </div>
+                  </td>
                   <td className="p-4">
                     <StatusBadge status={scene.status} />
                   </td>
@@ -381,10 +427,36 @@ function StatusBadge({ status }: { status: SceneStatus }) {
     status === "PUBLISHED" ? "已发布" : status === "DISABLED" ? "已停用" : "草稿";
   const variant =
     status === "PUBLISHED" ? "default" : status === "DISABLED" ? "destructive" : "secondary";
-  
+
   return (
     <Badge variant={variant} className="rounded-md">
       {label}
+    </Badge>
+  );
+}
+
+function CapabilityTypeBadge({ type }: { type?: string }) {
+  if (!type) return <span className="text-muted-foreground text-sm">-</span>;
+
+  const labels: Record<string, string> = {
+    CREATE: "创建",
+    UPDATE: "更新",
+    QUERY: "查询",
+    ASSERT: "断言",
+    COMPOSITE: "组合",
+  };
+
+  const variants: Record<string, "default" | "secondary" | "outline"> = {
+    CREATE: "default",
+    UPDATE: "secondary",
+    QUERY: "outline",
+    ASSERT: "secondary",
+    COMPOSITE: "default",
+  };
+
+  return (
+    <Badge variant={variants[type] ?? "outline"} className="rounded-md">
+      {labels[type] ?? type}
     </Badge>
   );
 }

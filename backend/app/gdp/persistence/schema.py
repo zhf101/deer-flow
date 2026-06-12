@@ -84,6 +84,8 @@ def _default_sql(column: Column) -> str | None:
 
 
 def _json_default(name: str) -> str:
+    if name == "success_criteria_json":
+        return "null"
     if name in {
         "value_json",
         "input_snapshot_json",

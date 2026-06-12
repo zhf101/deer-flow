@@ -80,6 +80,7 @@ class DataFactorySceneVersionRow(Base):
     agent_description: Mapped[str | None] = mapped_column(Text, comment="面向 Agent 的能力说明。")
     result_schema_json: Mapped[str | None] = mapped_column(Text, comment="场景出参定义 JSON。")
     result_mapping_json: Mapped[str] = mapped_column(Text, nullable=False, comment="场景结果映射 JSON。")
+    success_criteria_json: Mapped[str | None] = mapped_column(Text, comment="场景级业务成功判定规则 JSON。")
     batch_config_json: Mapped[str] = mapped_column(Text, nullable=False, comment="批量执行配置 JSON。")
     error_policy_json: Mapped[str] = mapped_column(Text, nullable=False, comment="错误策略。")
     validation_result_json: Mapped[str | None] = mapped_column(Text, comment="最近一次校验结果 JSON。")
@@ -698,6 +699,7 @@ class SceneRepository:
             agent_description=scene.agentDescription,
             result_schema_json=_dumps(_model_dump(scene.resultSchema)) if scene.resultSchema else None,
             result_mapping_json=_dumps(scene.resultMapping),
+            success_criteria_json=_dumps(_model_dump(scene.successCriteria)) if scene.successCriteria else None,
             batch_config_json=_dumps(_model_dump(scene.batchConfig)),
             error_policy_json=scene.errorPolicy,
             validation_result_json=None,
@@ -726,6 +728,7 @@ class SceneRepository:
         row.agent_description = scene.agentDescription
         row.result_schema_json = _dumps(_model_dump(scene.resultSchema)) if scene.resultSchema else None
         row.result_mapping_json = _dumps(scene.resultMapping)
+        row.success_criteria_json = _dumps(_model_dump(scene.successCriteria)) if scene.successCriteria else None
         row.batch_config_json = _dumps(_model_dump(scene.batchConfig))
         row.error_policy_json = scene.errorPolicy
         row.validation_result_json = None
@@ -930,6 +933,7 @@ class SceneRepository:
             steps=steps,
             resultSchema=_loads(version_row.result_schema_json, None),
             resultMapping=_loads(version_row.result_mapping_json, {}),
+            successCriteria=_loads(version_row.success_criteria_json, None),
             errorPolicy=version_row.error_policy_json or "STOP_ON_ERROR",
             batchConfig=_loads(version_row.batch_config_json, {}),
             status=_definition_status(scene_row, version_row),

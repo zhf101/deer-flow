@@ -5,7 +5,16 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy import select
 
-from app.gdp.datagen.config.common.models import HttpMethod, InputFieldDefinition, InputFieldType, SceneStatus, SqlOperation
+from app.gdp.datagen.config.common.models import (
+    ConditionRule,
+    HttpMethod,
+    InputFieldDefinition,
+    InputFieldType,
+    ResponseConditionGroup,
+    SceneStatus,
+    SceneSuccessCriteria,
+    SqlOperation,
+)
 from app.gdp.datagen.config.scene.models import BatchConfig, HttpStepDefinition, SceneDefinition, SceneExecutionResult, SqlStepDefinition, ValidationResult
 from app.gdp.datagen.config.scene.repository import (
     DataFactorySceneRunRow,
@@ -133,6 +142,28 @@ async def test_error_policy_is_stored_as_plain_string(scene_repo: SceneRepositor
     assert version_row.error_policy_json == "CONTINUE_ON_ERROR"
     loaded = await scene_repo.get_scene("continueScene")
     assert loaded.definition.errorPolicy == "CONTINUE_ON_ERROR"
+
+
+@pytest.mark.anyio
+async def test_scene_success_criteria_is_saved_and_loaded(scene_repo: SceneRepository):
+    scene = _scene("criteriaScene")
+    scene.successCriteria = SceneSuccessCriteria(
+        enabled=True,
+        businessSuccess=ResponseConditionGroup(
+            allOf=[ConditionRule(path="pay_status", op="EQ", value="PAID")]
+        ),
+        businessFailure=ResponseConditionGroup(
+            anyOf=[ConditionRule(path="pay_status", op="EQ", value="UNPAID")]
+        ),
+    )
+
+    await scene_repo.create_scene(scene)
+
+    loaded = await scene_repo.get_scene("criteriaScene")
+    assert loaded.definition.successCriteria is not None
+    assert loaded.definition.successCriteria.enabled is True
+    assert loaded.definition.successCriteria.businessSuccess.allOf[0].path == "pay_status"
+    assert loaded.definition.successCriteria.businessFailure.anyOf[0].value == "UNPAID"
 
 
 @pytest.mark.anyio

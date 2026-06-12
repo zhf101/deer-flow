@@ -10,10 +10,40 @@ from .models import (
     Evidence,
     Observation,
     PlanStep,
+    Requirement,
+    RequirementProposal,
     TaskRun,
     Variable,
     Verdict,
 )
+
+
+def _proposal_view(proposal: RequirementProposal) -> dict[str, Any]:
+    """Proposal 的 timeline 投影。候选只输出 scene_code / scene_name / score / reasons /
+    missing_inputs / requires_confirmation，不输出敏感入参原值（验收标准 11）。
+    """
+    return {
+        "proposal_id": proposal.proposal_id,
+        "task_run_id": proposal.task_run_id,
+        "step_id": proposal.step_id,
+        "requirement_id": proposal.requirement_id,
+        "status": proposal.status.value,
+        "selected_scene_code": proposal.selected_scene_code,
+        "selection_source": proposal.selection_source.value if proposal.selection_source else None,
+        "query_terms": list(proposal.query_terms),
+        "created_at": proposal.created_at.isoformat(),
+        "candidates": [
+            {
+                "scene_code": c.scene_code,
+                "scene_name": c.scene_name,
+                "score": c.score,
+                "reasons": list(c.reasons),
+                "missing_inputs": list(c.missing_inputs),
+                "requires_confirmation": c.requires_confirmation,
+            }
+            for c in proposal.candidates
+        ],
+    }
 
 
 class EntityNotFoundError(Exception):
@@ -37,6 +67,9 @@ class Store:
         self._evidences: dict[str, Evidence] = {}
         self._verdicts: dict[str, Verdict] = {}
         self._variables: dict[str, Variable] = {}
+        self._requirements: dict[str, Requirement] = {}
+        self._proposals: dict[str, RequirementProposal] = {}
+        self._approval_records: list[dict[str, Any]] = []
         self._payloads: dict[str, Any] = {}
 
     def save_task_run(self, task_run: TaskRun) -> None:
@@ -103,6 +136,51 @@ class Store:
             raise EntityNotFoundError("Variable", variable_id)
         return self._variables[variable_id]
 
+    def save_requirement(self, requirement: Requirement) -> None:
+        self._requirements[requirement.requirement_id] = requirement
+
+    def get_requirement(self, requirement_id: str) -> Requirement:
+        if requirement_id not in self._requirements:
+            raise EntityNotFoundError("Requirement", requirement_id)
+        return self._requirements[requirement_id]
+
+    def get_active_requirement(self, task_run_id: str) -> Requirement | None:
+        """返回该 TaskRun 最近创建的 Requirement（第二阶段单 step 单缺口）。"""
+        reqs = [r for r in self._requirements.values() if r.task_run_id == task_run_id]
+        if not reqs:
+            return None
+        return max(reqs, key=lambda r: r.created_at)
+
+    def save_proposal(self, proposal: RequirementProposal) -> None:
+        self._proposals[proposal.proposal_id] = proposal
+
+    def get_proposal(self, proposal_id: str) -> RequirementProposal:
+        if proposal_id not in self._proposals:
+            raise EntityNotFoundError("RequirementProposal", proposal_id)
+        return self._proposals[proposal_id]
+
+    def get_latest_proposal(self, task_run_id: str) -> RequirementProposal | None:
+        """返回该 TaskRun 最近创建的 Proposal。"""
+        proposals = [p for p in self._proposals.values() if p.task_run_id == task_run_id]
+        if not proposals:
+            return None
+        return max(proposals, key=lambda p: p.created_at)
+
+    def save_approval_record(self, record: dict[str, Any]) -> None:
+        """保存审批事实。"""
+        self._approval_records.append(record)
+
+    def list_approval_records(self, task_run_id: str) -> list[dict[str, Any]]:
+        """返回该 TaskRun 的审批事实。"""
+        return [item for item in self._approval_records if item.get("task_run_id") == task_run_id]
+
+    def has_approval_record(self, task_run_id: str, scene_code: str) -> bool:
+        """判断某个场景是否已审批。"""
+        return any(
+            item.get("task_run_id") == task_run_id and item.get("scene_code") == scene_code
+            for item in self._approval_records
+        )
+
     def save_payload(self, ref: str, payload: Any) -> None:
         """按引用保存完整载荷。MVP 内存实现只在进程内可用。"""
         self._payloads[ref] = payload
@@ -122,6 +200,9 @@ class Store:
         evidences = [e for e in self._evidences.values() if e.task_run_id == task_run_id]
         verdicts = [v for v in self._verdicts.values() if v.task_run_id == task_run_id]
         variables = [v for v in self._variables.values() if v.task_run_id == task_run_id]
+        requirements = [r for r in self._requirements.values() if r.task_run_id == task_run_id]
+        proposals = [p for p in self._proposals.values() if p.task_run_id == task_run_id]
+        approval_records = self.list_approval_records(task_run_id)
         return {
             "task_run_id": task_run_id,
             "steps": [s.model_dump(mode="json") for s in steps],
@@ -131,6 +212,9 @@ class Store:
             "evidences": [e.model_dump(mode="json") for e in evidences],
             "verdicts": [v.model_dump(mode="json") for v in verdicts],
             "variables": [v.model_dump(mode="json") for v in variables],
+            "requirements": [r.model_dump(mode="json") for r in requirements],
+            "proposals": [_proposal_view(p) for p in proposals],
+            "approval_records": approval_records,
         }
 
     def has_started_idempotency_key(self, idempotency_key: str, *, exclude_action_id: str | None = None) -> bool:

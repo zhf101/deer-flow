@@ -14,10 +14,11 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from .log_text import describe_code, describe_content, describe_optional
-from .models import TaskRun, TaskRunStatus
-from .runner import pending_start_ref
+from .models import ProposalStatus, RequirementStatus, SelectionSource, TaskRun, TaskRunStatus
+from .runner import collect_preflight_missing, execute_scene, pending_start_ref
+from .selection import apply_selection
 from .store import EntityNotFoundError, Store
-from .transitions import IllegalTransition, transition_task_run
+from .transitions import IllegalTransition, transition_requirement, transition_task_run
 
 router = APIRouter(prefix="/agent-runtime", tags=["agent-runtime"])
 logger = logging.getLogger(__name__)
@@ -41,19 +42,28 @@ class CreateTaskRunRequest(BaseModel):
 
 
 class StartTaskRunRequest(BaseModel):
-    """启动 GDP Agent MVP 任务。"""
+    """启动 GDP Agent 任务。第二阶段 scene_code 可选。"""
 
-    scene_code: str = Field(min_length=1, description="要执行的已有 Scene 编码。")
+    scene_code: str | None = Field(default=None, description="显式指定 Scene 编码。为空则由系统按目标搜索。")
     inputs: dict[str, Any] = Field(default_factory=dict, description="Scene 输入参数。")
 
 
 class ReplyTaskRunRequest(BaseModel):
     """恢复 WAITING_USER 状态的任务。"""
 
-    reply_type: Literal["APPROVE", "SUPPLY_INPUT", "CONFIRM_UNKNOWN_STATE"] = Field(
-        description="回复类型：APPROVE / SUPPLY_INPUT / CONFIRM_UNKNOWN_STATE。"
+    reply_type: Literal["APPROVE", "SUPPLY_INPUT", "CONFIRM_UNKNOWN_STATE", "SELECT_SCENE", "SUPPLY_SCENE_CODE"] = Field(
+        description=(
+            "回复类型。APPROVE：批准已选定且待审批的场景。"
+            "SUPPLY_INPUT：补充缺失输入。"
+            "CONFIRM_UNKNOWN_STATE：确认执行结果未知并停止。"
+            "SELECT_SCENE：在候选中选定场景，可携带 approved=true 表示选择并批准。"
+            "SUPPLY_SCENE_CODE：零候选时手动补 scene_code。"
+        )
     )
-    payload: dict[str, Any] = Field(default_factory=dict, description="回复内容。")
+    payload: dict[str, Any] = Field(
+        default_factory=dict,
+        description="回复内容。SELECT_SCENE / SUPPLY_SCENE_CODE 需含 scene_code；选择可带 approved。",
+    )
 
 
 class TaskRunResponse(BaseModel):
@@ -188,9 +198,14 @@ async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> Task
         task_run = _confirm_unknown_state(task_run, request.payload, store)
     elif request.reply_type == "SUPPLY_INPUT":
         task_run = await _resume_with_supplied_input(task_run, request.payload, store)
+    elif request.reply_type == "SELECT_SCENE":
+        task_run = await _select_scene(task_run, request.payload, store)
+    elif request.reply_type == "SUPPLY_SCENE_CODE":
+        task_run = await _supply_scene_code(task_run, request.payload, store)
+    elif request.reply_type == "APPROVE":
+        task_run = await _approve_scene(task_run, request.payload, store)
     else:
-        logger.warning("GDP Agent 运行时接口回复失败，当前任务没有等待审批：任务ID=%s", task_run_id)
-        raise HTTPException(status_code=409, detail="当前 TaskRun 没有等待审批，不能 APPROVE")
+        raise HTTPException(status_code=422, detail=f"不支持的 reply_type: {request.reply_type}")
 
     logger.info("GDP Agent 运行时接口已处理任务回复：任务ID=%s，状态=%s", task_run_id, describe_code(task_run.status))
     return _to_response(task_run)
@@ -281,8 +296,6 @@ async def _resume_with_supplied_input(task_run: TaskRun, payload: dict[str, Any]
         raise HTTPException(status_code=409, detail="待恢复启动请求格式无效")
 
     scene_code = pending_start.get("scene_code")
-    if not isinstance(scene_code, str) or not scene_code.strip():
-        raise HTTPException(status_code=409, detail="待恢复启动请求缺少 scene_code")
 
     supplied_env_code = payload.get("env_code")
     if supplied_env_code is not None:
@@ -297,7 +310,124 @@ async def _resume_with_supplied_input(task_run: TaskRun, payload: dict[str, Any]
 
     return await run_task(
         task_run,
-        SimpleNamespace(scene_code=scene_code.strip(), inputs=inputs),
+        SimpleNamespace(scene_code=_strip_optional(scene_code), inputs=inputs),
+        store,
+    )
+
+
+async def _select_scene(task_run: TaskRun, payload: dict[str, Any], store: Store) -> TaskRun:
+    requirement = _get_waiting_requirement(task_run.task_run_id, store)
+    proposal = _get_waiting_proposal(task_run.task_run_id, store, requirement.requirement_id)
+    scene_code = _require_scene_code(payload)
+    inputs = await _merge_reply_inputs(task_run, payload, store)
+
+    candidate = next((item for item in proposal.candidates if item.scene_code == scene_code), None)
+    if candidate is None:
+        raise HTTPException(status_code=422, detail="payload.scene_code 不在最近候选内")
+
+    if requirement.status == RequirementStatus.PENDING:
+        requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
+
+    requirement, proposal = apply_selection(requirement, proposal, scene_code, SelectionSource.USER)
+    requirement = transition_requirement(requirement, RequirementStatus.SATISFIED)
+    store.save_requirement(requirement)
+    store.save_proposal(proposal)
+
+    missing_fields = collect_preflight_missing(task_run, candidate)
+    if missing_fields:
+        task_run.pending_question = _format_missing_required_question(missing_fields)
+        store.save_task_run(task_run)
+        return task_run
+
+    approved = payload.get("approved") is True
+    if candidate.requires_confirmation and not approved:
+        task_run.pending_question = (
+            f"场景 {candidate.scene_name}（{candidate.scene_code}）已选定，但执行有写副作用。"
+            "请批准后继续。"
+        )
+        store.save_task_run(task_run)
+        return task_run
+
+    if candidate.requires_confirmation:
+        _save_approval_record(store, task_run.task_run_id, requirement.requirement_id, proposal.proposal_id, candidate.scene_code)
+
+    task_run.pending_question = None
+    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
+    return await execute_scene(task_run, store.get_step(requirement.step_id), requirement, scene_code, inputs, candidate, store)
+
+
+async def _supply_scene_code(task_run: TaskRun, payload: dict[str, Any], store: Store) -> TaskRun:
+    requirement = _get_waiting_requirement(task_run.task_run_id, store)
+    proposal = _get_waiting_proposal(task_run.task_run_id, store, requirement.requirement_id)
+    if proposal.candidates:
+        raise HTTPException(status_code=409, detail="当前不是零候选等待状态，不能 SUPPLY_SCENE_CODE")
+
+    scene_code = _require_scene_code(payload)
+    inputs = await _merge_reply_inputs(task_run, payload, store)
+    catalog = _get_scene_catalog()
+    resolved = await catalog.get_contract(scene_code=scene_code, user_inputs=inputs)
+
+    from .catalog import resolve_explicit_scene
+
+    proposal = await resolve_explicit_scene(requirement, scene_code, inputs, catalog)
+    store.save_proposal(proposal)
+    requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
+    requirement, proposal = apply_selection(requirement, proposal, scene_code, SelectionSource.USER)
+    requirement = transition_requirement(requirement, RequirementStatus.SATISFIED)
+    store.save_requirement(requirement)
+    store.save_proposal(proposal)
+
+    missing_fields = collect_preflight_missing(task_run, resolved)
+    if missing_fields:
+        task_run.pending_question = _format_missing_required_question(missing_fields)
+        store.save_task_run(task_run)
+        return task_run
+
+    approved = payload.get("approved") is True
+    if resolved.requires_confirmation and not approved:
+        task_run.pending_question = (
+            f"场景 {resolved.scene_name}（{resolved.scene_code}）已补录，但执行有写副作用。请批准后继续。"
+        )
+        store.save_task_run(task_run)
+        return task_run
+
+    if resolved.requires_confirmation:
+        _save_approval_record(store, task_run.task_run_id, requirement.requirement_id, proposal.proposal_id, resolved.scene_code)
+
+    task_run.pending_question = None
+    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
+    return await execute_scene(task_run, store.get_step(requirement.step_id), requirement, scene_code, inputs, resolved, store)
+
+
+async def _approve_scene(task_run: TaskRun, payload: dict[str, Any], store: Store) -> TaskRun:
+    requirement = _get_waiting_requirement(task_run.task_run_id, store)
+    proposal = _get_latest_selected_proposal(task_run.task_run_id, store, requirement.requirement_id)
+    if proposal.selected_scene_code is None:
+        raise HTTPException(status_code=409, detail="当前没有待审批的已选定场景")
+
+    candidate = next((item for item in proposal.candidates if item.scene_code == proposal.selected_scene_code), None)
+    if candidate is None or not candidate.requires_confirmation:
+        raise HTTPException(status_code=409, detail="当前 TaskRun 没有等待审批的候选")
+    if store.has_approval_record(task_run.task_run_id, proposal.selected_scene_code):
+        raise HTTPException(status_code=409, detail="该场景已经审批，无需重复 APPROVE")
+
+    inputs = await _merge_reply_inputs(task_run, payload, store)
+    missing_fields = collect_preflight_missing(task_run, candidate)
+    if missing_fields:
+        task_run.pending_question = _format_missing_required_question(missing_fields)
+        store.save_task_run(task_run)
+        return task_run
+
+    _save_approval_record(store, task_run.task_run_id, requirement.requirement_id, proposal.proposal_id, proposal.selected_scene_code)
+    task_run.pending_question = None
+    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
+    return await execute_scene(
+        task_run,
+        store.get_step(requirement.step_id),
+        requirement,
+        proposal.selected_scene_code,
+        inputs,
+        candidate,
         store,
     )
 
@@ -309,7 +439,7 @@ def _merge_supplied_inputs(pending_inputs: Any, payload: dict[str, Any]) -> dict
         supplied_inputs = {
             key: value
             for key, value in payload.items()
-            if key not in {"env_code", "message"}
+            if key not in {"env_code", "message", "scene_code", "approved"}
         }
     if not isinstance(supplied_inputs, dict):
         raise HTTPException(status_code=422, detail="payload.inputs 必须是对象")
@@ -333,3 +463,95 @@ def _format_unknown_state_confirmation(payload: dict[str, Any]) -> str:
     if isinstance(message, str) and message.strip():
         return "用户确认执行结果未知，任务已停止以避免重复写请求。用户说明：" + message.strip()
     return "用户确认执行结果未知，任务已停止以避免重复写请求。"
+
+
+def _format_missing_required_question(missing_fields: list[str]) -> str:
+    return "缺少必填信息：" + "，".join(missing_fields) + "。请补充后继续。"
+
+
+def _require_scene_code(payload: dict[str, Any]) -> str:
+    scene_code = payload.get("scene_code")
+    if not isinstance(scene_code, str) or not scene_code.strip():
+        raise HTTPException(status_code=422, detail="payload.scene_code 必须是非空字符串")
+    return scene_code.strip()
+
+
+def _strip_optional(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _get_waiting_requirement(task_run_id: str, store: Store):
+    requirement = store.get_active_requirement(task_run_id)
+    if requirement is None:
+        raise HTTPException(status_code=409, detail="当前 TaskRun 没有可恢复的 Requirement")
+    return requirement
+
+
+def _get_waiting_proposal(task_run_id: str, store: Store, requirement_id: str):
+    proposal = store.get_latest_proposal(task_run_id)
+    if proposal is None or proposal.requirement_id != requirement_id:
+        raise HTTPException(status_code=409, detail="当前 TaskRun 没有可恢复的 Proposal")
+    if proposal.status != ProposalStatus.PENDING:
+        raise HTTPException(status_code=409, detail="最近候选集已不是待选择状态")
+    return proposal
+
+
+def _get_latest_selected_proposal(task_run_id: str, store: Store, requirement_id: str):
+    proposal = store.get_latest_proposal(task_run_id)
+    if proposal is None or proposal.requirement_id != requirement_id:
+        raise HTTPException(status_code=409, detail="当前 TaskRun 没有可恢复的 Proposal")
+    if proposal.status != ProposalStatus.SELECTED:
+        raise HTTPException(status_code=409, detail="当前没有已选定且待审批的 Proposal")
+    return proposal
+
+
+async def _merge_reply_inputs(task_run: TaskRun, payload: dict[str, Any], store: Store) -> dict[str, Any]:
+    try:
+        pending_start = store.get_payload(pending_start_ref(task_run.task_run_id))
+    except EntityNotFoundError:
+        raise HTTPException(status_code=409, detail="找不到可恢复的启动请求") from None
+    if not isinstance(pending_start, dict):
+        raise HTTPException(status_code=409, detail="待恢复启动请求格式无效")
+
+    supplied_env_code = payload.get("env_code")
+    if supplied_env_code is not None:
+        if not isinstance(supplied_env_code, str) or not supplied_env_code.strip():
+            raise HTTPException(status_code=422, detail="payload.env_code 必须是非空字符串")
+        task_run.env_code = supplied_env_code.strip()
+
+    inputs = _merge_supplied_inputs(pending_start.get("inputs"), payload)
+    store.save_payload(
+        pending_start_ref(task_run.task_run_id),
+        {"scene_code": payload.get("scene_code", pending_start.get("scene_code")), "inputs": inputs},
+    )
+    return inputs
+
+
+def _save_approval_record(
+    store: Store,
+    task_run_id: str,
+    requirement_id: str,
+    proposal_id: str,
+    scene_code: str,
+) -> None:
+    from datetime import UTC, datetime
+
+    store.save_approval_record(
+        {
+            "task_run_id": task_run_id,
+            "requirement_id": requirement_id,
+            "proposal_id": proposal_id,
+            "scene_code": scene_code,
+            "approved_by": "USER",
+            "approved_at": datetime.now(UTC).isoformat(),
+        }
+    )
+
+
+def _get_scene_catalog():
+    from . import runner as runtime_runner
+
+    return runtime_runner.get_catalog()
