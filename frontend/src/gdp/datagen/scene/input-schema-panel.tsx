@@ -12,7 +12,7 @@ import {
   Settings2Icon,
   Trash2Icon,
 } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 

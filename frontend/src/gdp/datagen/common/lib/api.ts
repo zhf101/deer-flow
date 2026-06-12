@@ -35,6 +35,11 @@ import type {
   TaskValidationResult,
   TaskVersion,
   ValidationResult,
+  AgentRuntimeTaskRunCreateRequest,
+  AgentRuntimeTaskRunReplyRequest,
+  AgentRuntimeTaskRunResponse,
+  AgentRuntimeTaskRunStartRequest,
+  AgentRuntimeTimelineResponse,
 } from "./types";
 
 const DATAGEN_BASE_PATH = "/api/v1/datagen";
@@ -617,5 +622,61 @@ export async function startGdpAgentRun(
   return request<DatagenTaskRunStartResponse>(
     `/tasks/runs/${encodeURIComponent(taskRunId)}/start`,
     { method: "POST", body: JSON.stringify({ threadId }) },
+  );
+}
+
+// ── GDP Agent Runtime MVP ─────────────────────────────────────────────
+
+export async function createAgentRuntimeTaskRun(
+  body: AgentRuntimeTaskRunCreateRequest,
+): Promise<AgentRuntimeTaskRunResponse> {
+  return request<AgentRuntimeTaskRunResponse>("/agent-runtime/task-runs", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function startAgentRuntimeTaskRun(
+  taskRunId: string,
+  body: AgentRuntimeTaskRunStartRequest,
+): Promise<AgentRuntimeTaskRunResponse> {
+  return request<AgentRuntimeTaskRunResponse>(
+    `/agent-runtime/task-runs/${encodeURIComponent(taskRunId)}/start`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export async function replyAgentRuntimeTaskRun(
+  taskRunId: string,
+  body: AgentRuntimeTaskRunReplyRequest,
+): Promise<AgentRuntimeTaskRunResponse> {
+  return request<AgentRuntimeTaskRunResponse>(
+    `/agent-runtime/task-runs/${encodeURIComponent(taskRunId)}/reply`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+}
+
+export async function cancelAgentRuntimeTaskRun(
+  taskRunId: string,
+): Promise<AgentRuntimeTaskRunResponse> {
+  return request<AgentRuntimeTaskRunResponse>(
+    `/agent-runtime/task-runs/${encodeURIComponent(taskRunId)}/cancel`,
+    { method: "POST" },
+  );
+}
+
+export async function getAgentRuntimeTaskRun(
+  taskRunId: string,
+): Promise<AgentRuntimeTaskRunResponse> {
+  return request<AgentRuntimeTaskRunResponse>(
+    `/agent-runtime/task-runs/${encodeURIComponent(taskRunId)}`,
+  );
+}
+
+export async function getAgentRuntimeTimeline(
+  taskRunId: string,
+): Promise<AgentRuntimeTimelineResponse> {
+  return request<AgentRuntimeTimelineResponse>(
+    `/agent-runtime/task-runs/${encodeURIComponent(taskRunId)}/timeline`,
   );
 }

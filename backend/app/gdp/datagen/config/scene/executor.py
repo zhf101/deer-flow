@@ -11,12 +11,13 @@ from time import perf_counter
 from typing import Any
 
 from app.gdp.datagen.config.base.repository import BaseConfigNotFoundError, BaseConfigRepository
-from app.gdp.datagen.config.common.models import InputFieldType
+from app.gdp.datagen.config.common.models import ConditionRule, InputFieldType, SceneSuccessCriteria
 from app.gdp.datagen.config.httpsource.executor import execute_http_test
 from app.gdp.datagen.config.httpsource.models import HttpSourceConfig
-from app.gdp.datagen.config.scene.expression import resolve_mapping
+from app.gdp.datagen.config.scene.expression import resolve_mapping, resolve_path
 from app.gdp.datagen.config.scene.models import (
     HttpStepDefinition,
+    SceneBusinessResult,
     SceneDefinition,
     SceneExecutionResult,
     SceneRunRequest,
@@ -127,7 +128,20 @@ class SceneExecutor:
         finished_at = _now()
         total_duration = round((perf_counter() - started) * 1000, 3)
 
-        scene_status = _scene_status(step_results, errors)
+        scene_status: str = _scene_status(step_results, errors)
+
+        # 场景级业务成功判定
+        business_result = _evaluate_scene_success(scene.successCriteria, final_output, context)
+        if business_result is not None:
+            logger.info("【场景业务判定】")
+            logger.info("  业务成功: %s", "是" if business_result.isSuccess else "否")
+            logger.info("  判定原因: %s", business_result.reason)
+            if business_result.matchedRules:
+                logger.info("  匹配规则: %s", business_result.matchedRules)
+            # 步骤全部通过但业务判定失败时，整体状态降级为 FAILED
+            if not business_result.isSuccess and scene_status == "SUCCESS":
+                scene_status = "FAILED"
+
         logger.info("=" * 60)
         logger.info("【场景执行器】执行完成")
         logger.info("  最终状态: %s", scene_status)
@@ -146,12 +160,13 @@ class SceneExecutor:
             versionNo=version.versionNo,
             envCode=request.envCode,
             inputs=request.inputs,
-            status=scene_status,
+            status=scene_status,  # type: ignore[arg-type]
             startedAt=started_at,
             finishedAt=finished_at,
             durationMs=total_duration,
             stepResults=step_results,
             finalOutput=final_output,
+            businessResult=business_result,
             errors=errors,
         )
 
@@ -413,6 +428,131 @@ def _scene_status(results: list[StepExecutionResult], errors: list[str]) -> str:
     if any(result.status == "SUCCESS" for result in results):
         return "PARTIAL"
     return "FAILED"
+
+
+def _evaluate_scene_success(
+    criteria: SceneSuccessCriteria | None,
+    final_output: dict[str, Any],
+    context: dict[str, Any],
+) -> SceneBusinessResult | None:
+    """根据场景级业务成功规则对 finalOutput 进行判定。
+
+    判定顺序：
+    1. 无 successCriteria 配置 → 不做业务判定，返回 None
+    2. businessFailure.anyOf 任一命中 → 业务失败
+    3. businessSuccess.allOf 全部满足 → 业务成功
+    4. 无 businessSuccess 且未命中 businessFailure → 默认成功
+    """
+    if criteria is None or not criteria.enabled:
+        return None
+
+    matched: list[str] = []
+
+    # 先检查失败条件（OR 短路）
+    for rule in criteria.businessFailure.anyOf:
+        if _check_scene_condition(final_output, rule, context):
+            # 命中失败规则即判失败。同时写入 failedRules：下游（如 GDP Agent）
+            # 需要凭这个字段拿到精确失败原因，不能只靠被降级的 status=FAILED。
+            rule_desc = f"{rule.path} {rule.op} {rule.value}"
+            return SceneBusinessResult(
+                isSuccess=False,
+                reason=f"命中场景失败规则: {rule_desc}",
+                matchedRules=[rule_desc],
+                failedRules=[rule_desc],
+            )
+
+    # 再检查成功条件（AND）
+    success_rules = criteria.businessSuccess.allOf
+    if not success_rules:
+        return SceneBusinessResult(
+            isSuccess=True,
+            reason="未命中失败条件，无额外成功条件",
+        )
+
+    for rule in success_rules:
+        if _check_scene_condition(final_output, rule, context):
+            matched.append(f"{rule.path} {rule.op} {rule.value}")
+        else:
+            # failedRules 记录“没通过的那条成功规则”，与已通过的 matchedRules 区分开，
+            # 让下游（GDP Agent / 前端）不必再反推哪条规则不满足。
+            return SceneBusinessResult(
+                isSuccess=False,
+                reason=f"场景成功条件未满足: {rule.path} {rule.op} {rule.value}",
+                matchedRules=matched,
+                failedRules=[f"{rule.path} {rule.op} {rule.value}"],
+            )
+
+    return SceneBusinessResult(
+        isSuccess=True,
+        reason="所有场景成功条件均已满足",
+        matchedRules=matched,
+    )
+
+
+def _check_scene_condition(
+    final_output: dict[str, Any],
+    rule: ConditionRule,
+    context: dict[str, Any],
+) -> bool:
+    """对场景级条件规则求值。
+
+    path 支持两种形式：
+    - 纯点号路径（如 orderId）→ 从 finalOutput 取值
+    - ${...} 表达式（如 ${steps.step1.outputs.code}）→ 从完整运行时上下文取值
+    """
+    if rule.path.startswith("${"):
+        from app.gdp.datagen.config.scene.expression import resolve_value
+        value = resolve_value(rule.path, context)
+    else:
+        value = resolve_path(final_output, rule.path)
+
+    target = rule.value
+    op = rule.op.upper()
+
+    if op == "EXISTS":
+        return value is not None
+    if op == "NOT_EXISTS":
+        return value is None
+    if op == "EMPTY":
+        return value is None or value == "" or value == [] or value == {}
+    if op == "NOT_EMPTY":
+        return value is not None and value != "" and value != [] and value != {}
+    if value is None:
+        return False
+
+    if op == "EQ":
+        return _loose_eq(value, target)
+    if op in ("NE", "NEQ"):
+        return not _loose_eq(value, target)
+    if op in ("GT", "GTE", "LT", "LTE"):
+        try:
+            a, b = float(value), float(target)
+            return {"GT": a > b, "GTE": a >= b, "LT": a < b, "LTE": a <= b}[op]
+        except (ValueError, TypeError):
+            return False
+    if op == "CONTAINS":
+        return str(target) in str(value)
+    if op == "IN":
+        if isinstance(target, list):
+            return value in target or str(value) in [str(x) for x in target]
+        return False
+    if op == "NOT_IN":
+        if isinstance(target, list):
+            return value not in target and str(value) not in [str(x) for x in target]
+        return True
+    if op == "REGEX":
+        import re
+        try:
+            return bool(re.search(str(target), str(value)))
+        except re.error:
+            return False
+    return False
+
+
+def _loose_eq(actual: Any, expected: Any) -> bool:
+    if actual == expected:
+        return True
+    return str(actual) == str(expected)
 
 
 def _now() -> datetime:

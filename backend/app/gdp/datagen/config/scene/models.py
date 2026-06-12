@@ -11,6 +11,7 @@ from app.gdp.datagen.config.common.models import (
     CapabilityCondition,
     CapabilitySideEffect,
     CapabilityType,
+    ConditionRule,
     ErrorMapping,
     HttpMethod,
     HttpTimeoutConfig,
@@ -18,6 +19,7 @@ from app.gdp.datagen.config.common.models import (
     ResponseHandling,
     RetryPolicy,
     SceneStatus,
+    SceneSuccessCriteria,
     SqlOperation,
     SqlSourceSafety,
     StepType,
@@ -184,6 +186,7 @@ class SceneDefinition(BaseModel):
     steps: list[StepDefinition] = Field(default_factory=list, description="场景步骤。")
     resultSchema: list[InputFieldDefinition] | None = Field(default=None, description="场景最终输出结构。")
     resultMapping: dict[str, str] = Field(default_factory=dict, description="场景最终输出映射。")
+    successCriteria: SceneSuccessCriteria | None = Field(default=None, description="场景级业务成功判定规则。为空时仅依据步骤执行状态判定。")
     errorPolicy: Literal["STOP_ON_ERROR", "CONTINUE_ON_ERROR"] = Field(default="STOP_ON_ERROR", description="错误策略。")
     batchConfig: BatchConfig = Field(default_factory=BatchConfig, description="批量执行配置。")
     status: SceneStatus = Field(default=SceneStatus.DRAFT, description="场景状态。")
@@ -275,6 +278,15 @@ class StepExecutionResult(BaseModel):
     statusCode: int | None = Field(default=None, description="HTTP 步骤响应状态码；非 HTTP 步骤为空。")
 
 
+class SceneBusinessResult(BaseModel):
+    """场景级业务成功判定结果。"""
+
+    isSuccess: bool = Field(..., description="场景最终输出是否满足业务成功条件。")
+    reason: str = Field(default="", description="判定说明。")
+    matchedRules: list[str] = Field(default_factory=list, description="命中的规则描述列表。")
+    failedRules: list[str] = Field(default_factory=list, description="未满足的规则描述列表。")
+
+
 class SceneExecutionResult(BaseModel):
     """场景执行结果。"""
 
@@ -289,6 +301,7 @@ class SceneExecutionResult(BaseModel):
     durationMs: float = Field(..., description="场景执行总耗时，单位毫秒。")
     stepResults: list[StepExecutionResult] = Field(default_factory=list, description="步骤执行结果列表。")
     finalOutput: dict[str, Any] = Field(default_factory=dict, description="场景最终输出变量。")
+    businessResult: SceneBusinessResult | None = Field(default=None, description="场景级业务成功判定结果。仅在配置了 successCriteria 时返回。")
     errors: list[str] = Field(default_factory=list, description="场景执行期间收集的错误说明。")
 
 
@@ -306,6 +319,7 @@ class SceneRunSummary(BaseModel):
     inputs: dict[str, Any] = Field(default_factory=dict, description="本次执行使用的场景入参。")
     finalOutput: dict[str, Any] = Field(default_factory=dict, description="场景最终输出变量。")
     errors: list[str] = Field(default_factory=list, description="场景执行期间收集的错误说明。")
+    businessResult: SceneBusinessResult | None = Field(default=None, description="场景级业务成功判定结果。未配置 successCriteria 时为空。")
     stepCount: int = Field(default=0, description="步骤总数。")
     successCount: int = Field(default=0, description="成功步骤数。")
     failedCount: int = Field(default=0, description="失败步骤数。")

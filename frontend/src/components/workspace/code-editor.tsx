@@ -10,7 +10,7 @@ import { languages } from "@codemirror/language-data";
 import { basicLightInit } from "@uiw/codemirror-theme-basic";
 import { monokaiInit } from "@uiw/codemirror-theme-monokai";
 import CodeMirror from "@uiw/react-codemirror";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import { useMemo } from "react";
 
 import { Textarea } from "@/components/ui/textarea";

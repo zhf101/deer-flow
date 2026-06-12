@@ -8,6 +8,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint, delete, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -18,6 +19,7 @@ from app.gdp.datagen.config.common.models import SceneStatus, VersionStatus
 from app.gdp.datagen.config.scene.models import (
     AssertStepDefinition,
     HttpStepDefinition,
+    SceneBusinessResult,
     SceneDefinition,
     SceneExecutionResult,
     SceneRunSummary,
@@ -248,6 +250,7 @@ class DataFactorySceneRunRow(Base):
     duration_ms: Mapped[float] = mapped_column(Float, nullable=False, comment="场景执行耗时，单位毫秒。")
     inputs_json: Mapped[str] = mapped_column(Text, nullable=False, comment="本次执行入参 JSON。")
     final_output_json: Mapped[str] = mapped_column(Text, nullable=False, comment="最终输出 JSON。")
+    business_result_json: Mapped[str | None] = mapped_column(Text, nullable=True, comment="场景级业务成功判定结果 JSON。")
     errors_json: Mapped[str] = mapped_column(Text, nullable=False, comment="错误汇总 JSON。")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="记录创建时间。")
 
@@ -315,6 +318,23 @@ def _loads(value: str | None, default: Any) -> Any:
     if value is None or value == "":
         return default
     return json.loads(value)
+
+
+def _load_scene_business_result(value: str | None) -> SceneBusinessResult | None:
+    """读取场景业务判定结果，历史脏值按未配置业务判定处理。"""
+
+    if not value:
+        return None
+    try:
+        raw = _loads(value, None)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return SceneBusinessResult.model_validate(raw)
+    except ValidationError:
+        return None
 
 
 def _model_dump(value: Any) -> Any:
@@ -432,6 +452,7 @@ class SceneRepository:
                     duration_ms=saved.durationMs,
                     inputs_json=_dumps(_model_dump(saved.inputs)),
                     final_output_json=_dumps(_model_dump(saved.finalOutput)),
+                    business_result_json=_dumps(saved.businessResult.model_dump(mode="json")) if saved.businessResult else None,
                     errors_json=_dumps(_model_dump(saved.errors)),
                     created_at=now,
                 )
@@ -488,6 +509,7 @@ class SceneRepository:
                 durationMs=run_row.duration_ms,
                 stepResults=[self._to_step_execution_result(row) for row in step_rows],
                 finalOutput=_loads(run_row.final_output_json, {}),
+                businessResult=_load_scene_business_result(run_row.business_result_json),
                 errors=_loads(run_row.errors_json, []),
             )
 
@@ -543,6 +565,7 @@ class SceneRepository:
                     durationMs=row.duration_ms,
                     inputs=_loads(row.inputs_json, {}),
                     finalOutput=_loads(row.final_output_json, {}),
+                    businessResult=_load_scene_business_result(row.business_result_json),
                     errors=_loads(row.errors_json, []),
                     stepCount=stats_map.get(row.id, {}).get("total", 0),
                     successCount=stats_map.get(row.id, {}).get("success", 0),

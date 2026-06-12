@@ -15,7 +15,7 @@ import { useCallback, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
-import { GDPAgentEntry } from "./agent/gdp-agent-entry";
+import { AgentRuntimePage } from "./agent/agent-runtime-page";
 import { ConfigManagement } from "./baseconfig";
 import { TabBar, type Tab } from "./common/shell/module-tab-bar";
 import { HttpSourceManagement } from "./httpsource";
@@ -249,7 +249,7 @@ export function DataFactoryPage() {
 
     switch (activeTab.type) {
       case "agent":
-        return <GDPAgentEntry />;
+        return <AgentRuntimePage />;
       case "scene-list":
         return (
           <SceneDashboard

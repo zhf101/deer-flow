@@ -61,7 +61,9 @@ def test_configure_gdp_agent_file_logging_writes_runtime_and_legacy_logs(
             handler.flush()
 
     content = resolved_log_path.read_text(encoding="utf-8")
-    assert "app.gdp.agent_runtime.runner" in content
+    assert "GDP Agent 运行时主流程" in content
+    assert "调试" in content
     assert "runtime log probe" in content
-    assert "app.gdp.agent.graph" in content
+    assert "GDP Agent 图执行器" in content
+    assert "信息" in content
     assert "legacy log probe" in content

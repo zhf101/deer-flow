@@ -5,6 +5,7 @@ import type {
   HttpTimeoutConfig,
   InputFieldDefinition,
   SceneDefinition,
+  SceneSuccessCriteria,
   SqlSourceConfig,
   StepDefinition,
   StepType,
@@ -21,10 +22,7 @@ export const INPUT_FIELD_TYPES = [
   "array",
 ] as const;
 
-export const STEP_TYPES: StepType[] = [
-  "HTTP",
-  "SQL",
-];
+export const STEP_TYPES: StepType[] = ["HTTP", "SQL"];
 
 export const HTTP_METHODS = ["GET", "POST"] as const;
 export const SQL_OPERATIONS = ["SELECT", "INSERT", "UPDATE", "DELETE"] as const;
@@ -86,6 +84,7 @@ export function createDefaultScene(): SceneDefinition {
     steps: [],
     resultSchema: [],
     resultMapping: {},
+    successCriteria: null,
     errorPolicy: "STOP_ON_ERROR",
     batchConfig: createDefaultBatchConfig(),
     status: "DRAFT",
@@ -100,7 +99,28 @@ export function createConditionRule(): ConditionRule {
   };
 }
 
-export function createDefaultStep(type: StepType, index: number): StepDefinition {
+export function createDefaultSceneSuccessCriteria(
+  firstOutputPath = "",
+): SceneSuccessCriteria {
+  return {
+    enabled: true,
+    businessSuccess: {
+      allOf: firstOutputPath
+        ? [{ path: firstOutputPath, op: "NOT_EMPTY" }]
+        : [],
+      anyOf: [],
+    },
+    businessFailure: {
+      allOf: [],
+      anyOf: [],
+    },
+  };
+}
+
+export function createDefaultStep(
+  type: StepType,
+  index: number,
+): StepDefinition {
   const stepId = `${type.toLowerCase().replace("_", "")}${index + 1}`;
   const base = {
     stepId,

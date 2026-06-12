@@ -4,6 +4,7 @@ import "katex/dist/katex.min.css";
 import { type Metadata } from "next";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeScript } from "@/components/theme-script";
 import { I18nProvider } from "@/core/i18n/context";
 import { detectLocaleServer } from "@/core/i18n/server";
 
@@ -18,6 +19,9 @@ export default async function RootLayout({
   const locale = await detectLocaleServer();
   return (
     <html lang={locale} suppressContentEditableWarning suppressHydrationWarning>
+      <head>
+        <ThemeScript />
+      </head>
       <body>
         <ThemeProvider attribute="class" enableSystem disableTransitionOnChange>
           <I18nProvider initialLocale={locale}>{children}</I18nProvider>

@@ -35,6 +35,37 @@ export type DatagenTaskStepStatus =
   | "FAILED"
   | "SKIPPED"
   | "WAITING_USER";
+export type AgentRuntimeTaskRunStatus =
+  | "CREATED"
+  | "RUNNING"
+  | "WAITING_USER"
+  | "COMPLETED"
+  | "FAILED"
+  | "CANCELLED";
+export type AgentRuntimeStepStatus =
+  | "PENDING"
+  | "RUNNING"
+  | "DONE"
+  | "FAILED"
+  | "BLOCKED";
+export type AgentRuntimeActionStatus =
+  | "PLANNED"
+  | "WAITING_APPROVAL"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "UNKNOWN_STATE"
+  | "CANCELLED";
+export type AgentRuntimeAttemptStatus =
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "UNKNOWN_STATE";
+export type AgentRuntimeVerdictType =
+  | "DONE"
+  | "FAILED"
+  | "UNKNOWN_STATE"
+  | "NEED_USER";
 export type StepType = "HTTP" | "SQL" | "ASSERT" | "TRANSFORM";
 export type InputFieldType =
   | "string"
@@ -95,6 +126,11 @@ export interface ConditionRule {
   value?: unknown;
 }
 
+export interface ResponseConditionGroup {
+  allOf: ConditionRule[];
+  anyOf: ConditionRule[];
+}
+
 export interface ResponseHandling {
   expectedContentType: "JSON" | "TEXT" | "XML" | "ANY";
   statusCode: {
@@ -106,6 +142,18 @@ export interface ResponseHandling {
   businessFailure: {
     anyOf: ConditionRule[];
   };
+}
+
+export interface SceneSuccessCriteria {
+  enabled: boolean;
+  businessSuccess: ResponseConditionGroup;
+  businessFailure: ResponseConditionGroup;
+}
+
+export interface SceneBusinessResult {
+  isSuccess: boolean;
+  reason: string;
+  matchedRules: string[];
 }
 
 export interface ErrorMapping {
@@ -241,6 +289,7 @@ export interface SceneDefinition {
   steps: StepDefinition[];
   resultSchema?: InputFieldDefinition[] | null;
   resultMapping: Record<string, string>;
+  successCriteria?: SceneSuccessCriteria | null;
   errorPolicy?: "STOP_ON_ERROR" | "CONTINUE_ON_ERROR";
   batchConfig: BatchConfig;
   status: SceneStatus;
@@ -733,6 +782,149 @@ export interface DeerflowRunResponse {
   message_count: number;
 }
 
+// ── GDP Agent Runtime MVP 类型 ─────────────────────────────────────────
+
+export interface AgentRuntimeTaskRunCreateRequest {
+  user_goal: string;
+  env_code?: string | null;
+}
+
+export interface AgentRuntimeTaskRunStartRequest {
+  scene_code: string;
+  inputs: Record<string, unknown>;
+}
+
+export interface AgentRuntimeTaskRunReplyRequest {
+  reply_type: "APPROVE" | "SUPPLY_INPUT" | "CONFIRM_UNKNOWN_STATE" | string;
+  payload: Record<string, unknown>;
+}
+
+export interface AgentRuntimeTaskRunResponse {
+  task_run_id: string;
+  status: AgentRuntimeTaskRunStatus;
+  user_goal: string;
+  env_code?: string | null;
+  pending_question?: string | null;
+  failure_reason?: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at?: string | null;
+}
+
+export interface AgentRuntimePlanStep {
+  step_id: string;
+  task_run_id: string;
+  step_no: number;
+  goal: string;
+  status: AgentRuntimeStepStatus;
+  depends_on: string[];
+  action_ids: string[];
+  consumes: string[];
+  produces: string[];
+  verdict_id?: string | null;
+}
+
+export interface AgentRuntimeAction {
+  action_id: string;
+  task_run_id: string;
+  step_id: string;
+  action_type: "EXECUTE_SCENE";
+  status: AgentRuntimeActionStatus;
+  scene_code: string;
+  input_ref: string;
+  input_preview: Record<string, unknown>;
+  input_hash: string;
+  idempotency_key: string;
+  approval_required: boolean;
+  attempt_ids: string[];
+}
+
+export interface AgentRuntimeActionAttempt {
+  attempt_id: string;
+  action_id: string;
+  attempt_no: number;
+  status: AgentRuntimeAttemptStatus;
+  request_ref: string;
+  response_ref?: string | null;
+  response_preview: Record<string, unknown>;
+  error_type?: string | null;
+  error_message?: string | null;
+  started_at: string;
+  finished_at?: string | null;
+}
+
+export interface AgentRuntimeObservation {
+  observation_id: string;
+  task_run_id: string;
+  action_id: string;
+  attempt_id: string;
+  raw_ref: string;
+  preview: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AgentRuntimeEvidenceFact {
+  subject: string;
+  predicate: "EXISTS" | "EQUALS" | "IN" | "NON_EMPTY";
+  expected: unknown;
+  actual: unknown;
+  passed: boolean;
+  detail?: string | null;
+  source_observation_id: string;
+}
+
+export interface AgentRuntimeEvidence {
+  evidence_id: string;
+  task_run_id: string;
+  step_id: string;
+  action_id: string;
+  facts: AgentRuntimeEvidenceFact[];
+  missing_facts: string[];
+  unknown_facts: string[];
+  created_at: string;
+}
+
+export interface AgentRuntimeVerdict {
+  verdict_id: string;
+  task_run_id: string;
+  step_id: string;
+  evidence_id: string;
+  verdict_type: AgentRuntimeVerdictType;
+  reason: string;
+  tainted_variable_ids: string[];
+  created_at: string;
+}
+
+export interface AgentRuntimeVariable {
+  variable_id: string;
+  task_run_id: string;
+  name: string;
+  semantic_type: string;
+  value_ref: string;
+  value_preview: string;
+  sensitive: boolean;
+  tainted: boolean;
+  provenance: {
+    source_type: "USER_INPUT" | "SCENE_OUTPUT" | "CONTEXT";
+    source_id: string;
+    action_id?: string | null;
+    evidence_id?: string | null;
+  };
+  consumed_by: string[];
+  created_at: string;
+}
+
+export interface AgentRuntimeTimelineResponse {
+  task_run_id: string;
+  steps: AgentRuntimePlanStep[];
+  actions: AgentRuntimeAction[];
+  attempts: AgentRuntimeActionAttempt[];
+  observations: AgentRuntimeObservation[];
+  evidences: AgentRuntimeEvidence[];
+  verdicts: AgentRuntimeVerdict[];
+  variables: AgentRuntimeVariable[];
+}
+
 // ── 执行引擎相关类型 ─────────────────────────────────────────────────
 
 /** 执行请求——客户端提交的执行参数 */
@@ -771,6 +963,7 @@ export interface ExecutionResult {
   durationMs: number;
   stepResults: StepResult[];
   finalOutput: Record<string, unknown>;
+  businessResult?: SceneBusinessResult | null;
   errors: string[];
 }
 
@@ -786,6 +979,7 @@ export interface SceneRunSummary {
   durationMs: number;
   inputs: Record<string, unknown>;
   finalOutput: Record<string, unknown>;
+  businessResult?: SceneBusinessResult | null;
   errors: string[];
   stepCount: number;
   successCount: number;

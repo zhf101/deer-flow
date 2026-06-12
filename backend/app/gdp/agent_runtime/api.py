@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from .models import TaskRunStatus
+from .log_text import describe_code, describe_content, describe_optional
+from .models import TaskRun, TaskRunStatus
+from .runner import pending_start_ref
 from .store import EntityNotFoundError, Store
 from .transitions import IllegalTransition, transition_task_run
 
@@ -47,7 +50,9 @@ class StartTaskRunRequest(BaseModel):
 class ReplyTaskRunRequest(BaseModel):
     """恢复 WAITING_USER 状态的任务。"""
 
-    reply_type: str = Field(description="回复类型：APPROVE / SUPPLY_INPUT / CONFIRM_UNKNOWN_STATE。")
+    reply_type: Literal["APPROVE", "SUPPLY_INPUT", "CONFIRM_UNKNOWN_STATE"] = Field(
+        description="回复类型：APPROVE / SUPPLY_INPUT / CONFIRM_UNKNOWN_STATE。"
+    )
     payload: dict[str, Any] = Field(default_factory=dict, description="回复内容。")
 
 
@@ -74,9 +79,9 @@ async def create_task_run(request: CreateTaskRunRequest) -> TaskRunResponse:
     from .flow import create_task_run as _create
 
     logger.info(
-        "GDP Agent Runtime API 创建 TaskRun: env_code=%s user_goal_length=%s",
-        request.env_code,
-        len(request.user_goal),
+        "GDP Agent 运行时接口准备创建任务：环境=%s，用户目标=%s ",
+        describe_optional(request.env_code),
+        request.user_goal,
     )
     task_run = _create(
         user_goal=request.user_goal,
@@ -84,10 +89,10 @@ async def create_task_run(request: CreateTaskRunRequest) -> TaskRunResponse:
     )
     get_store().save_task_run(task_run)
     logger.info(
-        "GDP Agent Runtime API 已创建 TaskRun: task_run_id=%s status=%s env_code=%s",
+        "GDP Agent 运行时接口已创建任务：任务ID=%s，状态=%s，环境=%s",
         task_run.task_run_id,
-        task_run.status,
-        task_run.env_code,
+        describe_code(task_run.status),
+        describe_optional(task_run.env_code),
     )
     return _to_response(task_run)
 
@@ -99,33 +104,32 @@ async def start_task_run(task_run_id: str, request: StartTaskRunRequest) -> Task
 
     store = get_store()
     logger.info(
-        "GDP Agent Runtime API 启动 TaskRun: task_run_id=%s scene_code=%s input_keys=%s input_count=%s",
+        "GDP Agent 运行时接口准备启动任务：任务ID=%s，场景编码=%s，用户输入请求报文=%s",
         task_run_id,
         request.scene_code,
-        sorted(request.inputs.keys()),
-        len(request.inputs),
+        describe_content(request.inputs),
     )
     try:
         task_run = store.get_task_run(task_run_id)
     except EntityNotFoundError:
-        logger.warning("GDP Agent Runtime API 启动失败，TaskRun 不存在: task_run_id=%s", task_run_id)
+        logger.warning("GDP Agent 运行时接口启动失败，任务不存在：任务ID=%s", task_run_id)
         raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found")
 
     if task_run.status != TaskRunStatus.CREATED:
         logger.warning(
-            "GDP Agent Runtime API 启动失败，状态不允许: task_run_id=%s status=%s",
+            "GDP Agent 运行时接口启动失败，当前状态不允许启动：任务ID=%s，状态=%s",
             task_run_id,
-            task_run.status,
+            describe_code(task_run.status),
         )
         raise HTTPException(status_code=409, detail=f"TaskRun 状态为 {task_run.status}，不能 start")
 
     task_run = await run_task(task_run, request, store)
     logger.info(
-        "GDP Agent Runtime API 启动完成: task_run_id=%s status=%s failure_reason=%s pending_question=%s",
+        "GDP Agent 运行时接口启动完成：任务ID=%s，状态=%s，失败原因=%s，待用户确认=%s",
         task_run.task_run_id,
-        task_run.status,
-        task_run.failure_reason,
-        task_run.pending_question,
+        describe_code(task_run.status),
+        describe_optional(task_run.failure_reason),
+        describe_optional(task_run.pending_question),
     )
     return _to_response(task_run)
 
@@ -134,25 +138,25 @@ async def start_task_run(task_run_id: str, request: StartTaskRunRequest) -> Task
 async def cancel_task_run(task_run_id: str) -> TaskRunResponse:
     """取消 TaskRun。"""
     store = get_store()
-    logger.info("GDP Agent Runtime API 取消 TaskRun: task_run_id=%s", task_run_id)
+    logger.info("GDP Agent 运行时接口准备取消任务：任务ID=%s", task_run_id)
     try:
         task_run = store.get_task_run(task_run_id)
     except EntityNotFoundError:
-        logger.warning("GDP Agent Runtime API 取消失败，TaskRun 不存在: task_run_id=%s", task_run_id)
+        logger.warning("GDP Agent 运行时接口取消失败，任务不存在：任务ID=%s", task_run_id)
         raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found")
 
     try:
         task_run = transition_task_run(task_run, TaskRunStatus.CANCELLED)
     except IllegalTransition:
         logger.warning(
-            "GDP Agent Runtime API 取消失败，状态不允许: task_run_id=%s status=%s",
+            "GDP Agent 运行时接口取消失败，当前状态不允许取消：任务ID=%s，状态=%s",
             task_run_id,
-            task_run.status,
+            describe_code(task_run.status),
         )
         raise HTTPException(status_code=409, detail=f"TaskRun 状态为 {task_run.status}，不能取消")
 
     store.save_task_run(task_run)
-    logger.info("GDP Agent Runtime API 已取消 TaskRun: task_run_id=%s status=%s", task_run_id, task_run.status)
+    logger.info("GDP Agent 运行时接口已取消任务：任务ID=%s，状态=%s", task_run_id, describe_code(task_run.status))
     return _to_response(task_run)
 
 
@@ -161,29 +165,34 @@ async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> Task
     """恢复 WAITING_USER 状态的任务。MVP 阶段仅做状态校验和基础回复。"""
     store = get_store()
     logger.info(
-        "GDP Agent Runtime API 回复 TaskRun: task_run_id=%s reply_type=%s payload_keys=%s",
+        "GDP Agent 运行时接口收到任务回复：任务ID=%s，回复类型=%s，回复内容=%s",
         task_run_id,
         request.reply_type,
-        sorted(request.payload.keys()),
+        describe_content(request.payload),
     )
     try:
         task_run = store.get_task_run(task_run_id)
     except EntityNotFoundError:
-        logger.warning("GDP Agent Runtime API 回复失败，TaskRun 不存在: task_run_id=%s", task_run_id)
+        logger.warning("GDP Agent 运行时接口回复失败，任务不存在：任务ID=%s", task_run_id)
         raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found")
 
     if task_run.status != TaskRunStatus.WAITING_USER:
         logger.warning(
-            "GDP Agent Runtime API 回复失败，状态不允许: task_run_id=%s status=%s",
+            "GDP Agent 运行时接口回复失败，当前状态不等待用户：任务ID=%s，状态=%s",
             task_run_id,
-            task_run.status,
+            describe_code(task_run.status),
         )
         raise HTTPException(status_code=409, detail=f"TaskRun 状态为 {task_run.status}，不能 reply")
 
-    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
-    task_run.pending_question = None
-    store.save_task_run(task_run)
-    logger.info("GDP Agent Runtime API 已回复 TaskRun: task_run_id=%s status=%s", task_run_id, task_run.status)
+    if request.reply_type == "CONFIRM_UNKNOWN_STATE":
+        task_run = _confirm_unknown_state(task_run, request.payload, store)
+    elif request.reply_type == "SUPPLY_INPUT":
+        task_run = await _resume_with_supplied_input(task_run, request.payload, store)
+    else:
+        logger.warning("GDP Agent 运行时接口回复失败，当前任务没有等待审批：任务ID=%s", task_run_id)
+        raise HTTPException(status_code=409, detail="当前 TaskRun 没有等待审批，不能 APPROVE")
+
+    logger.info("GDP Agent 运行时接口已处理任务回复：任务ID=%s，状态=%s", task_run_id, describe_code(task_run.status))
     return _to_response(task_run)
 
 
@@ -191,11 +200,11 @@ async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> Task
 async def get_task_run(task_run_id: str) -> TaskRunResponse:
     """查询 TaskRun 当前状态。"""
     store = get_store()
-    logger.debug("GDP Agent Runtime API 查询 TaskRun: task_run_id=%s", task_run_id)
+    logger.debug("GDP Agent 运行时接口查询任务：任务ID=%s", task_run_id)
     try:
         task_run = store.get_task_run(task_run_id)
     except EntityNotFoundError:
-        logger.warning("GDP Agent Runtime API 查询失败，TaskRun 不存在: task_run_id=%s", task_run_id)
+        logger.warning("GDP Agent 运行时接口查询失败，任务不存在：任务ID=%s", task_run_id)
         raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found")
     return _to_response(task_run)
 
@@ -204,22 +213,17 @@ async def get_task_run(task_run_id: str) -> TaskRunResponse:
 async def get_task_run_timeline(task_run_id: str) -> dict[str, Any]:
     """查询 TaskRun 的完整时间线。"""
     store = get_store()
-    logger.debug("GDP Agent Runtime API 查询 timeline: task_run_id=%s", task_run_id)
+    logger.debug("GDP Agent 运行时接口查询任务时间线：任务ID=%s", task_run_id)
     try:
         store.get_task_run(task_run_id)
     except EntityNotFoundError:
-        logger.warning("GDP Agent Runtime API 查询 timeline 失败，TaskRun 不存在: task_run_id=%s", task_run_id)
+        logger.warning("GDP Agent 运行时接口查询时间线失败，任务不存在：任务ID=%s", task_run_id)
         raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found")
     timeline = store.get_timeline(task_run_id)
     logger.info(
-        "GDP Agent Runtime API 已返回 timeline: task_run_id=%s steps=%s actions=%s attempts=%s evidences=%s verdicts=%s variables=%s",
+        "GDP Agent 运行时接口已返回任务时间线：任务ID=%s，时间线内容=%s",
         task_run_id,
-        len(timeline["steps"]),
-        len(timeline["actions"]),
-        len(timeline["attempts"]),
-        len(timeline["evidences"]),
-        len(timeline["verdicts"]),
-        len(timeline["variables"]),
+        describe_content(timeline, max_chars=4000),
     )
     return timeline
 
@@ -239,3 +243,93 @@ def _to_response(task_run) -> TaskRunResponse:
         updated_at=task_run.updated_at.isoformat(),
         finished_at=task_run.finished_at.isoformat() if task_run.finished_at else None,
     )
+
+
+def _confirm_unknown_state(task_run: TaskRun, payload: dict[str, Any], store: Store) -> TaskRun:
+    latest_verdict_type = _latest_verdict_type(task_run.task_run_id, store)
+    if latest_verdict_type != "UNKNOWN_STATE":
+        logger.warning(
+            "GDP Agent 运行时接口确认未知结果失败，最近判定不是 UNKNOWN_STATE：任务ID=%s，最近判定=%s",
+            task_run.task_run_id,
+            describe_optional(latest_verdict_type),
+        )
+        raise HTTPException(status_code=409, detail="当前 TaskRun 不是执行结果未知状态，不能确认 UNKNOWN_STATE")
+
+    task_run.pending_question = None
+    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
+    task_run.failure_reason = _format_unknown_state_confirmation(payload)
+    task_run = transition_task_run(task_run, TaskRunStatus.FAILED)
+    store.save_task_run(task_run)
+    return task_run
+
+
+async def _resume_with_supplied_input(task_run: TaskRun, payload: dict[str, Any], store: Store) -> TaskRun:
+    if _has_write_attempts(task_run.task_run_id, store):
+        logger.warning(
+            "GDP Agent 运行时接口补输入失败，任务已发起写请求，禁止重放：任务ID=%s",
+            task_run.task_run_id,
+        )
+        raise HTTPException(status_code=409, detail="当前 TaskRun 已发起写请求，不能通过 SUPPLY_INPUT 重放")
+
+    try:
+        pending_start = store.get_payload(pending_start_ref(task_run.task_run_id))
+    except EntityNotFoundError:
+        logger.warning("GDP Agent 运行时接口补输入失败，找不到待恢复启动请求：任务ID=%s", task_run.task_run_id)
+        raise HTTPException(status_code=409, detail="找不到可恢复的启动请求")
+
+    if not isinstance(pending_start, dict):
+        raise HTTPException(status_code=409, detail="待恢复启动请求格式无效")
+
+    scene_code = pending_start.get("scene_code")
+    if not isinstance(scene_code, str) or not scene_code.strip():
+        raise HTTPException(status_code=409, detail="待恢复启动请求缺少 scene_code")
+
+    supplied_env_code = payload.get("env_code")
+    if supplied_env_code is not None:
+        if not isinstance(supplied_env_code, str) or not supplied_env_code.strip():
+            raise HTTPException(status_code=422, detail="payload.env_code 必须是非空字符串")
+        task_run.env_code = supplied_env_code.strip()
+
+    inputs = _merge_supplied_inputs(pending_start.get("inputs"), payload)
+    task_run.pending_question = None
+
+    from .runner import run_task
+
+    return await run_task(
+        task_run,
+        SimpleNamespace(scene_code=scene_code.strip(), inputs=inputs),
+        store,
+    )
+
+
+def _merge_supplied_inputs(pending_inputs: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    base_inputs = pending_inputs if isinstance(pending_inputs, dict) else {}
+    supplied_inputs = payload.get("inputs")
+    if supplied_inputs is None:
+        supplied_inputs = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"env_code", "message"}
+        }
+    if not isinstance(supplied_inputs, dict):
+        raise HTTPException(status_code=422, detail="payload.inputs 必须是对象")
+    return {**base_inputs, **supplied_inputs}
+
+
+def _latest_verdict_type(task_run_id: str, store: Store) -> str | None:
+    verdicts = store.get_timeline(task_run_id)["verdicts"]
+    if not verdicts:
+        return None
+    verdict_type = verdicts[-1].get("verdict_type")
+    return verdict_type if isinstance(verdict_type, str) else None
+
+
+def _has_write_attempts(task_run_id: str, store: Store) -> bool:
+    return bool(store.get_timeline(task_run_id)["attempts"])
+
+
+def _format_unknown_state_confirmation(payload: dict[str, Any]) -> str:
+    message = payload.get("message")
+    if isinstance(message, str) and message.strip():
+        return "用户确认执行结果未知，任务已停止以避免重复写请求。用户说明：" + message.strip()
+    return "用户确认执行结果未知，任务已停止以避免重复写请求。"

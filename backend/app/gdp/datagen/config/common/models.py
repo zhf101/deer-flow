@@ -196,6 +196,23 @@ class RetryPolicy(BaseModel):
     retryOn: list[RetryErrorType] = Field(default_factory=list, description="触发重试的错误类型列表。")
 
 
+class SceneSuccessCriteria(BaseModel):
+    """场景级业务成功判定规则。
+
+    在所有步骤执行完毕、finalOutput 计算完成后，对 finalOutput 进行条件求值，
+    判定该场景在业务层面是否成功。判定顺序：
+    1. businessFailure.anyOf 任一命中 → 业务失败
+    2. businessSuccess.allOf 全部满足 → 业务成功
+    3. 无 businessSuccess 条件 + 无失败命中 → 默认成功
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(default=True, description="是否启用场景级业务成功判定。禁用时跳过求值，视为无业务判定。")
+    businessSuccess: ResponseConditionGroup = Field(default_factory=ResponseConditionGroup, description="业务成功条件，作用于 finalOutput。allOf 中所有规则必须同时满足。")
+    businessFailure: ResponseConditionGroup = Field(default_factory=ResponseConditionGroup, description="业务失败条件，作用于 finalOutput。anyOf 中任一规则命中即判定失败。")
+
+
 class SqlSourceSafety(BaseModel):
     """SQL 执行安全策略。"""
 

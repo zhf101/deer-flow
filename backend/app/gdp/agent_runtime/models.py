@@ -205,6 +205,10 @@ class EvidenceFact(BaseModel):
     expected: Any = Field(description="期望值。")
     actual: Any = Field(description="实际值。")
     passed: bool = Field(description="是否通过。")
+    # detail 承载场景自己算出的精确原因（如命中的失败规则描述）。
+    # 业务失败时 Scene 把原因放在 businessResult 里，必须透传到这里，
+    # 否则 Verdict 只能给出“执行失败”这种无信息量的结论。
+    detail: str | None = Field(default=None, description="事实补充说明，如命中的业务规则描述。")
     source_observation_id: str = Field(description="事实来源 Observation。")
 
 

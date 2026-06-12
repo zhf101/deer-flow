@@ -8,6 +8,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from .log_text import describe_fact_name, describe_fact_value
 from .models import (
     Action,
     ActionStatus,
@@ -49,7 +50,7 @@ def judge(evidence: Evidence, action: Action) -> Verdict:
             step_id=evidence.step_id,
             evidence_id=evidence.evidence_id,
             verdict_type=VerdictType.UNKNOWN_STATE,
-            reason="执行结果未知: " + ", ".join(evidence.unknown_facts),
+            reason="执行结果未知：" + "，".join(describe_fact_name(item) for item in evidence.unknown_facts),
             created_at=_now(),
         )
 
@@ -62,7 +63,7 @@ def judge(evidence: Evidence, action: Action) -> Verdict:
                 step_id=evidence.step_id,
                 evidence_id=evidence.evidence_id,
                 verdict_type=VerdictType.NEED_USER,
-                reason="证据不足，缺失: " + ", ".join(evidence.missing_facts),
+                reason="证据不足，缺失：" + "，".join(describe_fact_name(item) for item in evidence.missing_facts),
                 created_at=_now(),
             )
         return Verdict(
@@ -71,20 +72,31 @@ def judge(evidence: Evidence, action: Action) -> Verdict:
             step_id=evidence.step_id,
             evidence_id=evidence.evidence_id,
             verdict_type=VerdictType.FAILED,
-            reason="证据缺失且无通过事实: " + ", ".join(evidence.missing_facts),
+            reason="证据缺失且无通过事实：" + "，".join(describe_fact_name(item) for item in evidence.missing_facts),
             created_at=_now(),
         )
 
     failed_facts = [f for f in evidence.facts if not f.passed]
     if failed_facts:
-        reasons = [f"{f.subject}: expected={f.expected}, actual={f.actual}" for f in failed_facts]
+        # 失败原因以“人话”为主：有 detail（业务规则原因 / 步骤级友好提示，
+        # 如“无法连接到目标服务器，请检查服务器地址、端口是否正确”）就直接展示，
+        # 不再用“XX未通过：期望=…实际=…”这种机器话包裹——那是给用户看的，不是给排查日志看的。
+        # 只有在拿不到 detail 时，才退回“期望/实际”的技术描述兜底。
+        reasons = [
+            (
+                f.detail
+                if f.detail
+                else f"{describe_fact_name(f.subject)}未达预期：期望={describe_fact_value(f.expected)}，实际={describe_fact_value(f.actual)}"
+            )
+            for f in failed_facts
+        ]
         return Verdict(
             verdict_id=verdict_id,
             task_run_id=evidence.task_run_id,
             step_id=evidence.step_id,
             evidence_id=evidence.evidence_id,
             verdict_type=VerdictType.FAILED,
-            reason="事实未通过: " + "; ".join(reasons),
+            reason="；".join(reasons),
             created_at=_now(),
         )
 

@@ -22,7 +22,11 @@ import {
   publishScene,
   updateScene,
 } from "../common/lib/api";
-import { createDefaultHttpTimeoutConfig, createDefaultScene, createDefaultStep } from "../common/lib/defaults";
+import {
+  createDefaultHttpTimeoutConfig,
+  createDefaultScene,
+  createDefaultStep,
+} from "../common/lib/defaults";
 import { toStrictScenePayload } from "../common/lib/step-payload";
 import { validateSceneForPublish } from "../common/lib/step-validation";
 import type {
@@ -59,11 +63,15 @@ const STEPS = [
 
 export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   const [currentStep, setCurrentStep] = useState(0);
-  const [scene, setScene] = useState<SceneDefinition>(() => createDefaultScene());
+  const [scene, setScene] = useState<SceneDefinition>(() =>
+    createDefaultScene(),
+  );
   const [persistedSceneCode, setPersistedSceneCode] = useState<string | null>(
     sceneCode ?? null,
   );
-  const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string | null>(null);
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [issues, setIssues] = useState<ValidationIssue[]>([]);
@@ -110,16 +118,30 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
 
   // 将校验问题按步骤分组，供侧边栏导航显示 ERROR 红点
   const stepIssueCounts = useMemo(() => {
-    const counts = Array.from({ length: STEPS.length }, () => ({ errors: 0, warnings: 0 }));
+    const counts = Array.from({ length: STEPS.length }, () => ({
+      errors: 0,
+      warnings: 0,
+    }));
     for (const issue of issues) {
       let stepIdx = -1;
-      if (issue.field === "sceneCode" || issue.field === "sceneName" || issue.field === "sceneRemark") {
+      if (
+        issue.field === "sceneCode" ||
+        issue.field === "sceneName" ||
+        issue.field === "sceneRemark"
+      ) {
         stepIdx = 0;
       } else if (issue.field.startsWith("inputSchema")) {
         stepIdx = 1;
-      } else if (issue.field.startsWith("step:") || issue.field.startsWith("steps[")) {
+      } else if (
+        issue.field.startsWith("step:") ||
+        issue.field.startsWith("steps[")
+      ) {
         stepIdx = 2;
-      } else if (issue.field.startsWith("resultMapping") || issue.field.startsWith("resultSchema")) {
+      } else if (
+        issue.field.startsWith("resultMapping") ||
+        issue.field.startsWith("resultSchema") ||
+        issue.field.startsWith("successCriteria")
+      ) {
         stepIdx = 3;
       } else if (issue.field.startsWith("batchConfig")) {
         stepIdx = 4;
@@ -132,14 +154,18 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
     return counts;
   }, [issues]);
 
-  const currentSceneSnapshot = useMemo(() => buildSceneSnapshot(scene), [scene]);
-  const hasUnsavedChanges = persistedSceneCode === null || currentSceneSnapshot !== lastSavedSnapshot;
+  const currentSceneSnapshot = useMemo(
+    () => buildSceneSnapshot(scene),
+    [scene],
+  );
+  const hasUnsavedChanges =
+    persistedSceneCode === null || currentSceneSnapshot !== lastSavedSnapshot;
 
   const save = async (showToast = true): Promise<string | null> => {
     if (readOnly) return persistedSceneCode;
     if (!scene.sceneCode || !scene.sceneName) {
-        if (showToast) toast.error("请先填写场景编码和名称");
-        return null;
+      if (showToast) toast.error("请先填写场景编码和名称");
+      return null;
     }
 
     const payload = toStrictScenePayload(scene);
@@ -148,7 +174,7 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
       if (showToast) toast.info("没有需要保存的变更");
       return persistedSceneCode;
     }
-    
+
     setSaving(true);
     try {
       const version = persistedSceneCode
@@ -161,7 +187,8 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
       if (showToast) toast.success(`配置已自动保存 (v${version.versionNo})`);
       return version.sceneCode;
     } catch (error) {
-      if (showToast) toast.error(error instanceof Error ? error.message : "保存失败");
+      if (showToast)
+        toast.error(error instanceof Error ? error.message : "保存失败");
       return null;
     } finally {
       setSaving(false);
@@ -169,22 +196,26 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
   };
 
   const navigateToStep = async (idx: number) => {
-      if (idx === currentStep) return;
-      if (!readOnly && hasUnsavedChanges) await save(false);
-      setCurrentStep(idx);
+    if (idx === currentStep) return;
+    if (!readOnly && hasUnsavedChanges) await save(false);
+    setCurrentStep(idx);
   };
 
   const runPublish = async () => {
     if (readOnly) return;
-    if (persistedSceneCode && scene.status === "PUBLISHED" && !hasUnsavedChanges) {
+    if (
+      persistedSceneCode &&
+      scene.status === "PUBLISHED" &&
+      !hasUnsavedChanges
+    ) {
       toast.info("当前版本已经发布，无需重复发布");
       return;
     }
-    
-    const errors = issues.filter(i => i.level === 'ERROR');
+
+    const errors = issues.filter((i) => i.level === "ERROR");
     if (errors.length > 0) {
-        toast.error(`发布校验未通过: ${errors[0]?.message ?? '未知错误'}`);
-        return;
+      toast.error(`发布校验未通过: ${errors[0]?.message ?? "未知错误"}`);
+      return;
     }
 
     setPublishing(true);
@@ -217,17 +248,20 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
     }));
   };
 
-  const addStep = (type: 'HTTP' | 'SQL') => {
+  const addStep = (type: "HTTP" | "SQL") => {
     if (readOnly) return;
     const nextStep = createDefaultStep(type, scene.steps.length);
-    setScene((curr) => ({ ...curr, steps: assignExecutionOrders(curr.steps.concat(nextStep)) }));
+    setScene((curr) => ({
+      ...curr,
+      steps: assignExecutionOrders(curr.steps.concat(nextStep)),
+    }));
   };
 
   const deleteStep = (id: string) => {
     if (readOnly) return;
     setScene((curr) => ({
-        ...curr,
-        steps: assignExecutionOrders(curr.steps.filter((s) => s.stepId !== id)),
+      ...curr,
+      steps: assignExecutionOrders(curr.steps.filter((s) => s.stepId !== id)),
     }));
   };
 
@@ -241,97 +275,113 @@ export function SceneEditor({ sceneCode, onBack, readOnly }: SceneEditorProps) {
 
   return (
     <TooltipProvider delayDuration={0}>
-    <div className="flex h-full overflow-hidden">
-      <SceneEditorSidebar
-        isSidebarExpanded={isSidebarExpanded}
-        setIsSidebarExpanded={setIsSidebarExpanded}
-        sceneName={scene.sceneName ?? null}
-        sceneCode={scene.sceneCode ?? null}
-        status={scene.status}
-        steps={STEPS}
-        currentStep={currentStep}
-        navigateToStep={navigateToStep}
-        saving={saving}
-        publishing={publishing}
-        save={save}
-        runPublish={runPublish}
-        onRun={persistedSceneCode && scene.status === "PUBLISHED" ? () => setShowRunDialog(true) : undefined}
-        readOnly={readOnly}
-        stepIssueCounts={stepIssueCounts}
-      />
-
-      {/* 主内容区域 */}
-      <div className="flex-1 flex flex-col min-w-0 bg-background">
-        <SceneEditorHeader
+      <div className="flex h-full overflow-hidden">
+        <SceneEditorSidebar
+          isSidebarExpanded={isSidebarExpanded}
+          setIsSidebarExpanded={setIsSidebarExpanded}
           sceneName={scene.sceneName ?? null}
-          stepTitle={STEPS[currentStep]?.title ?? "配置中"}
-          currentStepIndex={currentStep}
+          sceneCode={scene.sceneCode ?? null}
+          status={scene.status}
+          steps={STEPS}
+          currentStep={currentStep}
+          navigateToStep={navigateToStep}
           saving={saving}
-          isPublished={persistedSceneCode !== null}
+          publishing={publishing}
+          save={save}
+          runPublish={runPublish}
+          onRun={
+            persistedSceneCode && scene.status === "PUBLISHED"
+              ? () => setShowRunDialog(true)
+              : undefined
+          }
+          readOnly={readOnly}
+          stepIssueCounts={stepIssueCounts}
         />
 
-        <main className="flex-1 relative overflow-hidden">
-          {currentStep === 2 ? (
-            <div className="h-full p-4">
-              <LogicOrchestrationStep
-                scene={scene}
-                httpSources={httpSources}
-                sqlSources={sqlSources}
-                issues={issues}
-                updateStep={updateStep}
-                deleteStep={deleteStep}
-                addStep={addStep}
-                setScene={setScene}
-                readOnly={readOnly}
-              />
-            </div>
-          ) : (
-            <ScrollArea className="h-full">
-              <div className="mx-auto max-w-5xl p-8">
-                {currentStep === 0 && (
-                  <div className="animate-in fade-in slide-in-from-left-2 duration-300">
-                    <BasicInfoPanel
-                      scene={scene}
-                      persisted={persistedSceneCode !== null}
-                      onChange={setScene}
-                      readOnly={readOnly}
-                    />
-                  </div>
-                )}
+        {/* 主内容区域 */}
+        <div className="bg-background flex min-w-0 flex-1 flex-col">
+          <SceneEditorHeader
+            sceneName={scene.sceneName ?? null}
+            stepTitle={STEPS[currentStep]?.title ?? "配置中"}
+            currentStepIndex={currentStep}
+            saving={saving}
+            isPublished={persistedSceneCode !== null}
+          />
 
-                {currentStep === 1 && (
-                  <div className="animate-in fade-in slide-in-from-left-2 duration-300">
-                    <InputSchemaPanel scene={scene} onChange={setScene} readOnly={readOnly} />
-                  </div>
-                )}
-
-                {currentStep === 3 && (
-                  <div className="animate-in fade-in slide-in-from-left-2 duration-300">
-                    <ResultMappingPanel scene={scene} onChange={setScene} readOnly={readOnly} />
-                  </div>
-                )}
-
-                {currentStep === 4 && (
-                  <div className="animate-in fade-in slide-in-from-left-2 duration-300">
-                    <BatchConfigPanel scene={scene} onChange={setScene} readOnly={readOnly} />
-                  </div>
-                )}
+          <main className="relative flex-1 overflow-hidden">
+            {currentStep === 2 ? (
+              <div className="h-full p-4">
+                <LogicOrchestrationStep
+                  scene={scene}
+                  httpSources={httpSources}
+                  sqlSources={sqlSources}
+                  issues={issues}
+                  updateStep={updateStep}
+                  deleteStep={deleteStep}
+                  addStep={addStep}
+                  setScene={setScene}
+                  readOnly={readOnly}
+                />
               </div>
-            </ScrollArea>
-          )}
-        </main>
-      </div>
+            ) : (
+              <ScrollArea className="h-full">
+                <div className="mx-auto max-w-5xl p-8">
+                  {currentStep === 0 && (
+                    <div className="animate-in fade-in slide-in-from-left-2 duration-300">
+                      <BasicInfoPanel
+                        scene={scene}
+                        persisted={persistedSceneCode !== null}
+                        onChange={setScene}
+                        readOnly={readOnly}
+                      />
+                    </div>
+                  )}
 
-      {/* 执行场景对话框 */}
-      {persistedSceneCode && (
-        <SceneRunDialog
-          scene={scene}
-          sceneCode={persistedSceneCode}
-          open={showRunDialog}
-          onOpenChange={setShowRunDialog}
-        />
-      )}
-    </div>
+                  {currentStep === 1 && (
+                    <div className="animate-in fade-in slide-in-from-left-2 duration-300">
+                      <InputSchemaPanel
+                        scene={scene}
+                        onChange={setScene}
+                        readOnly={readOnly}
+                      />
+                    </div>
+                  )}
+
+                  {currentStep === 3 && (
+                    <div className="animate-in fade-in slide-in-from-left-2 duration-300">
+                      <ResultMappingPanel
+                        scene={scene}
+                        onChange={setScene}
+                        readOnly={readOnly}
+                      />
+                    </div>
+                  )}
+
+                  {currentStep === 4 && (
+                    <div className="animate-in fade-in slide-in-from-left-2 duration-300">
+                      <BatchConfigPanel
+                        scene={scene}
+                        onChange={setScene}
+                        readOnly={readOnly}
+                      />
+                    </div>
+                  )}
+                </div>
+              </ScrollArea>
+            )}
+          </main>
+        </div>
+
+        {/* 执行场景对话框 */}
+        {persistedSceneCode && (
+          <SceneRunDialog
+            scene={scene}
+            sceneCode={persistedSceneCode}
+            open={showRunDialog}
+            onOpenChange={setShowRunDialog}
+          />
+        )}
+      </div>
     </TooltipProvider>
   );
 }
@@ -343,22 +393,42 @@ function buildSceneSnapshot(scene: SceneDefinition): string {
 function normalizeScene(scene: SceneDefinition): SceneDefinition {
   return {
     ...scene,
-    inputSchema: (scene.inputSchema ?? []).map(field => ({
+    inputSchema: (scene.inputSchema ?? []).map((field) => ({
       ...field,
       children: field.children ?? undefined,
     })),
     batchConfig: scene.batchConfig ?? createDefaultScene().batchConfig,
     resultSchema: scene.resultSchema ?? [],
     resultMapping: normalizeResultMapping(scene.resultMapping),
+    successCriteria: normalizeSuccessCriteria(scene.successCriteria),
     errorPolicy: scene.errorPolicy ?? "STOP_ON_ERROR",
     steps: normalizeSteps(scene.steps ?? []),
+  };
+}
+
+function normalizeSuccessCriteria(
+  criteria: SceneDefinition["successCriteria"],
+): SceneDefinition["successCriteria"] {
+  if (!criteria) return null;
+  return {
+    enabled: criteria.enabled ?? true,
+    businessSuccess: {
+      allOf: criteria.businessSuccess?.allOf ?? [],
+      anyOf: criteria.businessSuccess?.anyOf ?? [],
+    },
+    businessFailure: {
+      allOf: criteria.businessFailure?.allOf ?? [],
+      anyOf: criteria.businessFailure?.anyOf ?? [],
+    },
   };
 }
 
 function normalizeSteps(steps: StepDefinition[]): StepDefinition[] {
   return steps
     .map((step, index) => normalizeStep(step, index))
-    .sort((left, right) => (left.executionOrder ?? 0) - (right.executionOrder ?? 0))
+    .sort(
+      (left, right) => (left.executionOrder ?? 0) - (right.executionOrder ?? 0),
+    )
     .map((step, index) => ({ ...step, executionOrder: index + 1 }));
 }
 

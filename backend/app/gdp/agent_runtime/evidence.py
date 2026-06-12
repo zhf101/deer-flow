@@ -57,7 +57,13 @@ def build_evidence(
             created_at=_now(),
         )
 
-    if attempt.status == AttemptStatus.FAILED:
+    preview = observation.preview or {}
+
+    # 业务失败会被 Scene 降级成 status=FAILED → attempt=FAILED，但真正原因在
+    # businessResult 里。所以不能见 FAILED 就提前返回：有 businessResult 时要继续
+    # 往下走业务判定分支抽出精确原因；只有纯技术失败（校验/异常/幂等冲突，
+    # 没有任何结构化结果）才在这里记一条光秃秃的 attempt 失败事实并返回。
+    if attempt.status == AttemptStatus.FAILED and not preview.get("businessResult"):
         facts.append(
             EvidenceFact(
                 subject="attempt.status",
@@ -65,6 +71,9 @@ def build_evidence(
                 expected="SUCCEEDED",
                 actual="FAILED",
                 passed=False,
+                # detail 带上 execution 层已挖好的友好原因（如“无法连接到目标服务器…”），
+                # 否则 Verdict 只能退化成“期望=SUCCEEDED 实际=FAILED”这种用户看不懂的机器话。
+                detail=attempt.error_message or None,
                 source_observation_id=observation.observation_id,
             )
         )
@@ -79,7 +88,6 @@ def build_evidence(
             created_at=_now(),
         )
 
-    preview = observation.preview or {}
     scene_status = str(preview.get("status", "")).upper()
     if scene_status:
         facts.append(
@@ -95,6 +103,42 @@ def build_evidence(
     else:
         missing_facts.append("scene.status")
 
+    # 优先采信场景自己的业务判定（businessResult）。
+    # Scene 配了 successCriteria 时，成功/失败已由场景按配置规则算好，
+    # 并把精确原因放在 reason / failedRules 里。这里直接把它转成一条事实即可，
+    # 不必再让 Agent 反推或硬编码字段——这样任意配了规则的真实场景都能复用。
+    # 业务失败时 Scene 会把 status 降级为 FAILED，上面已记一条 scene.status 失败事实，
+    # 这条 business_success 事实补上“为什么失败”，避免只有一句空泛的状态码。
+    business = preview.get("businessResult")
+    if business:
+        is_success = bool(business.get("isSuccess"))
+        failed_rules = business.get("failedRules") or []
+        facts.append(
+            EvidenceFact(
+                subject="scene.business_success",
+                predicate=FactPredicate.EQUALS,
+                expected=True,
+                actual=is_success,
+                passed=is_success,
+                # detail 承载人类可读原因：失败规则优先，其次判定说明。
+                # 让 Verdict 和前端能直接展示“命中失败规则: pay_status eq UNPAID”。
+                detail="；".join(str(r) for r in failed_rules) or str(business.get("reason") or ""),
+                source_observation_id=observation.observation_id,
+            )
+        )
+        return Evidence(
+            evidence_id=evidence_id,
+            task_run_id=action.task_run_id,
+            step_id=step.step_id,
+            action_id=action.action_id,
+            facts=facts,
+            missing_facts=missing_facts,
+            unknown_facts=unknown_facts,
+            created_at=_now(),
+        )
+
+    # 场景没配 successCriteria（businessResult 为空）时才走回退逻辑。
+    # 非 create_paid_order 的场景没有可抽取的固定字段契约，仅凭步骤状态判定。
     if action.scene_code != "create_paid_order":
         return Evidence(
             evidence_id=evidence_id,
@@ -107,6 +151,7 @@ def build_evidence(
             created_at=_now(),
         )
 
+    # create_paid_order 专用纵切片：场景未配规则时，按订单字段契约兜底抽取。
     final_output = preview.get("finalOutput", preview)
 
     order_id = final_output.get("order_id")

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import select
 
 from app.gdp.datagen.config.common.models import HttpMethod, InputFieldDefinition, InputFieldType, SceneStatus, SqlOperation
-from app.gdp.datagen.config.scene.models import BatchConfig, HttpStepDefinition, SceneDefinition, SqlStepDefinition, ValidationResult
+from app.gdp.datagen.config.scene.models import BatchConfig, HttpStepDefinition, SceneDefinition, SceneExecutionResult, SqlStepDefinition, ValidationResult
 from app.gdp.datagen.config.scene.repository import (
+    DataFactorySceneRunRow,
     DataFactorySceneStepHttpConfigRow,
     DataFactorySceneStepRow,
     DataFactorySceneStepSqlConfigRow,
@@ -130,6 +133,41 @@ async def test_error_policy_is_stored_as_plain_string(scene_repo: SceneRepositor
     assert version_row.error_policy_json == "CONTINUE_ON_ERROR"
     loaded = await scene_repo.get_scene("continueScene")
     assert loaded.definition.errorPolicy == "CONTINUE_ON_ERROR"
+
+
+@pytest.mark.anyio
+async def test_scene_run_history_ignores_malformed_business_result_json(scene_repo: SceneRepository):
+    now = datetime.now(UTC)
+    saved = await scene_repo.save_scene_run(
+        SceneExecutionResult(
+            sceneCode="legacyScene",
+            versionNo=1,
+            envCode="DEV",
+            inputs={"userId": "U1"},
+            status="SUCCESS",
+            startedAt=now,
+            finishedAt=now,
+            durationMs=1.0,
+            stepResults=[],
+            finalOutput={"orderNo": "O1"},
+            errors=[],
+        )
+    )
+
+    session_factory = get_session_factory()
+    assert session_factory is not None
+    async with session_factory() as session:
+        row = await session.get(DataFactorySceneRunRow, saved.runId)
+        assert row is not None
+        row.business_result_json = "[]"
+        await session.commit()
+
+    runs = await scene_repo.list_scene_runs(limit=20, offset=0)
+    detail = await scene_repo.get_scene_run(saved.runId)
+
+    assert runs[0].runId == saved.runId
+    assert runs[0].businessResult is None
+    assert detail.businessResult is None
 
 
 def test_sql_parameter_without_required_defaults_to_optional():

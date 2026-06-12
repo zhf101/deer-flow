@@ -1,7 +1,7 @@
 "use client";
 
 import { MonitorSmartphoneIcon, MoonIcon, SunIcon } from "lucide-react";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import { useMemo, type ComponentType, type SVGProps } from "react";
 
 import {

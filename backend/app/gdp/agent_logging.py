@@ -11,8 +11,35 @@ from deerflow.config.app_config import logging_level_from_config
 GDP_AGENT_LOG_FILE: Final = "gdpagents.log"
 GDP_AGENT_LOGGER_NAMES: Final = ("app.gdp.agent_runtime", "app.gdp.agent")
 _HANDLER_MARKER: Final = "_gdp_agent_log_file"
-_LOG_FORMAT: Final = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+_LOG_FORMAT: Final = "%(asctime)s - %(gdp_logger_name)s - %(gdp_level_name)s - %(message)s"
 _DATE_FORMAT: Final = "%Y-%m-%d %H:%M:%S"
+
+_LEVEL_TEXT: Final = {
+    "DEBUG": "调试",
+    "INFO": "信息",
+    "WARNING": "警告",
+    "ERROR": "错误",
+    "CRITICAL": "严重",
+}
+
+_LOGGER_TEXT: Final = {
+    "app.gdp.agent_runtime": "GDP Agent 运行时",
+    "app.gdp.agent_runtime.api": "GDP Agent 运行时接口",
+    "app.gdp.agent_runtime.runner": "GDP Agent 运行时主流程",
+    "app.gdp.agent_runtime.execution": "GDP Agent 运行时执行器",
+    "app.gdp.agent_runtime.adapters.scene": "GDP Agent 场景适配器",
+    "app.gdp.agent": "GDP Agent",
+    "app.gdp.agent.graph": "GDP Agent 图执行器",
+}
+
+
+class GdpAgentLogFormatter(logging.Formatter):
+    """为 gdpagents.log 补充中文模块名和日志级别。"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        record.gdp_logger_name = _describe_logger_name(record.name)
+        record.gdp_level_name = _LEVEL_TEXT.get(record.levelname, record.levelname)
+        return super().format(record)
 
 
 def configure_gdp_agent_file_logging(
@@ -23,7 +50,7 @@ def configure_gdp_agent_file_logging(
     level = logging_level_from_config(log_level)
     log_path = Path(log_file).expanduser().resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    formatter = logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
+    formatter = GdpAgentLogFormatter(_LOG_FORMAT, datefmt=_DATE_FORMAT)
 
     for logger_name in GDP_AGENT_LOGGER_NAMES:
         logger = logging.getLogger(logger_name)
@@ -37,6 +64,18 @@ def configure_gdp_agent_file_logging(
         handler.setFormatter(formatter)
 
     return log_path
+
+
+def _describe_logger_name(logger_name: str) -> str:
+    if logger_name in _LOGGER_TEXT:
+        return _LOGGER_TEXT[logger_name]
+    if logger_name.startswith("app.gdp.agent_runtime."):
+        suffix = logger_name.removeprefix("app.gdp.agent_runtime.")
+        return f"GDP Agent 运行时/{suffix}"
+    if logger_name.startswith("app.gdp.agent."):
+        suffix = logger_name.removeprefix("app.gdp.agent.")
+        return f"GDP Agent/{suffix}"
+    return logger_name
 
 
 def _find_existing_file_handler(

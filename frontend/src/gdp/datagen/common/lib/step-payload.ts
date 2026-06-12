@@ -89,6 +89,7 @@ export function toStrictStepPayload(step: StepDefinition): StepDefinition {
 export function toStrictScenePayload(scene: SceneDefinition): SceneDefinition {
   return {
     ...scene,
+    successCriteria: scene.successCriteria ?? null,
     steps: scene.steps.map((step, index) =>
       toStrictStepPayload({ ...step, executionOrder: index + 1 }),
     ),

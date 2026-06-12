@@ -4,7 +4,7 @@ import { json } from "@codemirror/lang-json";
 import { basicLightInit } from "@uiw/codemirror-theme-basic";
 import { monokaiInit } from "@uiw/codemirror-theme-monokai";
 import CodeMirror from "@uiw/react-codemirror";
-import { useTheme } from "next-themes";
+import { useTheme } from "@/components/theme-provider";
 import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";

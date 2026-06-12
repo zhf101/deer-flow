@@ -49,6 +49,7 @@ import type {
   DeerflowRunResponse,
   EnvironmentResponse,
 } from "../common/lib/types";
+import { formatUnknownValue } from "../common/lib/value-utils";
 
 const DEFAULT_ENV_VALUE = "__default__";
 const TERMINAL_STATUSES = new Set<DatagenTaskStatus>([
@@ -591,7 +592,7 @@ export function GDPAgentEntry() {
                           <div key={variable.name} className="rounded-md border p-2">
                             <div className="text-xs font-medium">{variable.label ?? variable.name}</div>
                             <div className="mt-1 break-all font-mono text-[11px] text-muted-foreground">
-                              {String(variable.valuePreview ?? variable.value ?? "-")}
+                              {formatUnknownValue(variable.valuePreview ?? variable.value, "-")}
                             </div>
                           </div>
                         ))}
