@@ -284,15 +284,15 @@ def test_build_run_config_context_custom_agent_injects_agent_name():
     assert "configurable" not in config
 
 
-def test_build_run_config_gdp_agent_does_not_inject_agent_name():
-    """gdp_agent 是独立业务图，不应走自定义 Lead Agent 的 agent_name 注入。"""
+def test_build_run_config_gdp_agent_uses_custom_agent_path():
+    """旧 GDP 业务图入口下线后，gdp_agent 不再特殊跳转到旧 graph。"""
     from app.gateway.services import build_run_config
 
     config = build_run_config("thread-1", None, None, assistant_id="gdp_agent")
 
     assert config["configurable"]["thread_id"] == "thread-1"
-    assert "agent_name" not in config["configurable"]
-    assert config["run_name"] == "gdp_agent"
+    assert config["configurable"]["agent_name"] == "gdp-agent"
+    assert config["run_name"] == "gdp-agent"
 
 
 def test_resolve_agent_factory_returns_make_lead_agent_for_default_and_custom():
@@ -306,13 +306,13 @@ def test_resolve_agent_factory_returns_make_lead_agent_for_default_and_custom():
     assert resolve_agent_factory("custom-agent-123") is make_lead_agent
 
 
-def test_resolve_agent_factory_returns_gdp_agent_factory():
-    """gdp_agent assistant_id 直接走 GDP 业务图。"""
+def test_resolve_agent_factory_does_not_import_legacy_gdp_graph():
+    """gdp_agent assistant_id 不再导向旧 app.gdp.agent.graph。"""
     from app.gateway.services import resolve_agent_factory
-    from app.gdp.agent.graph import make_gdp_agent
+    from deerflow.agents.lead_agent.agent import make_lead_agent
 
-    assert resolve_agent_factory("gdp_agent") is make_gdp_agent
-    assert resolve_agent_factory("gdp-agent") is make_gdp_agent
+    assert resolve_agent_factory("gdp_agent") is make_lead_agent
+    assert resolve_agent_factory("gdp-agent") is make_lead_agent
 
 
 # ---------------------------------------------------------------------------

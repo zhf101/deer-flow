@@ -207,7 +207,7 @@ class AgentRuntimePayloadRow(Base):
     __tablename__ = "df_agent_runtime_payload"
 
     payload_ref: Mapped[str] = mapped_column(String(512), primary_key=True, comment="载荷引用。")
-    task_run_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True, comment="所属任务运行 ID。")
+    task_run_id: Mapped[str] = mapped_column(String(64), primary_key=True, index=True, comment="所属任务运行 ID。")
     payload_json: Mapped[str] = mapped_column(Text, nullable=False, comment="完整载荷 JSON。")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, comment="创建时间。")
 
@@ -249,13 +249,11 @@ class AgentRuntimeRepository:
             for item in snapshot["approval_records"]:
                 await self._upsert(session, AgentRuntimeApprovalRow, _approval_id(item), _approval_values(item))
             for item in snapshot["payloads"]:
-                await self._upsert(
+                await self._upsert_payload(
                     session,
-                    AgentRuntimePayloadRow,
-                    item["ref"],
                     {
                         "payload_ref": item["ref"],
-                        "task_run_id": task_run_id,
+                        "task_run_id": item["task_run_id"],
                         "payload_json": _dumps(item["payload"]),
                         "created_at": _now(),
                     },
@@ -295,7 +293,7 @@ class AgentRuntimeRepository:
             for row in await _rows(session, AgentRuntimeApprovalRow, task_run_id, AgentRuntimeApprovalRow.created_at):
                 store.save_approval_record(_loads(row.approval_json))
             for row in await _rows(session, AgentRuntimePayloadRow, task_run_id, AgentRuntimePayloadRow.created_at):
-                store.save_payload(row.payload_ref, _loads(row.payload_json))
+                store.save_payload(task_run_id, row.payload_ref, _loads(row.payload_json))
 
             return store
 
@@ -324,8 +322,8 @@ class AgentRuntimeRepository:
     async def get_payload(self, task_run_id: str, ref: str) -> Any:
         """读取某个 TaskRun 的完整 payload。"""
         async with self._sf() as session:
-            row = await session.get(AgentRuntimePayloadRow, ref)
-            if row is None or row.task_run_id != task_run_id:
+            row = await session.get(AgentRuntimePayloadRow, (ref, task_run_id))
+            if row is None:
                 raise EntityNotFoundError("Payload", ref)
             return _loads(row.payload_json)
 
@@ -352,6 +350,15 @@ class AgentRuntimeRepository:
         row = await session.get(row_cls, key)
         if row is None:
             session.add(row_cls(**values))
+            return
+        for attr, value in values.items():
+            setattr(row, attr, value)
+
+    @staticmethod
+    async def _upsert_payload(session: AsyncSession, values: dict[str, Any]) -> None:
+        row = await session.get(AgentRuntimePayloadRow, (values["payload_ref"], values["task_run_id"]))
+        if row is None:
+            session.add(AgentRuntimePayloadRow(**values))
             return
         for attr, value in values.items():
             setattr(row, attr, value)

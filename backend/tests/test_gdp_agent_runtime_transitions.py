@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
-
 from datetime import UTC, datetime
+
+import pytest
 
 from app.gdp.agent_runtime.flow import create_task_run
 from app.gdp.agent_runtime.models import (
@@ -12,6 +12,7 @@ from app.gdp.agent_runtime.models import (
     Requirement,
     RequirementLayer,
     RequirementStatus,
+    SuspendReason,
     TaskRunStatus,
 )
 from app.gdp.agent_runtime.transitions import (
@@ -47,6 +48,7 @@ def test_task_run_cancel_allowed_before_terminal_and_rejected_after_terminal():
     waiting = create_task_run("等待用户任务", env_code="SIT1")
     waiting = transition_task_run(waiting, TaskRunStatus.RUNNING)
     waiting.pending_question = "请确认。"
+    waiting.suspend_reason = SuspendReason.NEED_EVIDENCE
     waiting = transition_task_run(waiting, TaskRunStatus.WAITING_USER)
     assert transition_task_run(waiting, TaskRunStatus.CANCELLED).status == TaskRunStatus.CANCELLED
 
@@ -105,4 +107,3 @@ def test_requirement_transition_rejects_lm_proposal():
     )
     with pytest.raises(TypeError):
         transition_requirement(req, proposal)  # type: ignore[arg-type]
-

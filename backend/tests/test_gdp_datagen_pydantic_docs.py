@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from app.gdp.agent import api as agent_api
 from app.gdp.agent_runtime import api as agent_runtime_api
 from app.gdp.agent_runtime import models as agent_runtime_models
 from app.gdp.datagen.config.base import api as base_api
@@ -12,7 +11,7 @@ from app.gdp.datagen.config.scene import api as scene_api
 from app.gdp.datagen.config.scene import models as scene_models
 from app.gdp.datagen.runtime.sql import models as sql_models
 
-MODEL_MODULES = (agent_api, agent_runtime_api, agent_runtime_models, base_api, scene_api, scene_models, sql_models)
+MODEL_MODULES = (agent_runtime_api, agent_runtime_models, base_api, scene_api, scene_models, sql_models)
 
 
 def test_selected_datagen_pydantic_models_have_docstrings_and_field_descriptions():

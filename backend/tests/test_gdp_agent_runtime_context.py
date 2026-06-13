@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.gdp.agent.middlewares.runtime_context import build_gdp_runtime_context, wrap_gdp_runtime_context
+from app.gdp.agent_runtime.runtime_context import build_gdp_runtime_context, wrap_gdp_runtime_context
 from app.gdp.datagen.config.task.models import DatagenTaskPhase
 
 

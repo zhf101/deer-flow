@@ -1,6 +1,8 @@
-"""GDP Agent Runtime 状态转移 guard 函数。
+"""GDP Agent Runtime 主流程状态转移 guard 函数。
 
-所有状态变更必须经过本模块的 guard 函数，直接赋值 status 是 bug。
+TaskRun、PlanStep、Action、Requirement 会改变编排走向，必须经过本模块的
+guard 函数。Attempt、Proposal、Decision 是执行或审计账本，由各自写入函数
+约束，不在这里伪装成主状态机。
 """
 
 from __future__ import annotations
@@ -55,6 +57,14 @@ def transition_task_run(run: TaskRun, target: TaskRunStatus) -> TaskRun:
     reject_lm_proposal(target)
     if target not in TASK_RUN_LEGAL_TRANSITIONS[run.status]:
         raise IllegalTransition(run.status, target)
+    if target == TaskRunStatus.WAITING_USER:
+        if not run.pending_question:
+            raise ValueError("WAITING_USER 必须先写入 pending_question。")
+        if run.suspend_reason is None:
+            raise ValueError("WAITING_USER 必须先写入 suspend_reason。")
+    else:
+        run.pending_question = None
+        run.suspend_reason = None
     run.status = target
     run.updated_at = _now()
     if target in {TaskRunStatus.COMPLETED, TaskRunStatus.FAILED, TaskRunStatus.CANCELLED}:
@@ -85,13 +95,11 @@ def transition_step(step: PlanStep, target: StepStatus) -> PlanStep:
 # ---------- Action 状态机 ----------
 
 ACTION_LEGAL_TRANSITIONS: dict[ActionStatus, set[ActionStatus]] = {
-    ActionStatus.PLANNED: {ActionStatus.WAITING_APPROVAL, ActionStatus.RUNNING},
-    ActionStatus.WAITING_APPROVAL: {ActionStatus.RUNNING, ActionStatus.CANCELLED},
+    ActionStatus.PLANNED: {ActionStatus.RUNNING},
     ActionStatus.RUNNING: {ActionStatus.SUCCEEDED, ActionStatus.FAILED, ActionStatus.UNKNOWN_STATE},
     ActionStatus.SUCCEEDED: set(),
     ActionStatus.FAILED: set(),
     ActionStatus.UNKNOWN_STATE: set(),
-    ActionStatus.CANCELLED: set(),
 }
 
 

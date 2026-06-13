@@ -107,6 +107,7 @@ def apply_selection(
     proposal.status = ProposalStatus.SELECTED
 
     requirement.selected_scene_code = scene_code
+    ensure_selection_consistency(requirement, proposal, scene_code)
     return requirement, proposal
 
 
@@ -115,3 +116,34 @@ def blacklist_scene(requirement: Requirement, scene_code: str) -> Requirement:
     if scene_code not in requirement.blacklist:
         requirement.blacklist.append(scene_code)
     return requirement
+
+
+def ensure_selection_consistency(
+    requirement: Requirement,
+    proposal: RequirementProposal,
+    scene_code: str | None = None,
+) -> None:
+    """校验 Requirement 和 Proposal 里的选中场景事实一致。"""
+    if requirement.task_run_id != proposal.task_run_id:
+        raise ValueError("Requirement 和 Proposal 不属于同一个 TaskRun。")
+    if requirement.step_id != proposal.step_id:
+        raise ValueError("Requirement 和 Proposal 不属于同一个 PlanStep。")
+    if requirement.requirement_id != proposal.requirement_id:
+        raise ValueError("Proposal 不属于当前 Requirement。")
+
+    selected_values = [
+        value
+        for value in (requirement.selected_scene_code, proposal.selected_scene_code, scene_code)
+        if value is not None
+    ]
+    if selected_values and any(value != selected_values[0] for value in selected_values):
+        raise ValueError("Requirement、Proposal 和执行目标的 scene_code 不一致。")
+
+    if proposal.status == ProposalStatus.SELECTED and proposal.selected_scene_code is None:
+        raise ValueError("Proposal 已选定但缺少 selected_scene_code。")
+
+
+def ensure_requirement_matches_scene(requirement: Requirement, scene_code: str) -> None:
+    """校验执行目标和 Requirement 的选中场景一致。"""
+    if requirement.selected_scene_code is not None and requirement.selected_scene_code != scene_code:
+        raise ValueError("Requirement 已选场景和执行目标不一致。")

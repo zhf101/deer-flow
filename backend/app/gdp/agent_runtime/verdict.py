@@ -1,6 +1,7 @@
 """GDP Agent Runtime Verdict(裁决) 判定。
 
 基于 Evidence 和 Action 状态判定。不读取 raw response，不调 LLM。
+Action 技术状态只由执行尝试同步，Verdict 只收口 TaskRun 和 PlanStep。
 """
 
 from __future__ import annotations
@@ -11,21 +12,17 @@ from datetime import UTC, datetime
 from .log_text import describe_fact_name, describe_fact_value
 from .models import (
     Action,
-    ActionStatus,
     Evidence,
     PlanStep,
     StepStatus,
+    SuspendReason,
     TaskRun,
     TaskRunStatus,
     Verdict,
     VerdictType,
     reject_lm_proposal,
 )
-from .transitions import (
-    transition_action,
-    transition_step,
-    transition_task_run,
-)
+from .transitions import transition_step, transition_task_run
 
 
 def _now() -> datetime:
@@ -106,37 +103,33 @@ def apply_verdict(
     action: Action,
     verdict: Verdict,
 ) -> tuple[TaskRun, PlanStep, Action]:
-    """根据 Verdict 联动更新 TaskRun、PlanStep 和 Action。"""
+    """根据 Verdict 联动更新 TaskRun 和 PlanStep，Action 保留技术执行状态。"""
     reject_lm_proposal(verdict)
 
     if verdict.verdict_type == VerdictType.DONE:
-        if action.status == ActionStatus.RUNNING:
-            action = transition_action(action, ActionStatus.SUCCEEDED)
         step.verdict_id = verdict.verdict_id
         step = transition_step(step, StepStatus.DONE)
         task_run.final_verdict_id = verdict.verdict_id
         task_run = transition_task_run(task_run, TaskRunStatus.COMPLETED)
 
     elif verdict.verdict_type == VerdictType.FAILED:
-        if action.status == ActionStatus.RUNNING:
-            action = transition_action(action, ActionStatus.FAILED)
         step.verdict_id = verdict.verdict_id
         step = transition_step(step, StepStatus.FAILED)
         task_run.failure_reason = verdict.reason
         task_run = transition_task_run(task_run, TaskRunStatus.FAILED)
 
     elif verdict.verdict_type == VerdictType.UNKNOWN_STATE:
-        if action.status == ActionStatus.RUNNING:
-            action = transition_action(action, ActionStatus.UNKNOWN_STATE)
         step.verdict_id = verdict.verdict_id
         step = transition_step(step, StepStatus.BLOCKED)
         task_run.pending_question = verdict.reason
+        task_run.suspend_reason = SuspendReason.UNKNOWN_STATE_CONFIRMATION
         task_run = transition_task_run(task_run, TaskRunStatus.WAITING_USER)
 
     elif verdict.verdict_type == VerdictType.NEED_USER:
         step.verdict_id = verdict.verdict_id
         step = transition_step(step, StepStatus.BLOCKED)
         task_run.pending_question = verdict.reason
+        task_run.suspend_reason = SuspendReason.NEED_EVIDENCE
         task_run = transition_task_run(task_run, TaskRunStatus.WAITING_USER)
 
     return task_run, step, action

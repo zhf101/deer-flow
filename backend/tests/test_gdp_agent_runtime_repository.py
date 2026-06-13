@@ -18,7 +18,7 @@ from app.gdp.agent_runtime.models import (
     TaskRunStatus,
 )
 from app.gdp.agent_runtime.repository import AgentRuntimeRepository
-from app.gdp.agent_runtime.store import Store
+from app.gdp.agent_runtime.store import EntityNotFoundError, Store
 from app.gdp.agent_runtime.transitions import transition_action, transition_step, transition_task_run
 from app.gdp.agent_runtime.verdict import apply_verdict, judge
 from deerflow.persistence.engine import close_engine, get_session_factory, init_engine
@@ -97,7 +97,7 @@ async def test_runtime_repository_persists_and_hydrates_full_timeline(
         store.save_step(step)
         store.save_action(action)
         store.save_decision(decision)
-        store.save_payload(action.input_ref, {"buyer_id": "U1"})
+        store.save_payload(task_run.task_run_id, action.input_ref, {"buyer_id": "U1"})
 
         attempt, observation = await run_action(action, store)
         store.save_attempt(attempt)
@@ -124,7 +124,37 @@ async def test_runtime_repository_persists_and_hydrates_full_timeline(
         assert timeline["observations"][0]["raw_ref"] == attempt.response_ref
         assert timeline["evidences"][0]["facts"][0]["subject"] == "scene.status"
         assert timeline["verdicts"][0]["verdict_type"] == "DONE"
-        assert restored.get_payload(attempt.request_ref)["inputs"] == {"buyer_id": "U1"}
-        assert restored.get_payload(attempt.response_ref or "")["runId"] == "scene-run-1"
+        assert restored.get_payload(task_run.task_run_id, attempt.request_ref)["inputs"] == {"buyer_id": "U1"}
+        assert restored.get_payload(task_run.task_run_id, attempt.response_ref or "")["runId"] == "scene-run-1"
+    finally:
+        await close_engine()
+
+
+@pytest.mark.anyio
+async def test_runtime_repository_persists_only_current_task_payloads(tmp_path) -> None:
+    """持久化单个 TaskRun 时，不能把其他任务的 payload 串入当前任务。"""
+    db_path = tmp_path / "agent-runtime-payload-isolation.db"
+    await init_engine("sqlite", url=f"sqlite+aiosqlite:///{db_path}", sqlite_dir=str(tmp_path))
+    try:
+        session_factory = get_session_factory()
+        assert session_factory is not None
+        repository = AgentRuntimeRepository(session_factory)
+
+        store = Store()
+        task_a = create_task_run("任务 A", env_code="SIT1")
+        task_b = create_task_run("任务 B", env_code="SIT1")
+        store.save_task_run(task_a)
+        store.save_task_run(task_b)
+        store.save_payload(task_a.task_run_id, "ref:shared", {"owner": "A"})
+        store.save_payload(task_b.task_run_id, "ref:shared", {"owner": "B"})
+        store.save_payload(task_b.task_run_id, "ref:only-b", {"owner": "B"})
+
+        await repository.persist_store(store, task_a.task_run_id)
+
+        restored_a = await repository.hydrate_store(task_a.task_run_id)
+        assert restored_a.get_payload(task_a.task_run_id, "ref:shared") == {"owner": "A"}
+
+        with pytest.raises(EntityNotFoundError):
+            await repository.get_payload(task_a.task_run_id, "ref:only-b")
     finally:
         await close_engine()

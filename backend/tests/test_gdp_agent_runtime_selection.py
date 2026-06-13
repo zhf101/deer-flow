@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
+from app.gdp.agent_runtime.llm import suggest_scene_rerank
 from app.gdp.agent_runtime.models import (
     LMProposal,
     ProposalStatus,
@@ -16,12 +17,13 @@ from app.gdp.agent_runtime.models import (
     SceneCandidate,
     SelectionSource,
 )
-from app.gdp.agent_runtime.llm import suggest_scene_rerank
 from app.gdp.agent_runtime.selection import (
     AUTO_SELECT_THRESHOLD,
     apply_selection,
     blacklist_scene,
     decide_selection,
+    ensure_requirement_matches_scene,
+    ensure_selection_consistency,
 )
 
 
@@ -123,6 +125,37 @@ def test_apply_selection_writes_fact():
     assert proposal.selected_scene_code == "create_paid_order"
     assert proposal.selection_source == SelectionSource.AUTO
     assert proposal.status == ProposalStatus.SELECTED
+
+
+def test_selection_consistency_rejects_mismatched_requirement_and_proposal():
+    """Requirement 和 Proposal 的归属或选定值不一致时，必须显式失败。"""
+    proposal = _proposal([_candidate("create_paid_order")])
+    requirement = _requirement()
+    requirement.requirement_id = "req-other"
+
+    with pytest.raises(ValueError, match="不属于当前 Requirement"):
+        ensure_selection_consistency(requirement, proposal)
+
+
+def test_selection_consistency_rejects_mismatched_scene_code():
+    """Requirement / Proposal / 执行目标不能记录三套不同 scene_code。"""
+    proposal = _proposal([_candidate("create_paid_order")])
+    requirement = _requirement()
+    requirement.selected_scene_code = "create_paid_order"
+    proposal.selected_scene_code = "create_unpaid_order"
+    proposal.status = ProposalStatus.SELECTED
+
+    with pytest.raises(ValueError, match="scene_code 不一致"):
+        ensure_selection_consistency(requirement, proposal, "create_paid_order")
+
+
+def test_requirement_execute_scene_must_match_selected_scene():
+    """执行 Action 前，目标 scene_code 必须和 Requirement 已选事实一致。"""
+    requirement = _requirement()
+    requirement.selected_scene_code = "create_paid_order"
+
+    with pytest.raises(ValueError, match="执行目标不一致"):
+        ensure_requirement_matches_scene(requirement, "create_unpaid_order")
 
 
 def test_apply_selection_rejects_scene_not_in_candidates():

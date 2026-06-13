@@ -12,7 +12,6 @@ def test_gdp_datagen_related_apis_only_use_get_or_post_routes():
 
     api_files = [
         *sorted((GDP_ROOT / "datagen").rglob("api.py")),
-        *sorted((GDP_ROOT / "agent").rglob("api.py")),
         *sorted((GDP_ROOT / "agent_runtime").rglob("api.py")),
     ]
 

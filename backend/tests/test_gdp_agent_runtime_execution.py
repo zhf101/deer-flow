@@ -34,19 +34,19 @@ async def test_execution_records_scene_run_id_and_payload_refs(monkeypatch: pyte
 
     store.save_task_run(task_run)
     store.save_action(action)
-    store.save_payload(action.input_ref, {"buyer_id": "U1"})
+    store.save_payload(task_run.task_run_id, action.input_ref, {"buyer_id": "U1"})
 
     attempt, observation = await run_action(action, store)
 
     assert attempt.status == AttemptStatus.SUCCEEDED
     assert attempt.scene_run_id == "scene-run-1"
-    assert store.get_payload(attempt.request_ref) == {
+    assert store.get_payload(task_run.task_run_id, attempt.request_ref) == {
         "scene_code": "create_paid_order",
         "env_code": "SIT1",
         "inputs": {"buyer_id": "U1"},
     }
     assert attempt.response_ref is not None
-    assert store.get_payload(attempt.response_ref)["runId"] == "scene-run-1"
+    assert store.get_payload(task_run.task_run_id, attempt.response_ref)["runId"] == "scene-run-1"
     assert observation.raw_ref == attempt.response_ref
 
 
@@ -74,7 +74,7 @@ async def test_execution_idempotency_conflict_returns_failed_attempt_without_sce
     store.save_task_run(task_run)
     store.save_action(started_action)
     store.save_action(duplicate_action)
-    store.save_payload(duplicate_action.input_ref, {"buyer_id": "U1"})
+    store.save_payload(task_run.task_run_id, duplicate_action.input_ref, {"buyer_id": "U1"})
 
     attempt, observation = await run_action(duplicate_action, store)
 

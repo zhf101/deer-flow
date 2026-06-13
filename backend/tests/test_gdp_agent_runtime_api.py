@@ -9,6 +9,7 @@ from httpx import ASGITransport, AsyncClient
 
 from app.gdp.agent_runtime import api as runtime_api
 from app.gdp.agent_runtime import runner as runtime_runner
+from app.gdp.agent_runtime.models import SuspendReason
 from app.gdp.agent_runtime.store import Store
 
 
@@ -53,6 +54,7 @@ async def test_api_reply_confirm_unknown_state_stops_without_replay(monkeypatch:
         )
         assert start.status_code == 200, start.text
         assert start.json()["status"] == "WAITING_USER"
+        assert start.json()["suspend_reason"] == SuspendReason.UNKNOWN_STATE_CONFIRMATION
 
         reply = await client.post(
             f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/reply",
@@ -60,6 +62,7 @@ async def test_api_reply_confirm_unknown_state_stops_without_replay(monkeypatch:
         )
         assert reply.status_code == 200, reply.text
         assert reply.json()["status"] == "FAILED"
+        assert reply.json()["suspend_reason"] is None
         assert "避免重复写请求" in reply.json()["failure_reason"]
 
         timeline = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
@@ -131,6 +134,7 @@ async def test_api_reply_supply_input_resumes_preflight_gap_without_prior_write(
         )
         assert start.status_code == 200, start.text
         assert start.json()["status"] == "WAITING_USER"
+        assert start.json()["suspend_reason"] == SuspendReason.MISSING_INPUT
 
         before_reply = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
         assert before_reply.json()["attempts"] == []
@@ -147,7 +151,58 @@ async def test_api_reply_supply_input_resumes_preflight_gap_without_prior_write(
 
         timeline = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
         assert len(timeline.json()["attempts"]) == 1
+        assert len(timeline.json()["steps"]) == 1
+        assert len(timeline.json()["requirements"]) == 1
         assert call_count == 1
+
+
+@pytest.mark.anyio
+async def test_api_payload_endpoint_rejects_other_task_run_ref(monkeypatch: pytest.MonkeyPatch):
+    """payload 详情必须按 TaskRun 隔离，不能用 A 任务读取 B 任务的 ref。"""
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        return {
+            "runId": f"scene-run-{inputs['buyer_id']}",
+            "status": "SUCCESS",
+            "finalOutput": {"order_id": "ORDER-1", "pay_status": "PAID"},
+            "errors": [],
+        }
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    app = _make_app(monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        task_ids: list[str] = []
+        response_refs: list[str] = []
+        for buyer_id in ["U1", "U2"]:
+            create = await client.post(
+                "/api/v1/datagen/agent-runtime/task-runs",
+                json={"user_goal": "造一笔已支付订单", "env_code": "SIT1"},
+            )
+            task_run_id = create.json()["task_run_id"]
+            task_ids.append(task_run_id)
+
+            start = await client.post(
+                f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/start",
+                json={"scene_code": "create_paid_order", "inputs": {"buyer_id": buyer_id}},
+            )
+            assert start.status_code == 200, start.text
+
+            timeline = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
+            response_refs.append(timeline.json()["attempts"][0]["response_ref"])
+
+        own_payload = await client.get(
+            f"/api/v1/datagen/agent-runtime/task-runs/{task_ids[1]}/payloads",
+            params={"ref": response_refs[1]},
+        )
+        assert own_payload.status_code == 200, own_payload.text
+        assert own_payload.json()["payload"]["runId"] == "scene-run-U2"
+
+        cross_payload = await client.get(
+            f"/api/v1/datagen/agent-runtime/task-runs/{task_ids[0]}/payloads",
+            params={"ref": response_refs[1]},
+        )
+        assert cross_payload.status_code == 404
 
 
 @pytest.mark.anyio
@@ -259,6 +314,7 @@ async def test_api_reply_select_scene_requires_approval_before_execution(monkeyp
         )
         assert reply.status_code == 200, reply.text
         assert reply.json()["status"] == "WAITING_USER"
+        assert reply.json()["suspend_reason"] == SuspendReason.NEED_APPROVAL
         timeline = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
         body = timeline.json()
         assert called is False
@@ -484,6 +540,7 @@ async def test_api_reply_select_scene_missing_inputs_does_not_execute(monkeypatc
         )
         assert reply.status_code == 200, reply.text
         assert reply.json()["status"] == "WAITING_USER"
+        assert reply.json()["suspend_reason"] == SuspendReason.MISSING_INPUT
         assert "inputs.buyer_id" in (reply.json()["pending_question"] or "")
         assert called is False
 
@@ -574,6 +631,7 @@ async def test_api_reply_supply_scene_code_missing_inputs_does_not_execute(monke
         )
         assert reply.status_code == 200, reply.text
         assert reply.json()["status"] == "WAITING_USER"
+        assert reply.json()["suspend_reason"] == SuspendReason.MISSING_INPUT
         assert "inputs.buyer_id" in (reply.json()["pending_question"] or "")
         assert called is False
 
@@ -619,3 +677,4 @@ async def test_api_start_returns_503_when_catalog_persistence_missing(monkeypatc
         )
         assert retry.status_code == 200, retry.text
         assert retry.json()["status"] == "WAITING_USER"
+        assert retry.json()["suspend_reason"] == SuspendReason.MISSING_INPUT

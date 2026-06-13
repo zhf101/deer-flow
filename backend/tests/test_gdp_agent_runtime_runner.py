@@ -8,7 +8,7 @@ import pytest
 from _agent_runtime_catalog_fakes import FakeSceneCatalog, make_candidate
 
 from app.gdp.agent_runtime.flow import create_task_run
-from app.gdp.agent_runtime.models import TaskRunStatus
+from app.gdp.agent_runtime.models import SuspendReason, TaskRunStatus
 from app.gdp.agent_runtime.runner import run_task
 from app.gdp.agent_runtime.store import Store
 
@@ -47,6 +47,7 @@ async def test_runner_missing_required_input_waits_user_without_scene_write(monk
     timeline = store.get_timeline(result.task_run_id)
     assert called is False
     assert result.status == TaskRunStatus.WAITING_USER
+    assert result.suspend_reason == SuspendReason.MISSING_INPUT
     assert "inputs.buyer_id" in (result.pending_question or "")
     assert timeline["actions"] == []
     assert timeline["attempts"] == []
@@ -78,6 +79,7 @@ async def test_runner_missing_env_waits_user_without_scene_write(monkeypatch: py
     timeline = store.get_timeline(result.task_run_id)
     assert called is False
     assert result.status == TaskRunStatus.WAITING_USER
+    assert result.suspend_reason == SuspendReason.MISSING_INPUT
     assert "env_code" in (result.pending_question or "")
     assert timeline["actions"] == []
     assert timeline["attempts"] == []
@@ -148,6 +150,7 @@ async def test_runner_missing_pay_status_needs_user_not_done(monkeypatch: pytest
 
     timeline = store.get_timeline(result.task_run_id)
     assert result.status == TaskRunStatus.WAITING_USER
+    assert result.suspend_reason == SuspendReason.NEED_EVIDENCE
     assert timeline["actions"][0]["status"] == "SUCCEEDED"
     assert timeline["evidences"][0]["missing_facts"] == ["order.pay_status"]
     assert timeline["verdicts"][0]["verdict_type"] == "NEED_USER"
@@ -217,6 +220,7 @@ async def test_runner_multiple_candidates_records_waiting_selection_decision(mon
     timeline = store.get_timeline(result.task_run_id)
     assert called is False
     assert result.status == TaskRunStatus.WAITING_USER
+    assert result.suspend_reason == SuspendReason.NEED_SCENE_SELECTION
     assert timeline["decisions"][-1]["decision_kind"] == "SCENE_SELECTION"
     assert timeline["decisions"][-1]["status"] == "WAITING_USER"
     assert timeline["decisions"][-1]["selected_option"] is None
@@ -248,6 +252,7 @@ async def test_runner_zero_candidate_waits_user_with_pending_requirement(monkeyp
     timeline = store.get_timeline(result.task_run_id)
     assert called is False
     assert result.status == TaskRunStatus.WAITING_USER
+    assert result.suspend_reason == SuspendReason.NEED_SCENE_SELECTION
     assert timeline["requirements"][0]["status"] == "PENDING"
     assert timeline["proposals"][0]["candidates"] == []
 
@@ -277,6 +282,7 @@ async def test_runner_selection_with_approval_waits_before_scene_write(monkeypat
     timeline = store.get_timeline(result.task_run_id)
     assert called is False
     assert result.status == TaskRunStatus.WAITING_USER
+    assert result.suspend_reason == SuspendReason.NEED_APPROVAL
     assert timeline["attempts"] == []
     assert timeline["decisions"][-1]["decision_kind"] == "APPROVAL_REQUIREMENT"
     assert timeline["decisions"][-1]["target_id"] == "create_paid_order"
@@ -316,6 +322,7 @@ async def test_runner_explicit_side_effect_scene_records_selected_fact_before_ap
     timeline = store.get_timeline(result.task_run_id)
     assert called is False
     assert result.status == TaskRunStatus.WAITING_USER
+    assert result.suspend_reason == SuspendReason.NEED_APPROVAL
     assert timeline["requirements"][0]["status"] == "SATISFIED"
     assert timeline["proposals"][0]["status"] == "SELECTED"
 

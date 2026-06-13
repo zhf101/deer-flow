@@ -130,8 +130,6 @@ def build_graph_input(raw_input: dict[str, Any] | None, raw_command: Mapping[str
 
 
 _DEFAULT_ASSISTANT_ID = "lead_agent"
-_GDP_ASSISTANT_NAME = "gdp_agent"
-_GDP_ASSISTANT_NORMALIZED = "gdp-agent"
 
 
 # Whitelist of run-context keys that the langgraph-compat layer forwards from
@@ -191,19 +189,12 @@ def inject_authenticated_user_context(config: dict[str, Any], request: Request) 
 
 
 def resolve_agent_factory(assistant_id: str | None):
-    """Resolve the agent factory callable from config.
+    """解析 Agent 工厂函数。
 
-    Custom agents are implemented as ``lead_agent`` + an ``agent_name``
-    injected into ``configurable`` or ``context`` — see
-    :func:`build_run_config`.  All ``assistant_id`` values therefore map to the
-    same factory; the routing happens inside ``make_lead_agent`` when it reads
-    ``cfg["agent_name"]``. ``gdp_agent`` 是独立业务图，直接返回 GDP 图工厂。
+    自定义 Agent 统一使用 ``lead_agent`` 工厂，并通过
+    :func:`build_run_config` 注入 ``agent_name``；具体路由由
+    ``make_lead_agent`` 读取运行配置后完成。
     """
-    if _is_gdp_assistant(assistant_id):
-        from app.gdp.agent.graph import make_gdp_agent
-
-        return make_gdp_agent
-
     from deerflow.agents.lead_agent.agent import make_lead_agent
 
     return make_lead_agent
@@ -211,10 +202,6 @@ def resolve_agent_factory(assistant_id: str | None):
 
 def _normalize_assistant_id(assistant_id: str) -> str:
     return assistant_id.strip().lower().replace("_", "-")
-
-
-def _is_gdp_assistant(assistant_id: str | None) -> bool:
-    return bool(assistant_id and _normalize_assistant_id(assistant_id) == _GDP_ASSISTANT_NORMALIZED)
 
 
 def build_run_config(
@@ -269,11 +256,9 @@ def build_run_config(
     else:
         config["configurable"] = {"thread_id": thread_id}
 
-    # Inject custom agent name when the caller specified a non-default assistant.
-    # Honour an explicit agent_name in the active runtime options container.
-    if _is_gdp_assistant(assistant_id):
-        config.setdefault("run_name", _GDP_ASSISTANT_NAME)
-    elif assistant_id and assistant_id != _DEFAULT_ASSISTANT_ID:
+    # 非默认 assistant 统一走 lead_agent 的自定义 agent_name 注入；
+    # 旧 GDP 业务图入口已下线，不再特殊导入旧 graph。
+    if assistant_id and assistant_id != _DEFAULT_ASSISTANT_ID:
         normalized = _normalize_assistant_id(assistant_id)
         if not normalized or not re.fullmatch(r"[a-z0-9-]+", normalized):
             raise ValueError(f"Invalid assistant_id {assistant_id!r}: must contain only letters, digits, and hyphens after normalization.")

@@ -73,7 +73,7 @@ class Store:
         self._proposals: dict[str, RequirementProposal] = {}
         self._decisions: dict[str, DecisionRecord] = {}
         self._approval_records: list[dict[str, Any]] = []
-        self._payloads: dict[str, Any] = {}
+        self._payloads: dict[str, dict[str, Any]] = {}
 
     def save_task_run(self, task_run: TaskRun) -> None:
         self._task_runs[task_run.task_run_id] = task_run
@@ -185,9 +185,11 @@ class Store:
             raise EntityNotFoundError("Requirement", requirement_id)
         return self._requirements[requirement_id]
 
-    def get_active_requirement(self, task_run_id: str) -> Requirement | None:
-        """返回该 TaskRun 最近创建的 Requirement（第二阶段单 step 单缺口）。"""
+    def get_active_requirement(self, task_run_id: str, *, step_id: str | None = None) -> Requirement | None:
+        """返回该 TaskRun 当前步骤最近创建的 Requirement。"""
         reqs = [r for r in self._requirements.values() if r.task_run_id == task_run_id]
+        if step_id is not None:
+            reqs = [r for r in reqs if r.step_id == step_id]
         if not reqs:
             return None
         return max(reqs, key=lambda r: r.created_at)
@@ -200,9 +202,19 @@ class Store:
             raise EntityNotFoundError("RequirementProposal", proposal_id)
         return self._proposals[proposal_id]
 
-    def get_latest_proposal(self, task_run_id: str) -> RequirementProposal | None:
-        """返回该 TaskRun 最近创建的 Proposal。"""
+    def get_latest_proposal(
+        self,
+        task_run_id: str,
+        *,
+        step_id: str | None = None,
+        requirement_id: str | None = None,
+    ) -> RequirementProposal | None:
+        """返回该 TaskRun 当前步骤或缺口最近创建的 Proposal。"""
         proposals = [p for p in self._proposals.values() if p.task_run_id == task_run_id]
+        if step_id is not None:
+            proposals = [p for p in proposals if p.step_id == step_id]
+        if requirement_id is not None:
+            proposals = [p for p in proposals if p.requirement_id == requirement_id]
         if not proposals:
             return None
         return max(proposals, key=lambda p: p.created_at)
@@ -231,15 +243,16 @@ class Store:
             for item in self._approval_records
         )
 
-    def save_payload(self, ref: str, payload: Any) -> None:
-        """按引用保存完整载荷。MVP 内存实现只在进程内可用。"""
-        self._payloads[ref] = payload
+    def save_payload(self, task_run_id: str, ref: str, payload: Any) -> None:
+        """按 TaskRun 和引用保存完整载荷。MVP 内存实现只在进程内可用。"""
+        self._payloads.setdefault(task_run_id, {})[ref] = payload
 
-    def get_payload(self, ref: str) -> Any:
-        """读取完整载荷。"""
-        if ref not in self._payloads:
+    def get_payload(self, task_run_id: str, ref: str) -> Any:
+        """读取某个 TaskRun 的完整载荷。"""
+        payloads = self._payloads.get(task_run_id, {})
+        if ref not in payloads:
             raise EntityNotFoundError("Payload", ref)
-        return self._payloads[ref]
+        return payloads[ref]
 
     def export_task_run(self, task_run_id: str) -> dict[str, Any]:
         """导出单个 TaskRun 的完整账本快照，供数据库仓储持久化。"""
@@ -268,7 +281,10 @@ class Store:
             "proposals": [item.model_dump(mode="json") for item in proposals],
             "decisions": [item.model_dump(mode="json") for item in decisions],
             "approval_records": self.list_approval_records(task_run_id),
-            "payloads": [{"ref": ref, "payload": payload} for ref, payload in self._payloads.items()],
+            "payloads": [
+                {"task_run_id": task_run_id, "ref": ref, "payload": payload}
+                for ref, payload in self._payloads.get(task_run_id, {}).items()
+            ],
         }
 
     def get_timeline(self, task_run_id: str) -> dict[str, Any]:

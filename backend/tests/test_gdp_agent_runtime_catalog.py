@@ -11,6 +11,7 @@ from app.gdp.agent_runtime.adapters.catalog import (
     AgentCatalogAdapter,
     _clamp_score,
     _explicit_candidate,
+    _missing_required_inputs,
 )
 from app.gdp.agent_runtime.catalog import (
     create_scene_requirement,
@@ -95,6 +96,33 @@ def test_explicit_candidate_uses_contract_missing_inputs():
 
     candidate_ok = _explicit_candidate(contract, user_inputs={"buyer_id": "U1"})
     assert candidate_ok.missing_inputs == []
+
+
+def test_runtime_catalog_missing_inputs_is_owned_by_runtime():
+    """Runtime 本地维护显式契约缺参逻辑，不依赖 Catalog 内部 helper。"""
+    contract = AgentSceneContract(
+        sceneCode="create_paid_order",
+        sceneName="造一笔已支付订单",
+        capabilityType=CapabilityType.CREATE,
+        inputSchema=[
+            InputFieldDefinition(name="env", label="环境", type=InputFieldType.STRING, required=True),
+            InputFieldDefinition(
+                name="buyer_id",
+                label="买家",
+                type=InputFieldType.STRING,
+                required=True,
+                semanticType="USER_ID",
+                aliases=["userId"],
+            ),
+            InputFieldDefinition(name="remark", label="备注", type=InputFieldType.STRING, required=False),
+        ],
+        versionNo=1,
+        executable=True,
+        hasSideEffects=False,
+    )
+
+    assert _missing_required_inputs(contract, {"userid"}) == []
+    assert _missing_required_inputs(contract, {"unknown"}) == ["buyer_id"]
 
 
 @pytest.mark.anyio

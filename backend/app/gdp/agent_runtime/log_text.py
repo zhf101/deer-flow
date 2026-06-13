@@ -29,7 +29,6 @@ _CODE_TEXT: dict[str, str] = {
     "DONE": "已完成",
     "BLOCKED": "已阻塞",
     "PLANNED": "已计划",
-    "WAITING_APPROVAL": "等待审批",
     "SUCCEEDED": "执行成功",
     "UNKNOWN_STATE": "结果未知",
     "SUCCESS": "成功",

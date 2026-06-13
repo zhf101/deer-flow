@@ -53,6 +53,14 @@ class TaskRunStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
+class SuspendReason(StrEnum):
+    MISSING_INPUT = "MISSING_INPUT"
+    NEED_APPROVAL = "NEED_APPROVAL"
+    NEED_SCENE_SELECTION = "NEED_SCENE_SELECTION"
+    UNKNOWN_STATE_CONFIRMATION = "UNKNOWN_STATE_CONFIRMATION"
+    NEED_EVIDENCE = "NEED_EVIDENCE"
+
+
 class StepEdge(BaseModel):
     """PlanStep 依赖边。MVP 只有一个 step，但保留拓扑结构。"""
 
@@ -73,6 +81,7 @@ class TaskRun(BaseModel):
     step_ids: list[StepId] = Field(default_factory=list, description="任务内步骤 ID 列表。")
     step_edges: list[StepEdge] = Field(default_factory=list, description="步骤依赖图边。")
     active_step_id: StepId | None = Field(default=None, description="当前正在推进的步骤。")
+    suspend_reason: SuspendReason | None = Field(default=None, description="挂起原因。仅 WAITING_USER 时使用，用于区分缺输入、等审批、等选场景、确认未知状态或缺证据。")
     pending_question: str | None = Field(default=None, description="等待用户输入时展示的问题。")
     final_verdict_id: VerdictId | None = Field(default=None, description="终态 Verdict。")
     failure_reason: str | None = Field(default=None, description="终态失败时的可读原因。")
@@ -87,6 +96,8 @@ class TaskRun(BaseModel):
                 raise ValueError("终态 TaskRun 必须有 finished_at。")
         if self.status == TaskRunStatus.WAITING_USER and not self.pending_question:
             raise ValueError("WAITING_USER 必须有 pending_question。")
+        if self.status == TaskRunStatus.WAITING_USER and self.suspend_reason is None:
+            raise ValueError("WAITING_USER 必须有 suspend_reason。")
         if self.status == TaskRunStatus.COMPLETED and not self.final_verdict_id:
             raise ValueError("COMPLETED TaskRun 必须有 final_verdict_id。")
         return self
@@ -127,12 +138,10 @@ class ActionType(StrEnum):
 
 class ActionStatus(StrEnum):
     PLANNED = "PLANNED"
-    WAITING_APPROVAL = "WAITING_APPROVAL"
     RUNNING = "RUNNING"
     SUCCEEDED = "SUCCEEDED"
     FAILED = "FAILED"
     UNKNOWN_STATE = "UNKNOWN_STATE"
-    CANCELLED = "CANCELLED"
 
 
 class Action(BaseModel):
@@ -369,14 +378,7 @@ class SceneSelectionSuggestion(BaseModel):
 class DecisionKind(StrEnum):
     SCENE_SEARCH = "SCENE_SEARCH"
     SCENE_SELECTION = "SCENE_SELECTION"
-    SCENE_CREATION = "SCENE_CREATION"
-    STEP_TYPE_SELECTION = "STEP_TYPE_SELECTION"
-    HTTP_SOURCE_SELECTION = "HTTP_SOURCE_SELECTION"
-    SQL_SOURCE_SELECTION = "SQL_SOURCE_SELECTION"
-    FIELD_MAPPING = "FIELD_MAPPING"
-    STEP_ORDERING = "STEP_ORDERING"
     APPROVAL_REQUIREMENT = "APPROVAL_REQUIREMENT"
-    RECOVERY_SELECTION = "RECOVERY_SELECTION"
 
 
 class DecisionSource(StrEnum):

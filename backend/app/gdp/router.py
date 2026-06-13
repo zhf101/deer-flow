@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from app.gdp.agent.api import router as agent_scene_design_router
-from app.gdp.agent.mcp.api import router as agent_mcp_router
-from app.gdp.agent.skills.api import router as agent_skill_router
+from app.gdp.agent_runtime.api import router as agent_runtime_router
 from app.gdp.datagen.agent_catalog.api import router as agent_catalog_router
 from app.gdp.datagen.agent_memory.api import router as agent_memory_router
 from app.gdp.datagen.config.base.api import router as base_router
@@ -15,7 +13,6 @@ from app.gdp.datagen.config.scene.api import router as scene_router
 from app.gdp.datagen.config.sqlsource.api import router as sqlsource_router
 from app.gdp.datagen.config.task.api import router as task_router
 from app.gdp.datagen.config.task.subtask_api import router as task_subtask_router
-from app.gdp.agent_runtime.api import router as agent_runtime_router
 
 router = APIRouter(prefix="/api/v1/datagen", tags=["datagen"])
 router.include_router(base_router)
@@ -26,7 +23,4 @@ router.include_router(task_router)
 router.include_router(task_subtask_router)
 router.include_router(agent_catalog_router)
 router.include_router(agent_memory_router)
-router.include_router(agent_scene_design_router)
-router.include_router(agent_skill_router)
-router.include_router(agent_mcp_router)
 router.include_router(agent_runtime_router)

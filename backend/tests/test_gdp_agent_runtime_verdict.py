@@ -11,9 +11,14 @@ from app.gdp.agent_runtime.models import (
     Evidence,
     EvidenceFact,
     FactPredicate,
+    PlanStep,
+    StepStatus,
+    TaskRun,
+    TaskRunStatus,
+    Verdict,
     VerdictType,
 )
-from app.gdp.agent_runtime.verdict import judge
+from app.gdp.agent_runtime.verdict import apply_verdict, judge
 
 
 def _action() -> Action:
@@ -62,3 +67,42 @@ def test_missing_facts_need_user_even_when_existing_facts_failed() -> None:
     verdict = judge(evidence, _action())
 
     assert verdict.verdict_type == VerdictType.NEED_USER
+
+
+def test_apply_verdict_does_not_drive_action_status() -> None:
+    """Verdict 只收口 TaskRun/PlanStep，不改 Action 技术执行状态。"""
+
+    now = datetime.now(UTC)
+    task_run = TaskRun(
+        task_run_id="tr-1",
+        thread_id="thread-1",
+        user_id="user-1",
+        user_goal="造一笔已支付订单",
+        status=TaskRunStatus.RUNNING,
+        created_at=now,
+        updated_at=now,
+    )
+    step = PlanStep(
+        step_id="step-1",
+        task_run_id="tr-1",
+        step_no=1,
+        goal="造一笔已支付订单",
+        status=StepStatus.RUNNING,
+    )
+    action = _action()
+    action.status = ActionStatus.RUNNING
+    verdict = Verdict(
+        verdict_id="vrd-1",
+        task_run_id="tr-1",
+        step_id="step-1",
+        evidence_id="evi-1",
+        verdict_type=VerdictType.DONE,
+        reason="所有事实通过",
+        created_at=now,
+    )
+
+    updated_task_run, updated_step, updated_action = apply_verdict(task_run, step, action, verdict)
+
+    assert updated_task_run.status == TaskRunStatus.COMPLETED
+    assert updated_step.status == StepStatus.DONE
+    assert updated_action.status == ActionStatus.RUNNING

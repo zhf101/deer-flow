@@ -14,7 +14,6 @@ from typing import Any, Protocol
 from fastapi import HTTPException
 
 from app.gdp.datagen.agent_catalog.models import AgentSceneCandidate, AgentSceneContract
-from app.gdp.datagen.agent_catalog.service import _missing_required_inputs
 
 from ..models import SceneCandidate
 
@@ -81,9 +80,31 @@ def _provided_keys(user_inputs: dict[str, Any]) -> set[str]:
     return {str(key).lower() for key in user_inputs}
 
 
+def _missing_required_inputs(contract: AgentSceneContract, provided_keys: set[str]) -> list[str]:
+    """按契约字段判断显式 scene_code 路径缺少哪些必填入参。
+
+    Runtime 自己维护这份轻量契约判定，不依赖 Catalog service 的内部 helper。
+    """
+    missing: list[str] = []
+    for field in contract.inputSchema:
+        if field.name == "env":
+            continue
+        if not field.required:
+            continue
+        candidates = {field.name.lower()}
+        if field.semanticType:
+            candidates.add(field.semanticType.lower())
+        if field.label:
+            candidates.add(field.label.lower())
+        candidates.update(alias.lower() for alias in field.aliases)
+        if candidates.isdisjoint(provided_keys):
+            missing.append(field.name)
+    return missing
+
+
 def _explicit_candidate(contract: AgentSceneContract, user_inputs: dict[str, Any]) -> SceneCandidate:
     """显式 scene_code 合成单候选：score=1.0（非检索来源），缺参用同一套契约逻辑判定。"""
-    missing_inputs = _missing_required_inputs(contract.inputSchema, _provided_keys(user_inputs))
+    missing_inputs = _missing_required_inputs(contract, _provided_keys(user_inputs))
     return SceneCandidate(
         scene_code=contract.sceneCode,
         scene_name=contract.sceneName,

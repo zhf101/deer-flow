@@ -111,8 +111,9 @@ async def run_action(action: Action, store: Store) -> tuple[ActionAttempt, Obser
             )
             raise ValueError("任务缺少环境编码，不能执行场景")
 
-        inputs = store.get_payload(action.input_ref)
+        inputs = store.get_payload(action.task_run_id, action.input_ref)
         store.save_payload(
+            action.task_run_id,
             attempt.request_ref,
             {
                 "scene_code": action.scene_code,
@@ -137,7 +138,7 @@ async def run_action(action: Action, store: Store) -> tuple[ActionAttempt, Obser
         if isinstance(scene_run_id, str) and scene_run_id:
             attempt.scene_run_id = scene_run_id
         attempt.response_preview = result
-        store.save_payload(attempt.response_ref, result)
+        store.save_payload(action.task_run_id, attempt.response_ref, result)
         if attempt.status == AttemptStatus.FAILED:
             attempt.error_type = "SCENE_FAILED"
             # 取“人能看懂”的失败原因，不要把机器味的英文丢给用户。
@@ -232,6 +233,7 @@ async def run_action(action: Action, store: Store) -> tuple[ActionAttempt, Obser
     raw_ref = attempt.response_ref or f"ref:errors/{attempt_id}"
     if attempt.response_ref is None:
         store.save_payload(
+            action.task_run_id,
             raw_ref,
             {
                 "error_type": attempt.error_type,

@@ -39,6 +39,8 @@ from .models import (
     ActionAttempt,
     ActionStatus,
     AttemptStatus,
+    Evidence,
+    Observation,
     PlanStep,
     Requirement,
     RequirementProposal,
@@ -46,11 +48,20 @@ from .models import (
     SceneCandidate,
     SelectionSource,
     StepStatus,
+    SuspendReason,
     TaskRun,
     TaskRunStatus,
+    Variable,
+    Verdict,
     VerdictType,
 )
-from .selection import apply_selection, blacklist_scene, decide_selection
+from .selection import (
+    apply_selection,
+    blacklist_scene,
+    decide_selection,
+    ensure_requirement_matches_scene,
+    ensure_selection_consistency,
+)
 from .store import EntityNotFoundError, Store
 from .transitions import transition_action, transition_requirement, transition_step, transition_task_run
 
@@ -101,6 +112,7 @@ async def run_task(
 
     # 保存待恢复启动请求，供 SUPPLY_INPUT 补参后重放（第一阶段兼容）。
     store.save_payload(
+        task_run.task_run_id,
         pending_start_ref(task_run.task_run_id),
         {"scene_code": scene_code, "inputs": request.inputs},
     )
@@ -240,7 +252,7 @@ async def _run_search(
     if outcome.kind == "NO_CANDIDATE":
         # 零候选：Requirement 停在 PENDING（语义是"还没出候选"），挂起等用户补 scene_code 或改目标。
         store.save_requirement(requirement)  # 仍 PENDING，不转 RESOLVING
-        return _suspend_for_user(task_run, step, outcome.question, store)
+        return _suspend_for_user(task_run, step, outcome.question, SuspendReason.NEED_SCENE_SELECTION, store)
 
     # 有候选才转 RESOLVING（RESOLVING 的语义就是"已出候选，待选定"）。
     requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
@@ -272,7 +284,7 @@ async def _run_search(
                 input_ref=pending_start_ref(task_run.task_run_id),
             )
         )
-    return _suspend_for_user(task_run, step, outcome.question, store)
+    return _suspend_for_user(task_run, step, outcome.question, _selection_suspend_reason(proposal), store)
 
 
 # ---------- 选择 + 审批 gate + 执行 ----------
@@ -294,7 +306,7 @@ async def _select_and_maybe_execute(
     candidate = _candidate_of(proposal, scene_code)
     if candidate is None:
         # 理论上不会发生（调用方已校验），保守收口。
-        return _suspend_for_user(task_run, step, f"候选已失效：{scene_code}", store)
+        return _suspend_for_user(task_run, step, f"候选已失效：{scene_code}", SuspendReason.NEED_SCENE_SELECTION, store)
 
     # 先写选定事实，保证后续 APPROVE 能基于账本恢复。
     if requirement.status != RequirementStatus.SATISFIED:
@@ -309,6 +321,8 @@ async def _select_and_maybe_execute(
             source.value,
             describe_code(requirement.status),
         )
+    else:
+        ensure_selection_consistency(requirement, proposal, scene_code)
 
     # preflight：env_code + 候选契约缺参（缺参绝不发起 Scene 写请求）。
     missing_fields = collect_preflight_missing(task_run, candidate)
@@ -319,7 +333,7 @@ async def _select_and_maybe_execute(
             scene_code,
             describe_name_list(missing_fields),
         )
-        return _suspend_for_user(task_run, step, _format_missing_required_question(missing_fields), store)
+        return _suspend_for_user(task_run, step, _format_missing_required_question(missing_fields), SuspendReason.MISSING_INPUT, store)
 
     # 审批 gate：有写副作用且未批准 -> 挂起等审批（与选择正交）。
     if candidate.requires_confirmation and not approved:
@@ -338,9 +352,10 @@ async def _select_and_maybe_execute(
             task_run.task_run_id,
             scene_code,
         )
-        return _suspend_for_user(task_run, step, _approval_question(candidate), store)
+        return _suspend_for_user(task_run, step, _approval_question(candidate), SuspendReason.NEED_APPROVAL, store)
 
     task_run.pending_question = None
+    task_run.suspend_reason = None
     return await execute_scene(task_run, step, requirement, scene_code, inputs, candidate, store)
 
 
@@ -361,10 +376,41 @@ async def execute_scene(
     缺参校验已由调用方按候选契约 candidate.missing_inputs 完成，这里直接执行。
     执行失败（Verdict=FAILED）后把 scene_code 加入 requirement.blacklist，便于重搜排除。
     """
-    from .evidence import build_evidence
-    from .execution import run_action
-    from .verdict import apply_verdict, judge
+    action, step = _plan_scene_execution(task_run, step, requirement, scene_code, inputs, candidate, store)
+    action, attempt, observation = await _run_and_record_attempt(task_run, action, store)
+    evidence = _build_and_record_evidence(task_run, step, action, observation, attempt, store)
+    verdict = _judge_and_record_verdict(task_run, evidence, action, store)
+    task_run, step, action = _apply_and_record_verdict(task_run, step, action, verdict, store)
+    _record_failed_scene_blacklist(requirement, scene_code, verdict, store)
 
+    logger.info(
+        "GDP Agent 运行时任务运行结束：任务ID=%s，任务状态=%s，步骤ID=%s，步骤状态=%s，动作ID=%s，动作状态=%s，步骤判定ID=%s，最终判定ID=%s，待用户确认=%s，失败原因=%s",
+        task_run.task_run_id,
+        describe_code(task_run.status),
+        step.step_id,
+        describe_code(step.status),
+        action.action_id,
+        describe_code(action.status),
+        describe_optional(step.verdict_id),
+        describe_optional(task_run.final_verdict_id),
+        describe_optional(task_run.pending_question),
+        describe_optional(task_run.failure_reason),
+    )
+
+    return task_run
+
+
+def _plan_scene_execution(
+    task_run: TaskRun,
+    step: PlanStep,
+    requirement: Requirement,
+    scene_code: str,
+    inputs: dict[str, Any],
+    candidate: SceneCandidate,
+    store: Store,
+) -> tuple[Action, PlanStep]:
+    """记录计划动作、输入变量和执行输入快照。"""
+    ensure_requirement_matches_scene(requirement, scene_code)
     action = make_scene_action(step, scene_code, inputs, approval_required=candidate.requires_confirmation)
     logger.info(
         "GDP Agent 运行时执行动作已计划：任务ID=%s，步骤ID=%s，动作ID=%s，动作类型=%s，场景编码=%s，输入摘要=%s，是否需要审批=%s",
@@ -378,7 +424,7 @@ async def execute_scene(
     )
 
     variables = create_input_variables(task_run, step, inputs)
-    store.save_payload(action.input_ref, inputs)
+    store.save_payload(task_run.task_run_id, action.input_ref, inputs)
 
     step = transition_step(step, StepStatus.RUNNING)
     action = transition_action(action, ActionStatus.RUNNING)
@@ -386,8 +432,7 @@ async def execute_scene(
     store.save_task_run(task_run)
     store.save_step(step)
     store.save_action(action)
-    for variable in variables:
-        store.save_variable(variable)
+    _save_variables(store, variables)
     logger.info(
         "GDP Agent 运行时初始账本已写入存储：任务ID=%s，步骤ID=%s，动作ID=%s，变量=%s",
         task_run.task_run_id,
@@ -395,6 +440,16 @@ async def execute_scene(
         action.action_id,
         describe_variables(variables),
     )
+    return action, step
+
+
+async def _run_and_record_attempt(
+    task_run: TaskRun,
+    action: Action,
+    store: Store,
+) -> tuple[Action, ActionAttempt, Observation]:
+    """记录执行尝试、原始观察和 Action 技术状态。"""
+    from .execution import run_action
 
     attempt, observation = await run_action(action, store)
     action = _sync_action_status_with_attempt(action, attempt)
@@ -412,6 +467,19 @@ async def execute_scene(
         describe_optional(attempt.error_type),
         describe_optional(attempt.error_message),
     )
+    return action, attempt, observation
+
+
+def _build_and_record_evidence(
+    task_run: TaskRun,
+    step: PlanStep,
+    action: Action,
+    observation: Observation,
+    attempt: ActionAttempt,
+    store: Store,
+) -> Evidence:
+    """记录从观察结果抽取出的可判定证据。"""
+    from .evidence import build_evidence
 
     evidence = build_evidence(step, action, observation, attempt)
     store.save_evidence(evidence)
@@ -423,6 +491,12 @@ async def execute_scene(
         describe_name_list(evidence.missing_facts),
         describe_name_list(evidence.unknown_facts),
     )
+    return evidence
+
+
+def _judge_and_record_verdict(task_run: TaskRun, evidence: Evidence, action: Action, store: Store) -> Verdict:
+    """记录基于证据得到的结果判定。"""
+    from .verdict import judge
 
     verdict = judge(evidence, action)
     store.save_verdict(verdict)
@@ -433,32 +507,43 @@ async def execute_scene(
         describe_code(verdict.verdict_type),
         verdict.reason,
     )
+    return verdict
+
+
+def _apply_and_record_verdict(
+    task_run: TaskRun,
+    step: PlanStep,
+    action: Action,
+    verdict: Verdict,
+    store: Store,
+) -> tuple[TaskRun, PlanStep, Action]:
+    """记录 Verdict 对 TaskRun、PlanStep 和 Action 的业务收口。"""
+    from .verdict import apply_verdict
 
     task_run, step, action = apply_verdict(task_run, step, action, verdict)
     store.save_task_run(task_run)
     store.save_step(step)
     store.save_action(action)
+    return task_run, step, action
 
-    # 执行失败 -> scene 进黑名单，便于后续重搜排除（Phase 5 回退地基）。
-    if verdict.verdict_type == VerdictType.FAILED:
-        requirement = blacklist_scene(requirement, scene_code)
-        store.save_requirement(requirement)
 
-    logger.info(
-        "GDP Agent 运行时任务运行结束：任务ID=%s，任务状态=%s，步骤ID=%s，步骤状态=%s，动作ID=%s，动作状态=%s，步骤判定ID=%s，最终判定ID=%s，待用户确认=%s，失败原因=%s",
-        task_run.task_run_id,
-        describe_code(task_run.status),
-        step.step_id,
-        describe_code(step.status),
-        action.action_id,
-        describe_code(action.status),
-        describe_optional(step.verdict_id),
-        describe_optional(task_run.final_verdict_id),
-        describe_optional(task_run.pending_question),
-        describe_optional(task_run.failure_reason),
-    )
+def _record_failed_scene_blacklist(
+    requirement: Requirement,
+    scene_code: str,
+    verdict: Verdict,
+    store: Store,
+) -> None:
+    """执行失败后把场景加入黑名单，供后续重搜排除。"""
+    if verdict.verdict_type != VerdictType.FAILED:
+        return
+    requirement = blacklist_scene(requirement, scene_code)
+    store.save_requirement(requirement)
 
-    return task_run
+
+def _save_variables(store: Store, variables: list[Variable]) -> None:
+    """保存本次执行消费的输入变量。"""
+    for variable in variables:
+        store.save_variable(variable)
 
 
 # ---------- Helpers ----------
@@ -497,9 +582,16 @@ def _approval_question(candidate: SceneCandidate) -> str:
     )
 
 
-def _suspend_for_user(task_run: TaskRun, step: PlanStep, question: str | None, store: Store) -> TaskRun:
+def _suspend_for_user(
+    task_run: TaskRun,
+    step: PlanStep,
+    question: str | None,
+    reason: SuspendReason,
+    store: Store,
+) -> TaskRun:
     """挂起等用户：TaskRun -> WAITING_USER，保存 step。"""
     task_run.pending_question = question or "需要用户补充信息后继续。"
+    task_run.suspend_reason = reason
     task_run = transition_task_run(task_run, TaskRunStatus.WAITING_USER)
     store.save_step(step)
     store.save_task_run(task_run)
@@ -516,6 +608,17 @@ def _is_blank(value: Any) -> bool:
     if value is None:
         return True
     return isinstance(value, str) and value.strip() == ""
+
+
+def _selection_suspend_reason(proposal: RequirementProposal) -> SuspendReason:
+    """根据候选集判断这次等待用户主要卡在哪类选择缺口。"""
+    if len(proposal.candidates) == 1:
+        candidate = proposal.candidates[0]
+        if candidate.missing_inputs:
+            return SuspendReason.MISSING_INPUT
+        if candidate.requires_confirmation:
+            return SuspendReason.NEED_APPROVAL
+    return SuspendReason.NEED_SCENE_SELECTION
 
 
 def _format_missing_required_question(missing_fields: list[str]) -> str:
