@@ -1,4 +1,17 @@
-"""GDP Agent Runtime 恢复命令。"""
+"""用户恢复暂停任务的命令体系。
+
+用户的造数任务在运行中可能因需要人工决策而暂停（WAITING_USER），此时前端
+会向用户展示待处理事项（如选择场景、补充入参、审批确认等）。用户做出回复后，
+前端将回复类型和参数发送到 API，API 层调用本模块的 parse_runtime_command
+将用户意图转为内部命令对象，交由编排引擎恢复任务执行。
+
+每种命令对应一种用户回复场景：
+- ApproveCommand：用户批准系统选定的场景
+- SupplyInputCommand：用户补充系统提示的缺失入参
+- ConfirmUnknownStateCommand：用户确认执行结果未知并选择停止
+- SelectSceneCommand：用户在候选列表中选择一个场景
+- SupplySceneCodeCommand：系统搜不到候选时用户手动输入场景编码
+"""
 
 from __future__ import annotations
 
@@ -42,7 +55,13 @@ class SupplySceneCodeCommand(RuntimeCommand):
 
 
 def parse_runtime_command(reply_type: ReplyType | str, payload: Mapping[str, Any] | None) -> RuntimeCommand:
-    """把 API reply_type 解析成内部命令对象。"""
+    """将用户在前端的回复转化为编排引擎可执行的内部命令。
+
+    业务目标：桥接用户操作与系统执行——用户在前端做出回复（如批准、补参、选场景）后，
+    本函数将前端传来的 reply_type 和 payload 解析为类型安全的命令对象。
+    当前动作：校验 reply_type 合法性，按类型分发到对应的 Command 构造器。
+    预期结果：返回具体的 RuntimeCommand 子类实例，编排引擎据此恢复暂停的造数任务。
+    """
 
     try:
         normalized = reply_type if isinstance(reply_type, ReplyType) else ReplyType(str(reply_type))

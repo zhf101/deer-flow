@@ -1,12 +1,16 @@
-"""GDP Agent Runtime 主循环。
+"""GDP 造数运行时引擎主循环。
 
-第二阶段：先解析/搜索 Scene（Catalog 驱动），选定后复用第一阶段执行链路
-（make_scene_action → run_action → build_evidence → judge → apply_verdict）。
+本模块是造数运行时的心脏——驱动用户造数目标从"创建"走到"完成"或"等待用户"的完整生命周期。
 
-兼容性：
-- 显式 scene_code：跳过搜索，但仍走契约解析（resolve_explicit_scene），按契约 missing_inputs
-  校验，缺参逻辑与搜索路径同源；删除了第一阶段的 _REQUIRED_INPUTS_BY_SCENE 硬编码。
-- 无 scene_code：进入搜索 → 选择 → 执行链路。
+用户提交造数目标后，引擎按以下流程推进：
+1. 创建执行计划和需求缺口；
+2. 根据是否携带场景编码走不同路径：
+   - 携带场景编码（快速通道）：解析契约 → 确认入参齐全 → 直接执行；
+   - 未携带场景编码（智能搜索）：调用场景目录搜索 → 规则自动选择 / 暂停等用户选定；
+3. 选定场景后依次通过入参校验、审批关卡，最终调用场景并收集证据、判定结果、收口任务状态。
+
+任何阶段遇到信息缺失或需要审批，任务会暂停并向前端展示 pending_question 提示，
+等待用户通过 /reply 补充后继续。
 """
 
 from __future__ import annotations
@@ -97,7 +101,13 @@ async def run_task(
     catalog: SceneCatalogPort | None = None,
     idempotency_gate: IdempotencyGate | None = None,
 ) -> TaskRun:
-    """主循环：解析/搜索 Scene → 选定 → 执行 → 判定。"""
+    """主循环入口：让用户的造数需求被完整处理。
+
+    业务目标：用户提交造数目标后，系统创建执行计划和需求缺口，然后根据是否指定场景编码走不同路径——
+    指定了场景编码则直接执行，未指定则智能搜索后选定执行。最终任务是完成、失败或暂停等用户。
+
+    预期结果：任务状态被正确推进，所有中间状态（步骤、动作、尝试、证据、判定）被完整记录到账本。
+    """
     catalog = catalog or get_catalog()
     scene_code = getattr(request, "scene_code", None)
     original_store_snapshot = store.snapshot()
@@ -112,7 +122,7 @@ async def run_task(
 
     task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
 
-    # 保存待恢复启动请求，供 SUPPLY_INPUT 补参后重放（第一阶段兼容）。
+    # 保存启动请求快照，供用户后续补参时重放使用（第一阶段兼容）。
     store.save_payload(
         task_run.task_run_id,
         pending_start_ref(task_run.task_run_id),
@@ -130,6 +140,7 @@ async def run_task(
     )
 
     try:
+        # 根据是否指定场景编码走不同路径：快速通道或智能搜索。
         if scene_code:
             return await _run_explicit_scene(
                 task_run, step, requirement, scene_code, request.inputs, store, catalog, idempotency_gate
@@ -137,11 +148,12 @@ async def run_task(
 
         return await _run_search(task_run, step, requirement, request.inputs, store, catalog, idempotency_gate)
     except RuntimeServiceError:
-        # Catalog 失败发生在写请求前；恢复启动前账本，避免任务卡在 RUNNING。
+        # Catalog 服务失败且尚未发起任何写请求时，恢复账本快照避免任务卡在 RUNNING 状态。
         if not _has_attempts(store, task_run.task_run_id):
             store.restore(original_store_snapshot)
         raise
     except Exception:
+        # 其他异常时，如果还没有发起过场景调用（无尝试记录），恢复账本快照避免用户任务卡在不一致状态。
         has_attempts = _has_attempts(store, task_run.task_run_id)
         if not has_attempts:
             store.restore(original_store_snapshot)
@@ -154,7 +166,7 @@ async def run_task(
         raise
 
 
-# ---------- 分支 1：显式 scene_code ----------
+# ---------- 分支 1：用户已指定场景编码时的快速通道 ----------
 
 
 async def _run_explicit_scene(
@@ -167,8 +179,13 @@ async def _run_explicit_scene(
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
 ) -> TaskRun:
-    """显式 scene_code 路径：契约解析 → 合成单候选 → 同搜索路径的选择/审批 gate。"""
-    # scene_code 不存在 / 未发布 -> catalog.get_contract 抛 HTTPException(404)，由 API 层处理。
+    """用户已指定场景编码时的快速通道——解析契约确认入参齐全后直接执行。
+
+    业务目标：用户明确知道要用哪个场景，跳过搜索直接走执行链路，节省交互轮次。
+    当前动作：解析场景契约、合成单候选，然后进入与搜索路径共用的选择/审批关卡。
+    预期结果：契约解析成功则进入执行，场景不存在则由 API 层返回 404。
+    """
+    # 场景不存在或未发布时，catalog.get_contract 会抛 HTTPException(404)，由 API 层统一处理。
     proposal = await resolve_explicit_scene(requirement, scene_code, inputs, catalog)
     store.save_requirement(requirement)  # 仍 PENDING
     store.save_proposal(proposal)
@@ -206,7 +223,7 @@ async def _run_explicit_scene(
     )
 
 
-# ---------- 分支 2：搜索选择 ----------
+# ---------- 分支 2：用户未指定场景时的智能搜索 ----------
 
 
 async def _run_search(
@@ -218,7 +235,13 @@ async def _run_search(
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
 ) -> TaskRun:
-    """搜索路径：调 Catalog → decide_selection → 自动执行 / 等用户 / 零候选收口。"""
+    """用户未指定场景时的智能搜索——调场景目录搜索、规则选择、必要时暂停等用户。
+
+    业务目标：用户不知道具体场景编码时，系统根据造数目标自动检索并选定最合适的场景。
+    当前动作：调用场景目录搜索，按规则自动选定或暂停等用户确认。
+    预期结果：自动选定则直接执行，零候选或多候选则暂停等用户补充信息或选择。
+    """
+    # 调用场景目录检索候选场景，结果记入账本供后续选择和审计。
     proposal = await search_scenes(requirement, inputs, task_run.env_code, catalog)
     store.save_proposal(proposal)
     store.save_decision(
@@ -236,6 +259,7 @@ async def _run_search(
         describe_name_list(proposal.query_terms),
     )
 
+    # 根据候选集规则自动选定：唯一高分候选则自动选定，否则暂停等用户决策。
     outcome = decide_selection(proposal)
     store.save_decision(
         build_scene_selection_decision(
@@ -255,15 +279,16 @@ async def _run_search(
     )
 
     if outcome.kind == "NO_CANDIDATE":
-        # 零候选：Requirement 停在 PENDING（语义是"还没出候选"），挂起等用户补 scene_code 或改目标。
+        # 搜索无结果：暂停等用户补充场景编码或调整造数目标，缺口保持 PENDING 表示"还没有候选"。
         store.save_requirement(requirement)  # 仍 PENDING，不转 RESOLVING
         return _suspend_for_user(task_run, step, outcome.question, SuspendReason.NEED_SCENE_SELECTION, store)
 
-    # 有候选才转 RESOLVING（RESOLVING 的语义就是"已出候选，待选定"）。
+    # 有候选时转入 RESOLVING，语义是"已有候选，正在选定中"。
     requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
     store.save_requirement(requirement)
 
     if outcome.kind == "AUTO_SELECTED":
+        # 规则自动选定唯一候选，直接进入执行链路。
         return await _select_and_maybe_execute(
             task_run,
             step,
@@ -278,8 +303,9 @@ async def _run_search(
             idempotency_gate,
         )
 
-    # NEED_USER：多候选 / 低分 / 缺参 / 需审批，挂起等用户选择或审批。
+    # NEED_USER：多候选、低分、缺参或需审批时，暂停等用户选择或批准后继续。
     if len(proposal.candidates) == 1 and proposal.candidates[0].requires_confirmation:
+        # 唯一候选但有写副作用，需要用户审批后才能执行。
         store.save_decision(
             build_approval_requirement_decision(
                 task_run,
@@ -293,7 +319,7 @@ async def _run_search(
     return _suspend_for_user(task_run, step, outcome.question, _selection_suspend_reason(proposal), store)
 
 
-# ---------- 选择 + 审批 gate + 执行 ----------
+# ---------- 选定场景后的三重门：校验入参 → 审批副作用 → 执行 ----------
 
 
 async def _select_and_maybe_execute(
@@ -309,13 +335,18 @@ async def _select_and_maybe_execute(
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
 ) -> TaskRun:
-    """对选定 scene_code 先写选定事实，再执行 preflight 和审批 gate。"""
+    """选定场景后的三重门——校验入参齐全 → 审批有副作用的场景 → 执行。
+
+    业务目标：确保场景调用前入参完整、副作用已被用户批准，避免盲目发起写请求。
+    当前动作：记录选定事实，依次检查入参缺口和审批关卡，全部通过则进入执行链路。
+    预期结果：任一关卡未通过则暂停等用户，全部通过则直接执行场景。
+    """
     candidate = _candidate_of(proposal, scene_code)
     if candidate is None:
-        # 理论上不会发生（调用方已校验），保守收口。
+        # 候选已失效（理论上不应发生，调用方已校验），保守暂停等用户重新选择。
         return _suspend_for_user(task_run, step, f"候选已失效：{scene_code}", SuspendReason.NEED_SCENE_SELECTION, store)
 
-    # 先写选定事实，保证后续 APPROVE 能基于账本恢复。
+    # 记录选定事实到账本，保证后续审批流程能基于账本恢复上下文。
     if requirement.status != RequirementStatus.SATISFIED:
         requirement, proposal = apply_selection(requirement, proposal, scene_code, source)
         requirement = transition_requirement(requirement, RequirementStatus.SATISFIED)
@@ -329,9 +360,10 @@ async def _select_and_maybe_execute(
             describe_code(requirement.status),
         )
     else:
+        # 已选定过（如用户补参后重放），校验一致性。
         ensure_selection_consistency(requirement, proposal, scene_code)
 
-    # preflight：env_code + 候选契约缺参（缺参绝不发起 Scene 写请求）。
+    # 执行前校验：检查环境编码和候选契约缺失的入参，缺参绝不发起场景写请求。
     missing_fields = collect_preflight_missing(task_run, candidate)
     if missing_fields:
         logger.info(
@@ -342,7 +374,7 @@ async def _select_and_maybe_execute(
         )
         return _suspend_for_user(task_run, step, _format_missing_required_question(missing_fields), SuspendReason.MISSING_INPUT, store)
 
-    # 审批 gate：有写副作用且未批准 -> 挂起等审批（与选择正交）。
+    # 审批关卡：场景有写副作用且用户尚未批准时，暂停等用户确认后执行。
     if candidate.requires_confirmation and not approved:
         store.save_decision(
             build_approval_requirement_decision(
@@ -361,12 +393,13 @@ async def _select_and_maybe_execute(
         )
         return _suspend_for_user(task_run, step, _approval_question(candidate), SuspendReason.NEED_APPROVAL, store)
 
+    # 三重门全部通过，清除暂停提示后进入执行链路。
     task_run.pending_question = None
     task_run.suspend_reason = None
     return await execute_scene(task_run, step, requirement, scene_code, inputs, candidate, store, idempotency_gate)
 
 
-# ---------- 第一阶段执行链路（抽出，可复用） ----------
+# ---------- 执行链路：创建动作 → 调用场景 → 收集证据 → 判定结果 → 收口任务状态 ----------
 
 
 async def execute_scene(
@@ -379,10 +412,14 @@ async def execute_scene(
     store: Store,
     idempotency_gate: IdempotencyGate | None = None,
 ) -> TaskRun:
-    """第一阶段执行链路：make_scene_action → run_action → evidence → judge → apply_verdict。
+    """第一阶段执行链路——创建动作 → 调用场景 → 收集证据 → 判定结果 → 收口任务状态。
 
-    缺参校验已由调用方按候选契约 candidate.missing_inputs 完成，这里直接执行。
-    执行失败（Verdict=FAILED）后把 scene_code 加入 requirement.blacklist，便于重搜排除。
+    业务目标：实际调用造数场景，收集执行证据并做出结果判定，最终收口任务和步骤的状态。
+    当前动作：依次执行计划、尝试、证据、判定、收口五步，失败时将场景加入黑名单。
+    预期结果：任务状态变为完成、失败或需要用户确认，所有中间产物记入账本。
+
+    入参校验已由调用方按候选契约完成，这里直接执行。
+    执行失败后将 scene_code 加入 requirement.blacklist，便于重搜时排除失败场景。
     """
     action, step = _plan_scene_execution(task_run, step, requirement, scene_code, inputs, candidate, store)
     action, attempt, observation = await _run_and_record_attempt(task_run, action, store, idempotency_gate)
@@ -417,7 +454,12 @@ def _plan_scene_execution(
     candidate: SceneCandidate,
     store: Store,
 ) -> tuple[Action, PlanStep]:
-    """记录计划动作、输入变量和执行输入快照。"""
+    """记录执行计划，准备输入变量。
+
+    业务目标：在发起场景调用前，将执行意图（动作、输入变量、入参快照）完整记录到账本。
+    当前动作：创建动作实体、保存输入变量和入参引用，将步骤和动作推进到 RUNNING 状态。
+    预期结果：账本中有完整的执行计划和输入快照，可供审计和断点恢复。
+    """
     ensure_requirement_matches_scene(requirement, scene_code)
     action = make_scene_action(step, scene_code, inputs, approval_required=candidate.requires_confirmation)
     logger.info(
@@ -457,7 +499,12 @@ async def _run_and_record_attempt(
     store: Store,
     idempotency_gate: IdempotencyGate | None,
 ) -> tuple[Action, ActionAttempt, Observation]:
-    """记录执行尝试、原始观察和 Action 技术状态。"""
+    """执行场景并记录尝试和观察。
+
+    业务目标：实际调用场景服务获取造数结果，同时完整记录尝试状态和原始观察。
+    当前动作：调用 run_action 执行场景，同步动作技术状态，保存尝试和观察到账本。
+    预期结果：得到执行尝试（含成功/失败状态）和原始观察结果，全部记入账本。
+    """
     from .execution import run_action
 
     attempt, observation = await run_action(action, store, idempotency_gate)
@@ -487,7 +534,12 @@ def _build_and_record_evidence(
     attempt: ActionAttempt,
     store: Store,
 ) -> Evidence:
-    """记录从观察结果抽取出的可判定证据。"""
+    """从观察中抽取可判定证据。
+
+    业务目标：从原始观察结果中提取结构化事实，为后续结果判定提供依据。
+    当前动作：调用 build_evidence 从观察和尝试中抽取已确认事实、缺失事实和未知事实。
+    预期结果：得到一份结构化的证据记录，记入账本供判定使用。
+    """
     from .evidence import build_evidence
 
     evidence = build_evidence(step, action, observation, attempt)
@@ -504,7 +556,12 @@ def _build_and_record_evidence(
 
 
 def _judge_and_record_verdict(task_run: TaskRun, evidence: Evidence, action: Action, store: Store) -> Verdict:
-    """记录基于证据得到的结果判定。"""
+    """基于证据做出结果判定。
+
+    业务目标：根据已收集的证据判定造数是否成功，给出明确的结果和原因。
+    当前动作：调用 judge 根据证据和动作信息生成判定结论（成功/失败/需确认）。
+    预期结果：得到一份结构化的判定记录，记入账本供后续收口使用。
+    """
     from .verdict import judge
 
     verdict = judge(evidence, action)
@@ -526,7 +583,12 @@ def _apply_and_record_verdict(
     verdict: Verdict,
     store: Store,
 ) -> tuple[TaskRun, PlanStep, Action]:
-    """记录 Verdict 对 TaskRun、PlanStep 和 Action 的业务收口。"""
+    """根据判定更新任务和步骤状态。
+
+    业务目标：将判定结果落实到任务和步骤的最终状态上，让前端能正确展示任务结果。
+    当前动作：调用 apply_verdict 根据判定类型更新任务、步骤和动作的业务状态。
+    预期结果：任务状态被更新为完成、失败或需确认，步骤和动作状态同步收口。
+    """
     from .verdict import apply_verdict
 
     task_run, step, action = apply_verdict(task_run, step, action, verdict)
@@ -542,7 +604,12 @@ def _record_failed_scene_blacklist(
     verdict: Verdict,
     store: Store,
 ) -> None:
-    """执行失败后把场景加入黑名单，供后续重搜排除。"""
+    """失败场景加入黑名单，避免重搜时再次推荐。
+
+    业务目标：执行失败的场景不应在后续重搜中被重复推荐给用户，减少无效交互。
+    当前动作：判定为失败时将场景编码加入需求缺口的黑名单。
+    预期结果：后续搜索选定流程会排除黑名单中的场景。
+    """
     if verdict.verdict_type != VerdictType.FAILED:
         return
     requirement = blacklist_scene(requirement, scene_code)
@@ -550,7 +617,7 @@ def _record_failed_scene_blacklist(
 
 
 def _save_variables(store: Store, variables: list[Variable]) -> None:
-    """保存本次执行消费的输入变量。"""
+    """将本次造数消费的业务数据持久化到账本，确保每个参数都有据可查。"""
     for variable in variables:
         store.save_variable(variable)
 
@@ -566,7 +633,13 @@ def _candidate_of(proposal: RequirementProposal, scene_code: str) -> SceneCandid
 
 
 def collect_preflight_missing(task_run: TaskRun, candidate: SceneCandidate) -> list[str]:
-    """选定执行前的缺口：env_code（执行必需）+ 候选契约 missing_inputs（契约驱动）。"""
+    """执行前检查缺失信息，避免在入参不全时盲目发起场景调用。
+
+    业务目标：在调用场景前确认所有必填信息已齐全，缺失时直接暂停等用户补充，
+    避免发起无效的远程调用。
+    当前动作：检查环境编码（执行必需）和候选契约声明的缺失入参字段。
+    预期结果：返回缺失字段列表，为空表示可以安全发起场景调用。
+    """
     missing_fields: list[str] = []
     if _is_blank(task_run.env_code):
         missing_fields.append("env_code")
@@ -576,10 +649,10 @@ def collect_preflight_missing(task_run: TaskRun, candidate: SceneCandidate) -> l
 
 
 def _is_approved_request(inputs: dict[str, Any]) -> bool:
-    """start 请求是否已携带审批（inputs.approved 为 true）。
+    """检查启动请求是否已携带用户审批。
 
-    start 一般不会带 approved；审批通常在 WAITING_USER 后经 /reply 提交。但显式 scene_code
-    的副作用场景若调用方在 start 就带了 approved，也予以尊重。
+    业务目标：尊重调用方在 start 阶段就携带审批结果的快捷路径，
+    减少有副作用场景的交互轮次。
     """
     return inputs.get("approved") is True
 
@@ -598,7 +671,13 @@ def _suspend_for_user(
     reason: SuspendReason,
     store: Store,
 ) -> TaskRun:
-    """挂起等用户：TaskRun -> WAITING_USER，保存 step。"""
+    """暂停造数任务并向用户展示待处理事项。
+
+    业务目标：当系统遇到无法自动决策的环节（缺输入、需审批、选场景等）时，
+    安全地暂停任务并向前端展示明确的提示信息，引导用户操作来恢复任务。
+    当前动作：写入 pending_question 和 suspend_reason，将任务状态转为 WAITING_USER。
+    预期结果：前端展示用户引导问题，用户可据此做出回复来恢复造数任务。
+    """
     task_run.pending_question = question or "需要用户补充信息后继续。"
     task_run.suspend_reason = reason
     task_run = transition_task_run(task_run, TaskRunStatus.WAITING_USER)
@@ -620,7 +699,11 @@ def _is_blank(value: Any) -> bool:
 
 
 def _selection_suspend_reason(proposal: RequirementProposal) -> SuspendReason:
-    """根据候选集判断这次等待用户主要卡在哪类选择缺口。"""
+    """判断任务暂停时用户主要需要做什么操作。
+
+    业务目标：根据候选集的具体情况，给出最精确的挂起原因，
+    让前端展示最贴合当前情况的引导提示（补参数/审批/选场景）。
+    """
     if len(proposal.candidates) == 1:
         candidate = proposal.candidates[0]
         if candidate.missing_inputs:
@@ -635,6 +718,7 @@ def _format_missing_required_question(missing_fields: list[str]) -> str:
 
 
 def _sync_action_status_with_attempt(action: Action, attempt: ActionAttempt) -> Action:
+    """将动作的技术执行状态与尝试结果同步，确保用户看到的动作状态与实际执行一致。"""
     if action.status != ActionStatus.RUNNING:
         return action
     if attempt.status == AttemptStatus.SUCCEEDED:
@@ -647,6 +731,7 @@ def _sync_action_status_with_attempt(action: Action, attempt: ActionAttempt) -> 
 
 
 def _has_attempts(store: Store, task_run_id: str) -> bool:
+    """检查任务是否已发起过场景调用，用于异常恢复时决定是否需要回滚账本。"""
     try:
         return bool(store.get_timeline(task_run_id)["attempts"])
     except (EntityNotFoundError, KeyError):

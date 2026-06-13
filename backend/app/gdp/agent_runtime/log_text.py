@@ -1,4 +1,9 @@
-"""GDP Agent Runtime 日志中文展示工具。"""
+"""日志中文展示工具——把内部状态码、枚举值、字段名翻译成用户可理解的中文。
+
+业务目标：让排查问题时不再面对英文枚举和内部编码，降低运维和用户理解门槛。
+当前动作：提供一组 describe_* 函数，将状态码、事实名、变量、内容等转为中文摘要。
+预期结果：日志和审计输出中展示的都是可读中文，同时保留原始编码便于技术排查。
+"""
 
 from __future__ import annotations
 
@@ -59,7 +64,10 @@ _FACT_TEXT: dict[str, str] = {
 
 
 def describe_code(value: Any) -> str:
-    """把状态码、错误码或枚举值展示成中文说明。"""
+    """将状态码、错误码或枚举值翻译为中文说明，括号内保留原始编码。
+
+    例如 RUNNING -> "运行中(RUNNING)"，让用户既能读懂又方便技术定位。
+    """
     if value is None:
         return "无"
     raw = value.value if isinstance(value, Enum) else str(value)
@@ -70,19 +78,19 @@ def describe_code(value: Any) -> str:
 
 
 def describe_optional(value: Any) -> str:
-    """日志中展示可空字段。"""
+    """日志中展示可空字段：有值时翻译，无值时显示"无"。"""
     if value is None or value == "":
         return "无"
     return describe_code(value)
 
 
 def describe_bool(value: bool) -> str:
-    """日志中展示布尔值。"""
+    """将布尔值翻译为中文"是"或"否"。"""
     return "是" if value else "否"
 
 
 def describe_fact_name(value: str) -> str:
-    """展示事实字段名，保留原始字段码便于排查。"""
+    """将事实账本的字段名翻译为中文说明，括号内保留原始字段码便于排查。"""
     text = _FACT_TEXT.get(value)
     if not text:
         return value
@@ -90,21 +98,24 @@ def describe_fact_name(value: str) -> str:
 
 
 def describe_fact_value(value: Any) -> str:
-    """展示事实期望值或实际值。"""
+    """展示事实账本的期望值或实际值，布尔值翻译为中文，其他值走通用翻译。"""
     if isinstance(value, bool):
         return f"{'是' if value else '否'}({value})"
     return describe_code(value)
 
 
 def describe_name_list(values: list[str]) -> str:
-    """展示字段名列表。"""
+    """将字段名列表翻译为中文摘要，空列表显示"无"。"""
     if not values:
         return "无"
     return "[" + ", ".join(describe_fact_name(value) for value in values) + "]"
 
 
 def describe_content(value: Any, *, max_chars: int = 1600) -> str:
-    """展示结构化内容摘要，避免只打印数量或字段名。"""
+    """展示结构化内容的中文摘要，自动脱敏敏感字段并截断超长内容。
+
+    业务目标：日志中展示完整内容结构便于排查，同时确保密码、令牌等敏感信息不被泄露。
+    """
     safe_value = _mask_sensitive(_to_jsonable(value))
     try:
         text = json.dumps(safe_value, ensure_ascii=False, sort_keys=True, default=str)
@@ -116,7 +127,7 @@ def describe_content(value: Any, *, max_chars: int = 1600) -> str:
 
 
 def describe_variables(variables: list[Any]) -> str:
-    """展示变量关键内容。"""
+    """展示变量列表的关键内容（名称、语义类型、值预览、来源），便于排查造数过程中的变量传递。"""
     rows: list[dict[str, Any]] = []
     for variable in variables:
         provenance = getattr(variable, "provenance", None)
@@ -134,7 +145,7 @@ def describe_variables(variables: list[Any]) -> str:
 
 
 def describe_facts(facts: list[Any]) -> str:
-    """展示判定事实关键内容。"""
+    """展示判定事实的关键内容（事实名、判定方式、期望值、实际值、是否通过），让用户能验证造数结果是否符合预期。"""
     rows: list[dict[str, Any]] = []
     for fact in facts:
         rows.append(

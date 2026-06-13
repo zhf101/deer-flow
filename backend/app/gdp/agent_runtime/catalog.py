@@ -1,6 +1,9 @@
-"""GDP Agent Runtime 搜索编排。
+"""场景目录搜索与契约解析。
 
-建 Requirement、调 Catalog adapter、产出 Proposal。纯编排，不调 LLM，不复刻打分。
+本模块负责为用户的造数目标寻找合适的已发布场景——从场景目录中搜索候选、
+解析场景契约，为用户找到能满足需求的造数方案。
+
+纯编排逻辑，不调用 LLM，不复制打分算法；搜索和契约解析均委托给 Catalog adapter。
 """
 
 from __future__ import annotations
@@ -31,7 +34,12 @@ def _gen_id(prefix: str) -> str:
 
 
 def create_scene_requirement(task_run: TaskRun, step: PlanStep) -> Requirement:
-    """为当前 step 创建一个 SCENE 层缺口。"""
+    """为用户的当前造数步骤创建一个"需要找到合适场景"的缺口记录。
+
+    业务目标：标记当前步骤尚未确定用哪个场景来执行，驱动后续搜索流程为用户寻找匹配方案。
+    当前动作：基于步骤目标（goal）创建一个 SCENE 层的 Requirement，初始状态为 PENDING。
+    预期结果：返回的 Requirement 将作为搜索入口，交由 search_scenes 或 resolve_explicit_scene 填充候选。
+    """
     now = _now()
     return Requirement(
         requirement_id=_gen_id("req"),
@@ -70,7 +78,15 @@ async def search_scenes(
     limit: int = 5,
     visible_variables: list[dict[str, Any]] | None = None,
 ) -> RequirementProposal:
-    """调 Catalog 搜索候选，排除 blacklist，产出 PENDING Proposal。"""
+    """从场景目录中搜索能满足用户造数目标的候选场景。
+
+    业务目标：为用户找到所有可能满足需求的已发布场景，同时排除已知失败的方案，
+    避免把用户引导到已经走过的死路上。
+    当前动作：调用 Catalog adapter 按用户目标和输入进行搜索，再用黑名单过滤掉
+    之前执行失败的场景。
+    预期结果：返回一份 PENDING 状态的 Proposal，包含过滤后的候选清单，
+    交由 decide_selection 决定是自动选定还是让用户手动选择。
+    """
     candidates, query_terms = await catalog.search(
         goal=requirement.goal,
         env_code=env_code,
@@ -91,11 +107,18 @@ async def resolve_explicit_scene(
     inputs: dict[str, Any],
     catalog: SceneCatalogPort,
 ) -> RequirementProposal:
-    """按显式 scene_code 解析契约，合成单候选 PENDING Proposal。
+    """当用户直接指定了场景编码时，解析该场景的契约并确认入参是否齐全。
 
-    两个入口共用：start 带显式 scene_code（向后兼容路径）、零候选后 SUPPLY_SCENE_CODE
-    手动补录。缺参校验只此一套（契约 missing_inputs 驱动），彻底替代 _REQUIRED_INPUTS_BY_SCENE。
-    scene_code 不存在 / 未发布 -> catalog.get_contract 抛 404。
+    业务目标：用户明确知道要用哪个场景（或系统在零候选后要求用户补录 scene_code），
+    此时跳过搜索直接验证该场景是否可用、入参是否足够。
+    当前动作：调用 Catalog adapter 获取指定场景的契约，校验必填参数；
+    scene_code 不存在或未发布时 adapter 会抛出 404。
+    预期结果：返回只含该场景的单候选 PENDING Proposal，由选择决策模块继续处理。
+
+    两个入口共用此函数：
+    - start 时带了显式 scene_code（向后兼容路径）
+    - 零候选后用户通过 SUPPLY_SCENE_CODE 手动补录
+    缺参校验统一由契约的 missing_inputs 驱动，彻底替代旧的 _REQUIRED_INPUTS_BY_SCENE 硬编码。
     """
     candidate = await catalog.get_contract(scene_code=scene_code, user_inputs=inputs)
     proposal = _new_proposal(requirement, [candidate], query_terms=[])

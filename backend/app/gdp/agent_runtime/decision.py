@@ -1,4 +1,9 @@
-"""GDP Agent Runtime 决策账本构造函数。"""
+"""决策审计账本——记录系统为用户做出的每个关键选择。
+
+业务目标：让用户能追溯"系统为什么这样做"。
+当前动作：为场景搜索、场景选择、审批要求等环节分别生成决策记录。
+预期结果：每个决策都有完整的候选项、选中理由、淘汰理由和判定标准，用户可随时回溯审计。
+"""
 
 from __future__ import annotations
 
@@ -27,7 +32,12 @@ def build_scene_search_decision(
     *,
     input_ref: str | None,
 ) -> DecisionRecord:
-    """记录 Catalog 如何产出候选场景。"""
+    """记录系统为造数目标搜索到了哪些候选场景。
+
+    业务目标：用户提出造数目标后，系统在场景目录中检索匹配的已发布场景。
+    当前动作：将检索结果（候选列表、检索词、匹配标准）包装为一条决策记录。
+    预期结果：用户能看到系统搜到了哪些场景、用了什么检索词、基于什么标准筛选。
+    """
     return DecisionRecord(
         decision_id=_gen_id(),
         task_run_id=task_run.task_run_id,
@@ -65,7 +75,12 @@ def build_scene_selection_decision(
     *,
     input_ref: str | None,
 ) -> DecisionRecord:
-    """记录规则选择已有场景或等待用户的原因。"""
+    """记录系统自动选定场景或等待用户选择的原因。
+
+    业务目标：在候选场景中确定最终执行目标，能自动选则自动选，否则交用户决策。
+    当前动作：根据选择规则（单候选、评分达标、无缺失入参、无需审批）判定并记录选中理由。
+    预期结果：用户能看到选中了哪个场景、为什么选它、其他候选为什么被淘汰。
+    """
     selected = _candidate_by_code(proposal, outcome.scene_code)
     status = DecisionStatus.DECIDED if outcome.kind == "AUTO_SELECTED" else DecisionStatus.WAITING_USER
     return DecisionRecord(
@@ -107,7 +122,12 @@ def build_user_scene_selection_decision(
     *,
     input_ref: str | None,
 ) -> DecisionRecord:
-    """记录用户手动选定或补录场景的事实。"""
+    """记录用户在候选场景中手动选定或补录场景的事实。
+
+    业务目标：系统无法自动决策时，由用户拍板选定要执行的场景。
+    当前动作：将用户的选择记录为决策来源为 USER 的决策记录。
+    预期结果：审计账本中明确标记该决策由用户显式做出，优先于系统建议。
+    """
     selected = _candidate_by_code(proposal, scene_code)
     return DecisionRecord(
         decision_id=_gen_id(),
@@ -144,7 +164,12 @@ def build_approval_requirement_decision(
     approved: bool,
     input_ref: str | None,
 ) -> DecisionRecord:
-    """记录场景为什么需要审批或已经由用户批准。"""
+    """记录场景执行前为什么需要用户审批，以及用户是否已批准。
+
+    业务目标：高风险或有写副作用的场景在执行前必须获得用户显式授权。
+    当前动作：根据场景的审批声明和用户回应生成决策记录。
+    预期结果：用户能追溯该场景为何被挂起等待审批，以及审批是否已通过。
+    """
     return DecisionRecord(
         decision_id=_gen_id(),
         task_run_id=task_run.task_run_id,

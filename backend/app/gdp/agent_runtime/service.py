@@ -1,4 +1,9 @@
-"""GDP Agent Runtime 应用服务。"""
+"""GDP 造数 Agent 运行时的业务中枢。
+
+封装用户造数任务的全部用例（创建、启动、回复、取消、查询），
+API 层只负责 HTTP 映射，不包含任何业务逻辑。
+每个用例的标准流程：加载/恢复任务账本 → 执行用例 → 持久化或回滚。
+"""
 
 from __future__ import annotations
 
@@ -42,24 +47,35 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class RuntimePrincipal:
-    """当前请求用户。未认证测试入口使用 user_id=None。"""
+    """当前操作用户身份。
+
+    业务目标：限定用户只能查看和操作自己创建的造数任务，
+    完整审计数据（payload）需要管理员权限才能访问。
+    未认证的测试入口使用 user_id=None 跳过权限校验。
+    """
 
     user_id: str | None
     is_admin: bool = False
 
     @property
     def has_audit_access(self) -> bool:
-        """是否允许读取完整审计 payload。"""
+        """管理员才允许读取完整的审计 payload（含请求/响应原始数据）。"""
 
         return self.is_admin
 
 
 class RuntimeService:
-    """封装 Agent Runtime 用例，API 层只负责 HTTP 映射。"""
+    """封装所有造数运行时用例。
+
+    业务目标：为用户造数任务提供完整的生命周期管理——
+    创建目标、启动执行、暂停回复、取消任务、查询历史。
+    API 层只做 HTTP 映射，所有业务编排都在这里完成。
+    """
 
     def __init__(self, store: Store, repository: Any | None = None) -> None:
         self._store = store
         self._repository = repository
+        # 将每种回复命令路由到对应的处理用例
         self._reply_handlers: dict[type[RuntimeCommand], Callable[[TaskRun, RuntimeCommand, Store], Awaitable[TaskRun]]] = {
             ConfirmUnknownStateCommand: self._handle_confirm_unknown_state,
             SupplyInputCommand: self._handle_supply_input,
@@ -78,7 +94,11 @@ class RuntimeService:
         offset: int,
         principal: RuntimePrincipal,
     ) -> list[TaskRun]:
-        """分页查询当前用户可见的 TaskRun。"""
+        """用户查看自己的造数任务历史。
+
+        业务目标：让用户按状态、环境筛选自己创建过的造数任务，支持分页。
+        普通用户只能看到自己的任务；管理员可查看所有任务。
+        """
 
         effective_user_id = self._effective_query_user_id(user_id, principal)
         if self._repository is not None:
@@ -100,7 +120,12 @@ class RuntimeService:
         return task_runs[offset : offset + limit]
 
     async def create_task_run(self, *, user_goal: str, env_code: str | None, principal: RuntimePrincipal) -> TaskRun:
-        """创建 TaskRun。"""
+        """用户创建一个新的造数目标。
+
+        业务目标：用户描述想要造什么数据，系统记录目标并生成任务。
+        当前动作：初始化任务账本，快照内存状态后持久化到数据库。
+        预期结果：返回新创建的任务，状态为 CREATED，等待用户启动。
+        """
 
         from .flow import create_task_run as _create
 
@@ -115,7 +140,12 @@ class RuntimeService:
         return task_run
 
     async def start_task_run(self, task_run_id: str, request: Any, principal: RuntimePrincipal) -> TaskRun:
-        """启动 TaskRun。"""
+        """用户启动造数任务，系统开始自动搜索场景和执行。
+
+        业务目标：用户已创建目标，现在触发系统自动执行造数流程。
+        当前动作：恢复任务账本，校验只有 CREATED 状态可启动，驱动任务执行引擎。
+        预期结果：任务进入执行流程，可能直接完成或因缺少输入/候选而暂停等待用户回复。
+        """
 
         store = await self._load_store_for_task_run(task_run_id)
         task_run = self._get_visible_task_run(store, task_run_id, principal)
@@ -128,7 +158,12 @@ class RuntimeService:
         return task_run
 
     async def cancel_task_run(self, task_run_id: str, principal: RuntimePrincipal) -> TaskRun:
-        """取消 TaskRun。"""
+        """用户取消正在运行或等待中的造数任务。
+
+        业务目标：用户不再需要这批数据，终止任务避免无效执行。
+        当前动作：恢复任务账本，校验状态合法性后转换为 CANCELLED。
+        预期结果：任务状态变为 CANCELLED，后续不再执行任何场景。
+        """
 
         store = await self._load_store_for_task_run(task_run_id)
         task_run = self._get_visible_task_run(store, task_run_id, principal)
@@ -143,7 +178,12 @@ class RuntimeService:
         return task_run
 
     async def reply_task_run(self, task_run_id: str, command: RuntimeCommand, principal: RuntimePrincipal) -> TaskRun:
-        """执行 WAITING_USER 恢复命令。"""
+        """用户回复暂停的造数任务，补充信息后继续执行。
+
+        业务目标：任务因缺少输入、候选场景、审批或结果未知而暂停，用户提供回复后恢复执行。
+        当前动作：恢复任务账本，校验只有 WAITING_USER 状态可回复，根据命令类型分发到具体处理用例。
+        预期结果：任务恢复执行，可能继续推进或因新的缺失再次暂停。
+        """
 
         store = await self._load_store_for_task_run(task_run_id)
         task_run = self._get_visible_task_run(store, task_run_id, principal)
@@ -157,27 +197,43 @@ class RuntimeService:
         return task_run
 
     async def get_task_run(self, task_run_id: str, principal: RuntimePrincipal) -> TaskRun:
-        """查询 TaskRun 当前状态。"""
+        """用户查看某个造数任务的当前状态。
+
+        业务目标：让用户了解任务进展——是正在执行、等待回复还是已完成/失败/取消。
+        """
 
         store = await self._load_store_for_task_run(task_run_id)
         return self._get_visible_task_run(store, task_run_id, principal)
 
     async def get_timeline(self, task_run_id: str, principal: RuntimePrincipal) -> dict[str, Any]:
-        """查询 TaskRun 时间线。"""
+        """用户查看造数任务的执行时间线。
+
+        业务目标：让用户看到任务执行过程中每一步的详细记录，
+        包括需求解析、场景搜索、执行尝试、结果判定等完整过程。
+        """
 
         store = await self._load_store_for_task_run(task_run_id)
         self._get_visible_task_run(store, task_run_id, principal)
         return store.get_timeline(task_run_id)
 
     async def list_decisions(self, task_run_id: str, principal: RuntimePrincipal) -> list[DecisionRecord]:
-        """查询 TaskRun 决策审计记录。"""
+        """用户查看造数任务的关键决策记录。
+
+        业务目标：让用户了解系统在执行过程中做了哪些关键决策——
+        如场景选择、审批要求等，增强执行过程的透明度。
+        """
 
         store = await self._load_store_for_task_run(task_run_id)
         self._get_visible_task_run(store, task_run_id, principal)
         return store.list_decisions(task_run_id)
 
     async def get_payload(self, task_run_id: str, ref: str, principal: RuntimePrincipal) -> Any:
-        """读取完整 payload。认证请求必须具备审计权限。"""
+        """管理员查看造数任务的完整审计 payload（原始请求/响应数据）。
+
+        业务目标：审计场景下需要查看实际发送和接收的完整数据。
+        权限要求：必须具备管理员审计权限，普通用户不可访问。
+        查找策略：先查内存账本，找不到则回退到数据库。
+        """
 
         store = await self._load_store_for_task_run(task_run_id)
         task_run = self._get_visible_task_run(store, task_run_id, principal)
@@ -198,6 +254,13 @@ class RuntimeService:
         command: RuntimeCommand,
         store: Store,
     ) -> TaskRun:
+        """用户确认执行结果未知后停止任务，避免系统盲目重放写请求。
+
+        业务目标：当系统无法确定上次写请求是否成功时，由用户确认结果并停止任务，
+        防止重复执行写操作导致数据错乱。
+        当前动作：校验当前确实是 UNKNOWN_STATE 状态，清除暂停标记，将任务标记为失败并附带用户说明。
+        预期结果：任务状态变为 FAILED，不再继续执行。
+        """
         latest_verdict_type = _latest_verdict_type(task_run.task_run_id, store)
         if latest_verdict_type != "UNKNOWN_STATE":
             raise RuntimeConflictError("当前 TaskRun 不是执行结果未知状态，不能确认 UNKNOWN_STATE")
@@ -216,6 +279,13 @@ class RuntimeService:
         command: RuntimeCommand,
         store: Store,
     ) -> TaskRun:
+        """用户补充缺失的输入后继续任务，核心保护是已有写请求时不允许重放。
+
+        业务目标：任务因缺少必填输入而暂停，用户补充后系统尝试继续执行。
+        安全保护：如果已经发起过写请求，拒绝重放以避免数据重复。
+        当前动作：合并新旧输入 → 刷新候选契约 → 检查是否仍需补输入或审批。
+        预期结果：输入齐全则继续执行场景；仍缺输入或需审批则再次暂停。
+        """
         if _has_write_attempts(task_run.task_run_id, store):
             raise RuntimeConflictError("当前 TaskRun 已发起写请求，不能通过 SUPPLY_INPUT 重放")
 
@@ -290,6 +360,12 @@ class RuntimeService:
         command: RuntimeCommand,
         store: Store,
     ) -> TaskRun:
+        """用户在候选列表中选定场景后继续执行。
+
+        业务目标：系统搜索到多个候选场景，用户选定其中一个后继续造数。
+        当前动作：校验选定场景在候选范围内 → 记录用户决策 → 检查是否需要补输入或审批。
+        预期结果：选定场景输入齐全且已审批则执行；否则暂停等待用户进一步回复。
+        """
         requirement = _get_waiting_requirement(task_run, store)
         proposal = _get_waiting_proposal(task_run, store, requirement.requirement_id)
         scene_code = _require_scene_code(command.payload)
@@ -376,6 +452,12 @@ class RuntimeService:
         command: RuntimeCommand,
         store: Store,
     ) -> TaskRun:
+        """零候选时用户手动指定场景编码，系统解析并继续执行。
+
+        业务目标：系统未搜索到任何候选场景，用户凭借领域知识直接提供场景编码。
+        当前动作：校验当前确实是零候选状态 → 从场景目录解析该编码 → 检查是否需要补输入或审批。
+        预期结果：场景解析成功且条件满足则执行；否则暂停等待用户进一步回复。
+        """
         requirement = _get_waiting_requirement(task_run, store)
         proposal = _get_waiting_proposal(task_run, store, requirement.requirement_id)
         if proposal.candidates:
@@ -461,6 +543,12 @@ class RuntimeService:
         command: RuntimeCommand,
         store: Store,
     ) -> TaskRun:
+        """用户批准有写副作用的场景后继续执行。
+
+        业务目标：选定场景的执行会产生写副作用（如修改线上数据），必须经用户明确批准才能执行。
+        当前动作：校验存在待审批的已选定场景 → 检查输入是否齐全 → 记录审批决策 → 执行场景。
+        预期结果：批准后执行该场景；若仍缺输入则再次暂停。
+        """
         requirement = _get_waiting_requirement(task_run, store)
         proposal = _get_latest_selected_proposal(task_run, store, requirement.requirement_id)
         if proposal.selected_scene_code is None:
@@ -507,6 +595,11 @@ class RuntimeService:
         )
 
     async def _load_store_for_task_run(self, task_run_id: str) -> Store:
+        """从内存或数据库恢复任务账本，确保后续用例操作有完整数据。
+
+        查找策略：先查内存账本，命中则直接返回；
+        未命中则从数据库加载历史数据恢复到内存，支持用户查看已归档的任务。
+        """
         try:
             self._store.get_task_run(task_run_id)
             return self._store
@@ -521,6 +614,11 @@ class RuntimeService:
             return self._store
 
     async def _persist_task_run_or_rollback(self, task_run_id: str, snapshot: dict[str, Any]) -> None:
+        """持久化任务账本，失败时回滚内存状态，保护用户任务数据一致性。
+
+        业务目标：确保用户的任务数据不会因为持久化异常而损坏——
+        如果写入数据库失败，内存账本恢复到操作前的快照，用户可重试。
+        """
         try:
             await self._persist_task_run(task_run_id)
         except Exception as exc:
@@ -529,11 +627,13 @@ class RuntimeService:
             raise RuntimePersistenceError() from exc
 
     async def _persist_task_run(self, task_run_id: str) -> None:
+        """将内存中的任务账本写入数据库。无数据库配置时跳过（纯内存模式）。"""
         if self._repository is None:
             return
         await self._repository.persist_store(self._store, task_run_id)
 
     def _get_visible_task_run(self, store: Store, task_run_id: str, principal: RuntimePrincipal) -> TaskRun:
+        """获取当前用户有权查看的任务实例，越权访问时对调用方表现为"不存在"。"""
         try:
             task_run = store.get_task_run(task_run_id)
         except EntityNotFoundError as exc:
@@ -542,17 +642,20 @@ class RuntimeService:
         return task_run
 
     def _ensure_task_access(self, task_run: TaskRun, principal: RuntimePrincipal) -> None:
+        """校验操作权限：用户只能访问自己创建的任务，管理员和未认证测试入口跳过校验。"""
         if principal.user_id is None or principal.is_admin:
             return
         if task_run.user_id != principal.user_id:
             raise RuntimeNotFoundError(f"TaskRun {task_run.task_run_id} not found")
 
     def _ensure_payload_access(self, task_run: TaskRun, principal: RuntimePrincipal) -> None:
+        """校验审计数据访问权限：只有管理员或未认证测试入口可查看完整 payload。"""
         if principal.user_id is None or principal.has_audit_access:
             return
         raise RuntimeForbiddenError(f"TaskRun {task_run.task_run_id} payload 需要审计权限")
 
     def _effective_query_user_id(self, requested_user_id: str | None, principal: RuntimePrincipal) -> str | None:
+        """计算列表查询的实际用户范围：普通用户强制限定为自己，管理员可查询任意用户。"""
         if principal.user_id is None:
             return requested_user_id
         if principal.is_admin:
@@ -560,12 +663,14 @@ class RuntimeService:
         return principal.user_id
 
     def _idempotency_gate(self) -> IdempotencyGate | None:
+        """获取幂等性保护门控，防止同一请求被重复执行。纯内存模式无需幂等保护。"""
         if self._repository is None:
             return None
         return self._repository.claim_idempotency_key
 
 
 def _get_pending_start(task_run: TaskRun, store: Store) -> dict[str, Any]:
+    """取出用户上次暂停时保存的启动请求快照，用于恢复执行上下文。"""
     try:
         pending_start = store.get_payload(task_run.task_run_id, pending_start_ref(task_run.task_run_id))
     except EntityNotFoundError as exc:
@@ -576,6 +681,7 @@ def _get_pending_start(task_run: TaskRun, store: Store) -> dict[str, Any]:
 
 
 def _merge_supplied_inputs(pending_inputs: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """将用户新补充的输入与历史输入合并，新值覆盖同名旧值。"""
     base_inputs = pending_inputs if isinstance(pending_inputs, dict) else {}
     supplied_inputs = payload.get("inputs")
     if supplied_inputs is None:
@@ -590,6 +696,7 @@ def _merge_supplied_inputs(pending_inputs: Any, payload: dict[str, Any]) -> dict
 
 
 def _latest_verdict_type(task_run_id: str, store: Store) -> str | None:
+    """获取任务最近一次执行结果判定类型，用于确认当前是否处于 UNKNOWN_STATE。"""
     verdicts = store.get_timeline(task_run_id)["verdicts"]
     if not verdicts:
         return None
@@ -598,10 +705,12 @@ def _latest_verdict_type(task_run_id: str, store: Store) -> str | None:
 
 
 def _has_write_attempts(task_run_id: str, store: Store) -> bool:
+    """检查任务是否已发起过执行尝试，用于决定是否允许重放写请求。"""
     return bool(store.get_timeline(task_run_id)["attempts"])
 
 
 def _format_unknown_state_confirmation(payload: dict[str, Any]) -> str:
+    """格式化用户确认执行结果未知时的失败原因说明。"""
     message = payload.get("message")
     if isinstance(message, str) and message.strip():
         return "用户确认执行结果未知，任务已停止以避免重复写请求。用户说明：" + message.strip()
@@ -609,10 +718,12 @@ def _format_unknown_state_confirmation(payload: dict[str, Any]) -> str:
 
 
 def _format_missing_required_question(missing_fields: list[str]) -> str:
+    """将缺失的必填字段列表格式化为面向用户的提示语。"""
     return "缺少必填信息：" + "，".join(missing_fields) + "。请补充后继续。"
 
 
 def _require_scene_code(payload: dict[str, Any]) -> str:
+    """从用户回复中提取并校验场景编码，必须是非空字符串。"""
     scene_code = payload.get("scene_code")
     if not isinstance(scene_code, str) or not scene_code.strip():
         raise RuntimeValidationError("payload.scene_code 必须是非空字符串")

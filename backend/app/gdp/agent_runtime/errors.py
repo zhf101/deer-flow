@@ -1,4 +1,13 @@
-"""GDP Agent Runtime 服务层错误。"""
+"""GDP Agent Runtime 错误体系。
+
+每种错误对应一种用户或前端可感知的异常情况，API 层负责将错误映射为 HTTP 响应：
+- RuntimeNotFoundError（404）：用户请求的任务不存在或无权查看
+- RuntimeConflictError（409）：操作与任务当前状态冲突（如对已完成的任务执行 reply）
+- RuntimeValidationError（422）：用户提交的数据不满足命令契约（如缺少必填字段）
+- RuntimeForbiddenError（403）：用户没有权限查看审计详情
+- RuntimePersistenceError（503）：账本持久化失败，系统已自动回滚内存状态
+- RuntimeDependencyError：下游服务（如场景目录）不可用
+"""
 
 from __future__ import annotations
 

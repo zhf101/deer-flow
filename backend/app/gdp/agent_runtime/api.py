@@ -1,4 +1,8 @@
-"""GDP Agent Runtime MVP API 路由。
+"""造数运行时的 HTTP 接口层。
+
+业务目标：用户通过这组 API 创建造数任务、启动执行、回复暂停、查看历史和审计决策。
+当前动作：提供 RESTful 风格的接口，前端通过这些接口驱动造数流程的完整生命周期。
+预期结果：用户能在前端完成"提出目标 -> 搜索场景 -> 选定/审批 -> 执行 -> 判定结果"的全流程操作。
 
 路径前缀: /agent-runtime
 挂载后完整路径: /api/v1/datagen/agent-runtime/...
@@ -29,13 +33,13 @@ _mutation_lock = asyncio.Lock()
 
 
 def get_store() -> Store:
-    """获取全局 Store 实例。测试可替换。"""
+    """获取全局内存 Store 实例，承载所有运行中的任务数据。测试环境可替换为隔离实例。"""
 
     return _store
 
 
 def _get_repository() -> AgentRuntimeRepository | None:
-    """获取数据库仓储。内存数据库配置下返回 None。"""
+    """获取数据库持久化仓储。若当前配置为纯内存模式（无数据库连接），则返回 None，任务数据不落库。"""
 
     from deerflow.persistence.engine import get_session_factory
 
@@ -46,15 +50,16 @@ def _get_repository() -> AgentRuntimeRepository | None:
 
 
 def _get_service() -> RuntimeService:
-    """装配 Runtime 应用服务。"""
+    """装配运行时应用服务：将内存 Store 和数据库仓储注入服务层，供各接口统一调用。"""
 
     return RuntimeService(get_store(), _get_repository())
 
 
 def _principal_from_request(request: Request) -> RuntimePrincipal:
-    """从 Gateway 认证上下文解析 RuntimePrincipal。
+    """从网关认证上下文中解析当前用户身份。
 
-    裸 FastAPI 单测没有认证上下文时返回 user_id=None，保持旧的开发/测试行为。
+    业务目标：确保每个造数操作都能追溯到具体的操作用户。
+    裸 FastAPI 单测没有认证上下文时返回 user_id=None，保持开发/测试环境的兼容性。
     """
 
     user = getattr(request.state, "user", None)
@@ -80,21 +85,32 @@ def _to_http_error(exc: RuntimeServiceError) -> HTTPException:
 
 
 class CreateTaskRunRequest(BaseModel):
-    """创建 GDP Agent MVP 任务。"""
+    """创建造数任务的请求体。
+
+    用户交互契约：用户在此提交造数目标（如"创建一笔已支付的订单"），系统据此搜索匹配的场景。
+    """
 
     user_goal: str = Field(min_length=1, description="用户原始造数目标。")
     env_code: str | None = Field(default=None, description="目标环境编码。")
 
 
 class StartTaskRunRequest(BaseModel):
-    """启动 GDP Agent 任务。第二阶段 scene_code 可选。"""
+    """启动造数任务的请求体。
+
+    用户交互契约：用户可显式指定要执行的场景并提供输入参数；
+    不指定时系统将根据造数目标自动搜索并选择场景。
+    """
 
     scene_code: str | None = Field(default=None, description="显式指定 Scene 编码。为空则由系统按目标搜索。")
     inputs: dict[str, Any] = Field(default_factory=dict, description="Scene 输入参数。")
 
 
 class ReplyTaskRunRequest(BaseModel):
-    """恢复 WAITING_USER 状态的任务。"""
+    """恢复被暂停的任务的请求体。
+
+    用户交互契约：当任务因等待用户操作（审批、补充输入、选择场景等）而挂起时，
+    用户通过此接口提交回复，驱动任务继续执行。
+    """
 
     reply_type: ReplyType = Field(
         description=(
@@ -145,7 +161,7 @@ async def list_task_runs(
     limit: int = Query(default=20, ge=1, le=200, description="返回数量。"),
     offset: int = Query(default=0, ge=0, description="分页偏移。"),
 ) -> list[TaskRunResponse]:
-    """分页查询历史 TaskRun。"""
+    """分页查询用户的造数任务历史，支持按状态、环境、用户筛选。"""
 
     principal = _principal_from_request(request)
     task_runs = await _get_service().list_task_runs(
@@ -161,7 +177,7 @@ async def list_task_runs(
 
 @router.post("/task-runs", response_model=TaskRunResponse)
 async def create_task_run(request: Request, body: CreateTaskRunRequest) -> TaskRunResponse:
-    """创建 TaskRun。"""
+    """用户提交造数目标，创建一个新的造数任务。"""
 
     async with _mutation_lock:
         logger.info(
@@ -183,7 +199,7 @@ async def create_task_run(request: Request, body: CreateTaskRunRequest) -> TaskR
 
 @router.post("/task-runs/{task_run_id}/start", response_model=TaskRunResponse)
 async def start_task_run(task_run_id: str, request: Request, body: StartTaskRunRequest) -> TaskRunResponse:
-    """启动 TaskRun，指定 scene_code + inputs。"""
+    """启动造数任务执行，可指定场景编码和输入参数，不指定时系统自动搜索选择。"""
 
     async with _mutation_lock:
         logger.info(
@@ -202,7 +218,7 @@ async def start_task_run(task_run_id: str, request: Request, body: StartTaskRunR
 
 @router.post("/task-runs/{task_run_id}/cancel", response_model=TaskRunResponse)
 async def cancel_task_run(task_run_id: str, request: Request) -> TaskRunResponse:
-    """取消 TaskRun。"""
+    """取消正在运行或等待中的造数任务，终止后续场景执行。"""
 
     async with _mutation_lock:
         logger.info("GDP Agent 运行时接口准备取消任务：任务ID=%s", task_run_id)
@@ -216,7 +232,7 @@ async def cancel_task_run(task_run_id: str, request: Request) -> TaskRunResponse
 
 @router.post("/task-runs/{task_run_id}/reply", response_model=TaskRunResponse)
 async def reply_task_run(task_run_id: str, request: Request, body: ReplyTaskRunRequest) -> TaskRunResponse:
-    """恢复 WAITING_USER 状态的任务。"""
+    """用户回复暂停的造数任务（如批准、补参、选场景），驱动任务恢复执行。"""
 
     async with _mutation_lock:
         logger.info(
@@ -236,7 +252,7 @@ async def reply_task_run(task_run_id: str, request: Request, body: ReplyTaskRunR
 
 @router.get("/task-runs/{task_run_id}", response_model=TaskRunResponse)
 async def get_task_run(task_run_id: str, request: Request) -> TaskRunResponse:
-    """查询 TaskRun 当前状态。"""
+    """查询造数任务的当前状态和进展，用户可据此了解任务是否在运行、等待回复或已完成。"""
 
     try:
         task_run = await _get_service().get_task_run(task_run_id, _principal_from_request(request))
@@ -247,7 +263,7 @@ async def get_task_run(task_run_id: str, request: Request) -> TaskRunResponse:
 
 @router.get("/task-runs/{task_run_id}/timeline")
 async def get_task_run_timeline(task_run_id: str, request: Request) -> dict[str, Any]:
-    """查询 TaskRun 的完整时间线。"""
+    """查询造数任务的完整执行时间线，包含每步的场景搜索、执行尝试、证据和判定详情。"""
 
     try:
         timeline = await _get_service().get_timeline(task_run_id, _principal_from_request(request))
@@ -263,7 +279,7 @@ async def get_task_run_timeline(task_run_id: str, request: Request) -> dict[str,
 
 @router.get("/task-runs/{task_run_id}/decisions", response_model=list[DecisionRecord])
 async def get_task_run_decisions(task_run_id: str, request: Request) -> list[DecisionRecord]:
-    """查询 TaskRun 的决策审计记录。"""
+    """查询造数任务的决策审计记录，让用户追溯系统在每个关键节点做了什么选择以及为什么。"""
 
     try:
         return await _get_service().list_decisions(task_run_id, _principal_from_request(request))
@@ -277,7 +293,7 @@ async def get_task_run_payload(
     request: Request,
     ref: str = Query(..., description="payload 引用。"),
 ) -> RuntimePayloadResponse:
-    """查询 TaskRun 的完整 payload。认证用户必须具备审计权限。"""
+    """查询造数任务的完整请求/响应原始数据，仅限管理员审计权限访问。"""
 
     try:
         payload = await _get_service().get_payload(task_run_id, ref, _principal_from_request(request))

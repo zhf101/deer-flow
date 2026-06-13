@@ -1,6 +1,16 @@
-"""GDP Agent Runtime 数据库账本仓储。"""
+"""造数任务账本的持久化仓储——让用户的造数历史可追溯、可恢复。
 
-from __future__ import annotations
+业务目标：将内存 Store 中的造数任务账本（TaskRun、步骤、动作、证据、判定等）
+落库到关系型数据库，确保用户的造数记录不会因为服务重启而丢失。
+
+当前动作：提供 persist_store（内存→数据库）和 hydrate_store（数据库→内存）
+两个方向的完整账本同步，以及 list_task_runs 的历史查询能力。
+
+预期结果：
+- 用户发起的每次造数任务都有完整的数据库记录，支持历史回溯和审计
+- 服务重启后可以从数据库恢复未完成的造数任务，用户无需重新提交
+- 运维人员可以通过数据库直接排查造数异常
+"""
 
 import hashlib
 import json
@@ -213,13 +223,27 @@ class AgentRuntimePayloadRow(Base):
 
 
 class AgentRuntimeRepository:
-    """GDP Agent Runtime 数据库账本仓储。"""
+    """造数任务账本的数据库持久化操作中心。
+
+    业务目标：让用户的造数历史可追溯、服务重启后可恢复。
+    负责将内存 Store 中的完整任务账本（TaskRun 及其关联的步骤、动作、
+    尝试、观察、证据、判定、变量、缺口、候选、决策、审批、载荷）
+    批量落库，也支持从数据库还原为内存 Store。
+    """
 
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory
 
     async def persist_store(self, store: Store, task_run_id: str) -> None:
-        """将内存 Store 中某个 TaskRun 的完整账本落库。"""
+        """将用户造数任务的完整内存账本持久化到数据库。
+
+        业务目标：确保用户的造数过程和结果不会因服务重启而丢失。
+        当前动作：从内存 Store 导出指定 TaskRun 的全部关联实体
+        （步骤、动作、尝试、观察、证据、判定、变量、缺口、候选、
+        决策、审批、载荷），逐一写入对应的数据库表。
+        预期结果：数据库中保存了该造数任务的完整快照，
+        后续可通过 hydrate_store 恢复或 list_task_runs 查询。
+        """
         snapshot = store.export_task_run(task_run_id)
         task_run = snapshot["task_run"]
         async with self._sf() as session:
@@ -261,7 +285,15 @@ class AgentRuntimeRepository:
             await session.commit()
 
     async def hydrate_store(self, task_run_id: str) -> Store:
-        """从数据库恢复单个 TaskRun 的内存 Store。"""
+        """从数据库恢复用户造数任务的完整内存账本。
+
+        业务目标：让服务重启后仍能继续未完成的造数任务，或展示历史任务详情。
+        当前动作：按 TaskRun ID 从数据库读取该任务的全部关联实体，
+        按业务依赖顺序（步骤→动作→尝试→观察→证据→判定→变量→缺口→候选→决策→审批→载荷）
+        逐一反序列化并写入内存 Store。
+        预期结果：返回的 Store 与持久化前的内存状态一致，
+        编排引擎可以直接在上面继续执行或查询。
+        """
         async with self._sf() as session:
             task_row = await session.get(AgentRuntimeTaskRunRow, task_run_id)
             if task_row is None:
@@ -306,7 +338,12 @@ class AgentRuntimeRepository:
         limit: int = 20,
         offset: int = 0,
     ) -> list[TaskRun]:
-        """分页查询历史 TaskRun。"""
+        """分页查询用户的造数任务历史。
+
+        业务目标：让用户在前端看到自己的造数任务列表，支持按状态、环境、用户筛选。
+        当前动作：从数据库按更新时间倒序查询 TaskRun 记录，支持可选过滤条件。
+        预期结果：返回符合条件的 TaskRun 列表，前端可展示为任务卡片。
+        """
         stmt = select(AgentRuntimeTaskRunRow).order_by(AgentRuntimeTaskRunRow.updated_at.desc())
         if status is not None:
             stmt = stmt.where(AgentRuntimeTaskRunRow.status == status.value)
@@ -320,7 +357,12 @@ class AgentRuntimeRepository:
             return [TaskRun.model_validate(_loads(row.task_run_json)) for row in rows]
 
     async def get_payload(self, task_run_id: str, ref: str) -> Any:
-        """读取某个 TaskRun 的完整 payload。"""
+        """读取造数任务中存储的大体积或敏感数据载荷。
+
+        业务目标：为审计和问题排查提供完整的输入/输出原始数据访问。
+        当前动作：根据载荷引用从数据库读取完整 JSON 数据。
+        预期结果：返回指定载荷的完整内容，供调试或审计使用。
+        """
         async with self._sf() as session:
             row = await session.get(AgentRuntimePayloadRow, (ref, task_run_id))
             if row is None:

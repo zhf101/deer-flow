@@ -1,6 +1,12 @@
-"""GDP Agent Runtime 执行层。
+"""GDP 造数 Agent 运行时——场景执行与结果记录模块。
 
-run_action() 是唯一允许产生外部副作用的函数。
+本模块是造数过程中唯一会产生外部副作用的地方——真正调用造数场景执行
+业务操作（如创建订单、发起支付），并记录执行结果供后续判定。
+
+flow.py 负责"排兵布阵"，本模块负责"冲锋陷阵"：
+拿到已规划好的 Action，调用 Scene 执行器完成实际的造数动作，
+然后把每次尝试的过程和结果（成功、失败、超时、连接断开）都忠实地
+记录为 ActionAttempt 和 Observation，供证据收集和结果判定环节使用。
 """
 
 from __future__ import annotations
@@ -30,18 +36,25 @@ def _gen_id(prefix: str) -> str:
 
 
 def _extract_failure_reason(result: dict) -> str:
-    """从场景结果里挖出对用户最友好的失败原因。
+    “””从场景执行结果中挖掘对用户最友好的失败原因。
 
-    Scene 的失败原因散在多层，越往里越友好。按“友好度”优先级取：
-    1. businessResult.reason —— 业务规则判失败的精确原因（如“命中失败规则: 余额不足”）
+    业务目标：用户需要看到”为什么造数失败”——如”余额不足”或”服务器连接被拒绝”，
+    而不是一段机器味的英文堆栈。
+    当前动作：按友好程度逐层深入场景结果，优先取业务规则层给出的中文原因，
+    逐层退化到步骤级 detail、步骤级 message、顶层 errors，最终兜底。
+    预期结果：返回一句人能看懂的中文失败描述。
+
+    层级优先级：
+    1. businessResult.reason —— 业务规则判失败的精确原因（如”命中失败规则: 余额不足”）
     2. 步骤的 rawResponse.error.detail —— 执行器写的中文排查提示
-       （如“无法连接到目标服务器，请检查服务器地址、端口是否正确”）
+       （如”无法连接到目标服务器，请检查服务器地址、端口是否正确”）
     3. 步骤的 rawResponse.error.message —— 退而求其次的英文原文
     4. errors[] —— 顶层错误摘要，通常是机器味的英文
     5. 兜底文案
-    踩坑点：此前只取了第 4 层，把第 2 层的友好中文白白丢了，用户只能看到
-    “All connection attempts failed”这种堆栈味的英文。
-    """
+
+    踩坑记录：此前只取了第 4 层，把第 2 层的友好中文白白丢了，
+    用户只能看到 “All connection attempts failed” 这种堆栈味的英文。
+    “””
     business = result.get("businessResult") or {}
     if business.get("reason"):
         return str(business["reason"])
@@ -61,9 +74,13 @@ def _extract_failure_reason(result: dict) -> str:
 
 
 async def run_action(action: Action, store: Store) -> tuple[ActionAttempt, Observation]:
-    """调用 datagen Scene 并记录原始观察。
+    """执行一次造数场景调用，记录尝试过程和观察结果。
 
-    MVP 阶段通过 adapters/scene.py 调用已有 Scene 执行器。
+    业务目标：让用户的造数需求真正被执行——调用 Scene 完成创建订单、
+    发起支付等业务操作，而不是停留在纸面计划。
+    当前动作：校验幂等键和环境后调用 Scene 执行器，把请求和响应全程落盘，
+    无论成功、失败、超时还是连接断开都生成对应的 Attempt 和 Observation。
+    预期结果：产出一组可供后续证据收集和结果判定的执行记录。
     """
     from .adapters.scene import call_scene
 
@@ -140,10 +157,9 @@ async def run_action(action: Action, store: Store) -> tuple[ActionAttempt, Obser
         attempt.response_preview = result
         store.save_payload(action.task_run_id, attempt.response_ref, result)
         if attempt.status == AttemptStatus.FAILED:
-            attempt.error_type = "SCENE_FAILED"
-            # 取“人能看懂”的失败原因，不要把机器味的英文丢给用户。
-            # 见 _extract_failure_reason：优先级是 业务规则原因 > 步骤级友好 detail
-            # > 步骤名+错误 > 顶层 errors > 兜底。
+            attempt.error_type = “SCENE_FAILED”
+            # 造数失败时，用户最需要看到的是一句说得清的中文原因（如”余额不足”），
+            # 而不是一段英文堆栈。_extract_failure_reason 会按友好程度逐层取值。
             attempt.error_message = _extract_failure_reason(result)[:256]
         attempt.finished_at = _now()
         logger.info(
@@ -222,9 +238,9 @@ async def run_action(action: Action, store: Store) -> tuple[ActionAttempt, Obser
             describe_optional(attempt.error_message),
         )
 
-    # 观察摘要要保留场景的结构化结果（含 businessResult / finalOutput），
-    # 失败时也不例外：build_evidence 需要凭 businessResult 抽取精确失败事实。
-    # 仅当连结构化 result 都没有（超时/连接断开等未知态）时，才退化成纯错误摘要。
+    # 构建观察摘要：优先保留场景的完整结构化结果（含 businessResult / finalOutput），
+    # 因为后续的证据收集环节需要从中提取精确的业务事实（如"命中了哪条失败规则"）。
+    # 仅当场景连结构化结果都没返回（超时/连接断开等未知态）时，才退化为纯错误摘要。
     if attempt.response_preview:
         preview = attempt.response_preview
     else:
@@ -264,4 +280,8 @@ async def run_action(action: Action, store: Store) -> tuple[ActionAttempt, Obser
 
 
 class IdempotencyConflictError(RuntimeError):
-    """幂等键冲突。"""
+    """幂等键冲突——防止重复造数。
+
+    同一组参数不会执行两次，避免用户误操作导致重复创建数据
+    （如重复下单、重复支付）。当检测到相同幂等键已被执行过时抛出此异常。
+    """

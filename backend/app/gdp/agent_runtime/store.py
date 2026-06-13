@@ -1,4 +1,10 @@
-"""GDP Agent Runtime 持久化接口。MVP 使用内存实现。"""
+"""造数运行时的内存账本。
+
+记录用户任务从创建到完成的全部事实，包括步骤、动作、证据、判定、变量和决策。
+MVP 阶段使用内存实现，所有数据在进程存活期间保持可查；通过 snapshot/restore
+机制保护用户任务数据不会因外部持久化失败而丢失；通过 export_task_run 导出
+完整账本供数据库落库，保存用户的造数历史。
+"""
 
 from __future__ import annotations
 
@@ -21,8 +27,12 @@ from .models import (
 
 
 def _proposal_view(proposal: RequirementProposal) -> dict[str, Any]:
-    """Proposal 的 timeline 投影。候选只输出 scene_code / scene_name / score / reasons /
-    missing_inputs / requires_confirmation，不输出敏感入参原值（验收标准 11）。
+    """候选集投影——只向用户展示决策所需信息，不暴露敏感入参原值。
+
+    业务目标：用户在前端看到候选场景列表时，只需知道场景名、匹配分数、推荐原因、
+    缺失入参和是否需要确认，不应看到系统内部传给接口的原始参数。
+    当前动作：将完整的 Proposal 对象裁剪为安全的前端展示视图。
+    预期结果：前端展示候选卡片，用户可基于安全信息做出选择。
     """
     return {
         "proposal_id": proposal.proposal_id,
@@ -49,7 +59,11 @@ def _proposal_view(proposal: RequirementProposal) -> dict[str, Any]:
 
 
 class EntityNotFoundError(Exception):
-    """实体未找到。"""
+    """账本中找不到指定实体。
+
+    用户查看任务详情或时间线时，如果请求的步骤、动作、证据等记录不存在，
+    系统抛出此异常，API 层会转为用户友好的 404 提示。
+    """
 
     def __init__(self, entity_type: str, entity_id: str) -> None:
         self.entity_type = entity_type
@@ -58,7 +72,13 @@ class EntityNotFoundError(Exception):
 
 
 class Store:
-    """MVP 内存存储。线程不安全，仅用于单进程开发验证。"""
+    """造数运行时内存账本。
+
+    业务目标：在进程内存中维护用户造数任务的全部事实记录，供编排引擎实时读写、
+    前端轮询展示、以及最终落库归档。
+    当前动作：MVP 阶段使用纯内存字典存储，线程不安全，仅用于单进程开发验证。
+    预期结果：用户的每个造数任务都有完整的执行账本，可随时查看历史。
+    """
 
     def __init__(self) -> None:
         self._task_runs: dict[str, TaskRun] = {}
@@ -84,11 +104,15 @@ class Store:
         return self._task_runs[task_run_id]
 
     def list_task_runs(self) -> list[TaskRun]:
-        """返回内存中的 TaskRun 列表。"""
+        """返回用户所有造数任务列表，按最近更新时间倒序，前端任务列表页直接展示。"""
         return sorted(self._task_runs.values(), key=lambda item: item.updated_at, reverse=True)
 
     def snapshot(self) -> dict[str, Any]:
-        """创建内存账本快照，用于外部持久化失败时回滚。"""
+        """创建内存账本快照。
+
+        业务目标：在执行外部持久化（如写数据库）之前先拍照，万一持久化失败可以
+        回滚到一致状态，保护用户任务数据不丢失、不脏写。
+        """
         return {
             "task_runs": deepcopy(self._task_runs),
             "steps": deepcopy(self._steps),
@@ -106,7 +130,12 @@ class Store:
         }
 
     def restore(self, snapshot: dict[str, Any]) -> None:
-        """恢复内存账本快照。"""
+        """恢复内存账本快照。
+
+        业务目标：当外部持久化失败时，用之前的快照恢复账本到一致状态，
+        确保用户任务不会因为落库失败而出现数据不一致。
+        预期结果：用户重新查看任务时，所有数据仍然完整正确。
+        """
         self._task_runs = deepcopy(snapshot["task_runs"])
         self._steps = deepcopy(snapshot["steps"])
         self._actions = deepcopy(snapshot["actions"])
@@ -186,7 +215,7 @@ class Store:
         return self._requirements[requirement_id]
 
     def get_active_requirement(self, task_run_id: str, *, step_id: str | None = None) -> Requirement | None:
-        """返回该 TaskRun 当前步骤最近创建的 Requirement。"""
+        """返回该任务当前步骤最近创建的缺口记录，用于编排引擎判断下一步应填补哪个缺口。"""
         reqs = [r for r in self._requirements.values() if r.task_run_id == task_run_id]
         if step_id is not None:
             reqs = [r for r in reqs if r.step_id == step_id]
@@ -209,7 +238,7 @@ class Store:
         step_id: str | None = None,
         requirement_id: str | None = None,
     ) -> RequirementProposal | None:
-        """返回该 TaskRun 当前步骤或缺口最近创建的 Proposal。"""
+        """返回该任务当前步骤或缺口最近的候选提案，用于判断是否已有候选等待用户确认。"""
         proposals = [p for p in self._proposals.values() if p.task_run_id == task_run_id]
         if step_id is not None:
             proposals = [p for p in proposals if p.step_id == step_id]
@@ -220,42 +249,47 @@ class Store:
         return max(proposals, key=lambda p: p.created_at)
 
     def save_decision(self, decision: DecisionRecord) -> None:
-        """保存一条决策审计记录。"""
+        """保存一条决策审计记录，记录系统在编排过程中做出的关键决策，供用户事后追溯。"""
         self._decisions[decision.decision_id] = decision
 
     def list_decisions(self, task_run_id: str) -> list[DecisionRecord]:
-        """返回该 TaskRun 的决策审计记录。"""
+        """返回该任务的全部决策审计记录，按时间正序，用户可在详情页追溯每次决策。"""
         decisions = [item for item in self._decisions.values() if item.task_run_id == task_run_id]
         return sorted(decisions, key=lambda item: item.created_at)
 
     def save_approval_record(self, record: dict[str, Any]) -> None:
-        """保存审批事实。"""
+        """保存用户审批记录，记录用户对某个场景的批准事实，同一场景不再重复询问。"""
         self._approval_records.append(record)
 
     def list_approval_records(self, task_run_id: str) -> list[dict[str, Any]]:
-        """返回该 TaskRun 的审批事实。"""
+        """返回该任务的全部审批记录，前端可展示用户已批准过的场景列表。"""
         return [item for item in self._approval_records if item.get("task_run_id") == task_run_id]
 
     def has_approval_record(self, task_run_id: str, scene_code: str) -> bool:
-        """判断某个场景是否已审批。"""
+        """判断某个场景是否已被用户批准，已批准则跳过重复确认，减少用户交互次数。"""
         return any(
             item.get("task_run_id") == task_run_id and item.get("scene_code") == scene_code
             for item in self._approval_records
         )
 
     def save_payload(self, task_run_id: str, ref: str, payload: Any) -> None:
-        """按 TaskRun 和引用保存完整载荷。MVP 内存实现只在进程内可用。"""
+        """保存造数过程中的完整请求/响应载荷，供用户事后排查接口调用细节。"""
         self._payloads.setdefault(task_run_id, {})[ref] = payload
 
     def get_payload(self, task_run_id: str, ref: str) -> Any:
-        """读取某个 TaskRun 的完整载荷。"""
+        """读取某个造数任务的完整载荷，用于调试或导出审计记录。"""
         payloads = self._payloads.get(task_run_id, {})
         if ref not in payloads:
             raise EntityNotFoundError("Payload", ref)
         return payloads[ref]
 
     def export_task_run(self, task_run_id: str) -> dict[str, Any]:
-        """导出单个 TaskRun 的完整账本快照，供数据库仓储持久化。"""
+        """导出单个造数任务的完整账本快照。
+
+        业务目标：将内存中的全部事实（步骤、动作、尝试、证据、判定、变量、缺口、
+        候选、决策、审批、载荷）打包导出，供数据库仓储持久化，保存用户的造数历史。
+        预期结果：用户的造数记录在进程重启后仍然可以从数据库恢复查看。
+        """
         task_run = self.get_task_run(task_run_id)
         steps = [s for s in self._steps.values() if s.task_run_id == task_run_id]
         actions = [a for a in self._actions.values() if a.task_run_id == task_run_id]
@@ -288,7 +322,13 @@ class Store:
         }
 
     def get_timeline(self, task_run_id: str) -> dict[str, Any]:
-        """获取 TaskRun 的完整时间线：Steps + Actions + Attempts + Evidence + Verdicts。"""
+        """获取造数任务的完整时间线。
+
+        业务目标：汇总任务的所有步骤、动作、尝试、观测、证据、判定、变量、缺口、
+        候选和决策，生成前端可渲染的时间线视图，让用户看到造数过程的每一步进展。
+        预期结果：用户在前端详情页看到完整时间线，包括每个步骤的状态、每步的证据
+        和最终判定结果。候选集使用安全投影，不暴露敏感入参。
+        """
         steps = [s for s in self._steps.values() if s.task_run_id == task_run_id]
         actions = [a for a in self._actions.values() if a.task_run_id == task_run_id]
         attempts = [a for a in self._attempts.values() if a.action_id in {act.action_id for act in actions}]
@@ -316,7 +356,7 @@ class Store:
         }
 
     def has_started_idempotency_key(self, idempotency_key: str, *, exclude_action_id: str | None = None) -> bool:
-        """检查同幂等键是否已经发起过写请求。"""
+        """检查同一幂等键是否已经发起过写请求，防止用户任务重试时重复造数。"""
         return any(
             action.idempotency_key == idempotency_key
             and action.action_id != exclude_action_id
