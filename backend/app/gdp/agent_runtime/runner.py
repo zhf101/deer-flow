@@ -51,7 +51,7 @@ from .models import (
     VerdictType,
 )
 from .selection import apply_selection, blacklist_scene, decide_selection
-from .store import Store
+from .store import EntityNotFoundError, Store
 from .transitions import transition_action, transition_requirement, transition_step, transition_task_run
 
 logger = logging.getLogger(__name__)
@@ -87,7 +87,7 @@ async def run_task(
     """主循环：解析/搜索 Scene → 选定 → 执行 → 判定。"""
     catalog = catalog or get_catalog()
     scene_code = getattr(request, "scene_code", None)
-    original_task_run = task_run.model_copy(deep=True)
+    original_store_snapshot = store.snapshot()
 
     logger.info(
         "GDP Agent 运行时任务开始运行：任务ID=%s，原状态=%s，场景编码=%s，输入内容=%s",
@@ -123,9 +123,20 @@ async def run_task(
 
         return await _run_search(task_run, step, requirement, request.inputs, store, catalog)
     except HTTPException:
-        # Catalog 失败发生在写请求前；恢复启动前状态，避免任务卡在 RUNNING。
-        if not store.get_timeline(task_run.task_run_id)["attempts"]:
-            store.save_task_run(original_task_run)
+        # Catalog 失败发生在写请求前；恢复启动前账本，避免任务卡在 RUNNING。
+        if not _has_attempts(store, task_run.task_run_id):
+            store.restore(original_store_snapshot)
+        raise
+    except Exception:
+        has_attempts = _has_attempts(store, task_run.task_run_id)
+        if not has_attempts:
+            store.restore(original_store_snapshot)
+        logger.exception(
+            "GDP Agent 运行时任务异常中断：任务ID=%s，场景编码=%s，是否已有执行尝试=%s",
+            task_run.task_run_id,
+            describe_optional(scene_code),
+            describe_bool(has_attempts),
+        )
         raise
 
 
@@ -521,3 +532,10 @@ def _sync_action_status_with_attempt(action: Action, attempt: ActionAttempt) -> 
     if attempt.status == AttemptStatus.UNKNOWN_STATE:
         return transition_action(action, ActionStatus.UNKNOWN_STATE)
     return action
+
+
+def _has_attempts(store: Store, task_run_id: str) -> bool:
+    try:
+        return bool(store.get_timeline(task_run_id)["attempts"])
+    except (EntityNotFoundError, KeyError):
+        return False

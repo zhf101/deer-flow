@@ -557,7 +557,8 @@ function validateConditionRuleGroup(
 ): void {
   rules.forEach((rule, index) => {
     const ruleField = `${field}[${index}]`;
-    if (!rule.path.trim()) {
+    const rulePath = typeof rule.path === "string" ? rule.path : "";
+    if (!rulePath.trim()) {
       issues.push({
         field: `${ruleField}.path`,
         message: "业务判定规则字段路径不能为空。",

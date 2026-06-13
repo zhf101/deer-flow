@@ -13,6 +13,14 @@ from app.gdp.agent_runtime.runner import run_task
 from app.gdp.agent_runtime.store import Store
 
 
+class BrokenSceneCatalog:
+    async def search(self, **kwargs):
+        raise RuntimeError("catalog db down")
+
+    async def get_contract(self, **kwargs):
+        raise RuntimeError("catalog db down")
+
+
 @pytest.mark.anyio
 async def test_runner_missing_required_input_waits_user_without_scene_write(monkeypatch: pytest.MonkeyPatch):
     """缺 MVP 必填输入时不发起 Scene 写请求。"""
@@ -346,3 +354,23 @@ async def test_runner_execute_scene_records_approval_required_on_action(monkeypa
     timeline = store.get_timeline(result.task_run_id)
     assert result.status == TaskRunStatus.COMPLETED
     assert timeline["actions"][0]["approval_required"] is True
+
+
+@pytest.mark.anyio
+async def test_runner_rolls_back_running_status_when_catalog_crashes_before_attempt() -> None:
+    """Catalog 在写请求前异常时，任务不能停在 RUNNING。"""
+
+    store = Store()
+    task_run = create_task_run("造一笔已支付订单", env_code="SIT1")
+    store.save_task_run(task_run)
+
+    with pytest.raises(RuntimeError, match="catalog db down"):
+        await run_task(
+            task_run,
+            SimpleNamespace(scene_code="create_paid_order", inputs={"buyer_id": "U1"}),
+            store,
+            catalog=BrokenSceneCatalog(),
+        )
+
+    assert store.get_task_run(task_run.task_run_id).status == TaskRunStatus.CREATED
+    assert store.get_timeline(task_run.task_run_id)["attempts"] == []

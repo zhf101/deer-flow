@@ -1,6 +1,9 @@
 import { expect, test } from "vitest";
 
-import { deriveWaitingInteraction } from "@/gdp/datagen/agent/agent-runtime-view-model";
+import {
+  deriveCompletionResult,
+  deriveWaitingInteraction,
+} from "@/gdp/datagen/agent/agent-runtime-view-model";
 import type {
   AgentRuntimeTaskRunResponse,
   AgentRuntimeTimelineResponse,
@@ -42,4 +45,54 @@ test("deriveWaitingInteraction strips backend input prefixes from missing fields
   );
 
   expect(interaction).toEqual({ type: "missing_input", fields: ["buyer_id"] });
+});
+
+test("deriveWaitingInteraction treats malformed null candidates as empty candidates", () => {
+  const timeline = {
+    ...emptyTimeline,
+    proposals: [
+      {
+        proposal_id: "prop-1",
+        task_run_id: "tr-1",
+        step_id: "step-1",
+        requirement_id: "req-1",
+        status: "PENDING",
+        selected_scene_code: null,
+        selection_source: null,
+        query_terms: [],
+        created_at: "2026-06-12T00:00:00Z",
+        candidates: null,
+      },
+    ],
+  } as unknown as AgentRuntimeTimelineResponse;
+
+  const interaction = deriveWaitingInteraction(makeTaskRun("请选择场景"), timeline);
+
+  expect(interaction).toEqual({ type: "manual_scene_code", proposal: timeline.proposals[0] });
+});
+
+test("deriveCompletionResult rejects unknown verdict types", () => {
+  const taskRun: AgentRuntimeTaskRunResponse = {
+    ...makeTaskRun(""),
+    status: "FAILED",
+    failure_reason: "后端返回了未知判定",
+    finished_at: "2026-06-12T00:01:00Z",
+  };
+  const timeline = {
+    ...emptyTimeline,
+    verdicts: [
+      {
+        verdict_id: "vrd-1",
+        task_run_id: "tr-1",
+        step_id: "step-1",
+        evidence_id: "evi-1",
+        verdict_type: "PENDING",
+        reason: "未知判定",
+        tainted_variable_ids: [],
+        created_at: "2026-06-12T00:01:00Z",
+      },
+    ],
+  } as unknown as AgentRuntimeTimelineResponse;
+
+  expect(deriveCompletionResult(taskRun, timeline)).toBeNull();
 });

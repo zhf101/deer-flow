@@ -55,24 +55,13 @@ def judge(evidence: Evidence, action: Action) -> Verdict:
         )
 
     if evidence.missing_facts:
-        has_any_passed = any(f.passed for f in evidence.facts)
-        if has_any_passed:
-            return Verdict(
-                verdict_id=verdict_id,
-                task_run_id=evidence.task_run_id,
-                step_id=evidence.step_id,
-                evidence_id=evidence.evidence_id,
-                verdict_type=VerdictType.NEED_USER,
-                reason="证据不足，缺失：" + "，".join(describe_fact_name(item) for item in evidence.missing_facts),
-                created_at=_now(),
-            )
         return Verdict(
             verdict_id=verdict_id,
             task_run_id=evidence.task_run_id,
             step_id=evidence.step_id,
             evidence_id=evidence.evidence_id,
-            verdict_type=VerdictType.FAILED,
-            reason="证据缺失且无通过事实：" + "，".join(describe_fact_name(item) for item in evidence.missing_facts),
+            verdict_type=VerdictType.NEED_USER,
+            reason="证据不足，缺失：" + "，".join(describe_fact_name(item) for item in evidence.missing_facts),
             created_at=_now(),
         )
 

@@ -65,6 +65,24 @@ function normalizeMissingInputField(field: string): string {
     .trim();
 }
 
+function getProposalCandidates(
+  proposal: AgentRuntimeProposal | null | undefined,
+): AgentRuntimeSceneCandidate[] {
+  return Array.isArray(proposal?.candidates) ? proposal.candidates : [];
+}
+
+function normalizeCompletionVerdictType(
+  verdictType: AgentRuntimeVerdict["verdict_type"] | string,
+): CompletionResult["verdict_type"] | null {
+  if (verdictType === "DONE" || verdictType === "FAILED" || verdictType === "UNKNOWN_STATE") {
+    return verdictType;
+  }
+  if (verdictType === "NEED_USER") {
+    return "UNKNOWN_STATE";
+  }
+  return null;
+}
+
 /** 从 taskRun + timeline 派生当前等待交互 */
 export function deriveWaitingInteraction(
   taskRun: AgentRuntimeTaskRunResponse | null,
@@ -74,6 +92,7 @@ export function deriveWaitingInteraction(
 
   const latestVerdict = timeline.verdicts.at(-1);
   const latestProposal = timeline.proposals.at(-1);
+  const latestCandidates = getProposalCandidates(latestProposal);
 
   // 1. 最新 Verdict 是 UNKNOWN_STATE
   if (latestVerdict?.verdict_type === "UNKNOWN_STATE") {
@@ -81,18 +100,18 @@ export function deriveWaitingInteraction(
   }
 
   // 2. 最新 Proposal 是 PENDING 且有候选
-  if (latestProposal?.status === "PENDING" && latestProposal.candidates.length > 0) {
+  if (latestProposal?.status === "PENDING" && latestCandidates.length > 0) {
     return { type: "candidate_selection", proposal: latestProposal };
   }
 
   // 3. 最新 Proposal 是 PENDING 且无候选
-  if (latestProposal?.status === "PENDING" && latestProposal.candidates.length === 0) {
+  if (latestProposal?.status === "PENDING" && latestCandidates.length === 0) {
     return { type: "manual_scene_code", proposal: latestProposal };
   }
 
   // 4. 最新 Proposal 是 SELECTED，候选 requires_confirmation 且无 approval record
   if (latestProposal?.status === "SELECTED" && latestProposal.selected_scene_code) {
-    const candidate = latestProposal.candidates.find(
+    const candidate = latestCandidates.find(
       (c) => c.scene_code === latestProposal.selected_scene_code,
     );
     if (candidate?.requires_confirmation) {
@@ -183,17 +202,18 @@ export function deriveChatMessages(
 
   // 从 proposals 派生候选搜索
   for (const proposal of timeline.proposals) {
-    if (proposal.candidates.length > 0) {
+    const candidates = getProposalCandidates(proposal);
+    if (candidates.length > 0) {
       messages.push({
         id: `msg:proposal-found:${proposal.proposal_id}`,
         role: "agent",
-        content: `找到 ${proposal.candidates.length} 个候选场景`,
+        content: `找到 ${candidates.length} 个候选场景`,
         timestamp: proposal.created_at,
-        detail: proposal.candidates,
+        detail: candidates,
       });
     }
     if (proposal.status === "SELECTED" && proposal.selected_scene_code) {
-      const candidate = proposal.candidates.find(
+      const candidate = candidates.find(
         (c) => c.scene_code === proposal.selected_scene_code,
       );
       if (candidate) {
@@ -311,13 +331,15 @@ export function deriveCompletionResult(
 
   const verdict = timeline.verdicts.at(-1);
   if (!verdict) return null;
+  const verdictType = normalizeCompletionVerdictType(verdict.verdict_type);
+  if (!verdictType) return null;
 
   const action = timeline.actions.at(-1);
   const attempt = timeline.attempts.at(-1);
   const evidence = timeline.evidences.at(-1);
 
   return {
-    verdict_type: verdict.verdict_type === "NEED_USER" ? "UNKNOWN_STATE" : verdict.verdict_type as "DONE" | "FAILED" | "UNKNOWN_STATE",
+    verdict_type: verdictType,
     reason: verdict.reason,
     scene_code: action?.scene_code ?? "",
     response_preview: attempt?.response_preview ?? {},

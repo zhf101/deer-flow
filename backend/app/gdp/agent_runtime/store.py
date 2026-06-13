@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from .models import (
@@ -85,6 +86,40 @@ class Store:
     def list_task_runs(self) -> list[TaskRun]:
         """返回内存中的 TaskRun 列表。"""
         return sorted(self._task_runs.values(), key=lambda item: item.updated_at, reverse=True)
+
+    def snapshot(self) -> dict[str, Any]:
+        """创建内存账本快照，用于外部持久化失败时回滚。"""
+        return {
+            "task_runs": deepcopy(self._task_runs),
+            "steps": deepcopy(self._steps),
+            "actions": deepcopy(self._actions),
+            "attempts": deepcopy(self._attempts),
+            "observations": deepcopy(self._observations),
+            "evidences": deepcopy(self._evidences),
+            "verdicts": deepcopy(self._verdicts),
+            "variables": deepcopy(self._variables),
+            "requirements": deepcopy(self._requirements),
+            "proposals": deepcopy(self._proposals),
+            "decisions": deepcopy(self._decisions),
+            "approval_records": deepcopy(self._approval_records),
+            "payloads": deepcopy(self._payloads),
+        }
+
+    def restore(self, snapshot: dict[str, Any]) -> None:
+        """恢复内存账本快照。"""
+        self._task_runs = deepcopy(snapshot["task_runs"])
+        self._steps = deepcopy(snapshot["steps"])
+        self._actions = deepcopy(snapshot["actions"])
+        self._attempts = deepcopy(snapshot["attempts"])
+        self._observations = deepcopy(snapshot["observations"])
+        self._evidences = deepcopy(snapshot["evidences"])
+        self._verdicts = deepcopy(snapshot["verdicts"])
+        self._variables = deepcopy(snapshot["variables"])
+        self._requirements = deepcopy(snapshot["requirements"])
+        self._proposals = deepcopy(snapshot["proposals"])
+        self._decisions = deepcopy(snapshot["decisions"])
+        self._approval_records = deepcopy(snapshot["approval_records"])
+        self._payloads = deepcopy(snapshot["payloads"])
 
     def save_step(self, step: PlanStep) -> None:
         self._steps[step.step_id] = step

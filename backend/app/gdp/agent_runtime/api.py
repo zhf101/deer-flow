@@ -51,6 +51,16 @@ async def _persist_task_run(task_run_id: str, store: Store | None = None) -> Non
     await repository.persist_store(store or get_store(), task_run_id)
 
 
+async def _persist_task_run_or_rollback(task_run_id: str, store: Store, snapshot: dict[str, Any]) -> None:
+    """持久化失败时恢复内存账本，避免内存和数据库状态分歧。"""
+    try:
+        await _persist_task_run(task_run_id, store)
+    except Exception as exc:
+        store.restore(snapshot)
+        logger.exception("GDP Agent 运行时账本持久化失败，已回滚内存状态：任务ID=%s", task_run_id)
+        raise HTTPException(status_code=503, detail="运行时账本持久化失败，请稍后重试") from exc
+
+
 async def _load_store_for_task_run(task_run_id: str) -> Store:
     """优先读内存 Store，未命中时从数据库恢复。"""
     global _store
@@ -170,8 +180,10 @@ async def create_task_run(request: CreateTaskRunRequest) -> TaskRunResponse:
         user_goal=request.user_goal,
         env_code=request.env_code,
     )
-    get_store().save_task_run(task_run)
-    await _persist_task_run(task_run.task_run_id)
+    store = get_store()
+    snapshot = store.snapshot()
+    store.save_task_run(task_run)
+    await _persist_task_run_or_rollback(task_run.task_run_id, store, snapshot)
     logger.info(
         "GDP Agent 运行时接口已创建任务：任务ID=%s，状态=%s，环境=%s",
         task_run.task_run_id,
@@ -207,8 +219,9 @@ async def start_task_run(task_run_id: str, request: StartTaskRunRequest) -> Task
         )
         raise HTTPException(status_code=409, detail=f"TaskRun 状态为 {task_run.status}，不能 start")
 
+    snapshot = store.snapshot()
     task_run = await run_task(task_run, request, store)
-    await _persist_task_run(task_run.task_run_id, store)
+    await _persist_task_run_or_rollback(task_run.task_run_id, store, snapshot)
     logger.info(
         "GDP Agent 运行时接口启动完成：任务ID=%s，状态=%s，失败原因=%s，待用户确认=%s",
         task_run.task_run_id,
@@ -230,6 +243,7 @@ async def cancel_task_run(task_run_id: str) -> TaskRunResponse:
         logger.warning("GDP Agent 运行时接口取消失败，任务不存在：任务ID=%s", task_run_id)
         raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found")
 
+    snapshot = store.snapshot()
     try:
         task_run = transition_task_run(task_run, TaskRunStatus.CANCELLED)
     except IllegalTransition:
@@ -241,7 +255,7 @@ async def cancel_task_run(task_run_id: str) -> TaskRunResponse:
         raise HTTPException(status_code=409, detail=f"TaskRun 状态为 {task_run.status}，不能取消")
 
     store.save_task_run(task_run)
-    await _persist_task_run(task_run.task_run_id, store)
+    await _persist_task_run_or_rollback(task_run.task_run_id, store, snapshot)
     logger.info("GDP Agent 运行时接口已取消任务：任务ID=%s，状态=%s", task_run_id, describe_code(task_run.status))
     return _to_response(task_run)
 
@@ -270,6 +284,7 @@ async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> Task
         )
         raise HTTPException(status_code=409, detail=f"TaskRun 状态为 {task_run.status}，不能 reply")
 
+    snapshot = store.snapshot()
     if request.reply_type == "CONFIRM_UNKNOWN_STATE":
         task_run = _confirm_unknown_state(task_run, request.payload, store)
     elif request.reply_type == "SUPPLY_INPUT":
@@ -283,7 +298,7 @@ async def reply_task_run(task_run_id: str, request: ReplyTaskRunRequest) -> Task
     else:
         raise HTTPException(status_code=422, detail=f"不支持的 reply_type: {request.reply_type}")
 
-    await _persist_task_run(task_run.task_run_id, store)
+    await _persist_task_run_or_rollback(task_run.task_run_id, store, snapshot)
     logger.info("GDP Agent 运行时接口已处理任务回复：任务ID=%s，状态=%s", task_run_id, describe_code(task_run.status))
     return _to_response(task_run)
 
@@ -326,8 +341,8 @@ async def get_task_run_decisions(task_run_id: str) -> list[DecisionRecord]:
     try:
         store = await _load_store_for_task_run(task_run_id)
         store.get_task_run(task_run_id)
-    except EntityNotFoundError:
-        raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found") from None
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"TaskRun {task_run_id} not found") from exc
     return store.list_decisions(task_run_id)
 
 
@@ -340,14 +355,17 @@ async def get_task_run_payload(
     try:
         store = await _load_store_for_task_run(task_run_id)
         payload = store.get_payload(ref)
-    except EntityNotFoundError:
+    except EntityNotFoundError as memory_exc:
         repository = _get_repository()
         if repository is None:
-            raise HTTPException(status_code=404, detail=f"Payload {ref} not found") from None
+            raise HTTPException(status_code=404, detail=f"Payload {ref} not found in memory store") from memory_exc
         try:
             payload = await repository.get_payload(task_run_id, ref)
-        except EntityNotFoundError:
-            raise HTTPException(status_code=404, detail=f"Payload {ref} not found") from None
+        except EntityNotFoundError as repository_exc:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Payload {ref} not found in memory store or database",
+            ) from repository_exc
     return RuntimePayloadResponse(ref=ref, payload=payload)
 
 
@@ -502,11 +520,11 @@ async def _supply_scene_code(task_run: TaskRun, payload: dict[str, Any], store: 
     scene_code = _require_scene_code(payload)
     inputs = await _merge_reply_inputs(task_run, payload, store)
     catalog = _get_scene_catalog()
-    resolved = await catalog.get_contract(scene_code=scene_code, user_inputs=inputs)
 
     from .catalog import resolve_explicit_scene
 
     proposal = await resolve_explicit_scene(requirement, scene_code, inputs, catalog)
+    resolved = proposal.candidates[0]
     store.save_proposal(proposal)
     requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
     requirement, proposal = apply_selection(requirement, proposal, scene_code, SelectionSource.USER)
@@ -687,8 +705,8 @@ def _get_latest_selected_proposal(task_run_id: str, store: Store, requirement_id
 async def _merge_reply_inputs(task_run: TaskRun, payload: dict[str, Any], store: Store) -> dict[str, Any]:
     try:
         pending_start = store.get_payload(pending_start_ref(task_run.task_run_id))
-    except EntityNotFoundError:
-        raise HTTPException(status_code=409, detail="找不到可恢复的启动请求") from None
+    except EntityNotFoundError as exc:
+        raise HTTPException(status_code=409, detail="找不到可恢复的启动请求") from exc
     if not isinstance(pending_start, dict):
         raise HTTPException(status_code=409, detail="待恢复启动请求格式无效")
 

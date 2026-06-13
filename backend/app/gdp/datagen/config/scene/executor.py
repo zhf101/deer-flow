@@ -248,8 +248,10 @@ class SceneExecutor:
         logger.info("  系统编码: %s", step.sysCode)
         logger.info("  请求方法: %s", step.method.value)
         resolved_path = resolve_value(step.path, context)
-        if not isinstance(resolved_path, str) or not resolved_path:
+        if resolved_path is None:
             raise SceneExecutionError("HTTP step path cannot be resolved")
+        if not isinstance(resolved_path, str) or not resolved_path:
+            raise SceneExecutionError("HTTP step path must resolve to a non-empty string")
         logger.info("  请求路径: %s", resolved_path)
 
         try:

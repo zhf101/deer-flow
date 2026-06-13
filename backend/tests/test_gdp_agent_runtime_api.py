@@ -22,6 +22,11 @@ def _make_app(monkeypatch: pytest.MonkeyPatch, *, catalog: FakeSceneCatalog | No
     return app
 
 
+class FailingRuntimeRepository:
+    async def persist_store(self, store: Store, task_run_id: str) -> None:
+        raise RuntimeError("db down")
+
+
 @pytest.mark.anyio
 async def test_api_reply_confirm_unknown_state_stops_without_replay(monkeypatch: pytest.MonkeyPatch):
     """确认未知结果后不重放写请求，也不能停在 RUNNING。"""
@@ -322,8 +327,11 @@ async def test_api_reply_supply_scene_code_resolves_zero_candidate(monkeypatch: 
 
     monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
     fake_catalog = FakeSceneCatalog()
+    get_contract_call_count = 0
 
     async def fake_get_contract(*, scene_code: str, user_inputs: dict[str, object]):
+        nonlocal get_contract_call_count
+        get_contract_call_count += 1
         return await FakeSceneCatalog().get_contract(scene_code=scene_code, user_inputs=user_inputs)
 
     fake_catalog.get_contract = fake_get_contract  # type: ignore[method-assign]
@@ -350,6 +358,7 @@ async def test_api_reply_supply_scene_code_resolves_zero_candidate(monkeypatch: 
         )
         assert reply.status_code == 200, reply.text
         assert reply.json()["status"] == "COMPLETED"
+        assert get_contract_call_count == 1
 
 
 @pytest.mark.anyio
@@ -477,6 +486,62 @@ async def test_api_reply_select_scene_missing_inputs_does_not_execute(monkeypatc
         assert reply.json()["status"] == "WAITING_USER"
         assert "inputs.buyer_id" in (reply.json()["pending_question"] or "")
         assert called is False
+
+
+@pytest.mark.anyio
+async def test_api_create_rolls_back_memory_when_persistence_fails(monkeypatch: pytest.MonkeyPatch):
+    """创建任务落库失败时，不应把未持久化任务留在内存 Store。"""
+
+    app = _make_app(monkeypatch)
+    monkeypatch.setattr(runtime_api, "_get_repository", lambda: FailingRuntimeRepository())
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        create = await client.post(
+            "/api/v1/datagen/agent-runtime/task-runs",
+            json={"user_goal": "造一笔已支付订单", "env_code": "SIT1"},
+        )
+
+    assert create.status_code == 503
+    assert runtime_api.get_store().list_task_runs() == []
+
+
+@pytest.mark.anyio
+async def test_api_start_rolls_back_memory_when_persistence_fails(monkeypatch: pytest.MonkeyPatch):
+    """启动后落库失败时，内存状态应恢复到启动前。"""
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        return {
+            "status": "SUCCESS",
+            "finalOutput": {"order_id": "ORDER-1", "pay_status": "PAID"},
+            "errors": [],
+        }
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    app = _make_app(monkeypatch)
+    repository = None
+    monkeypatch.setattr(runtime_api, "_get_repository", lambda: repository)
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as client:
+        create = await client.post(
+            "/api/v1/datagen/agent-runtime/task-runs",
+            json={"user_goal": "造一笔已支付订单", "env_code": "SIT1"},
+        )
+        task_run_id = create.json()["task_run_id"]
+
+        repository = FailingRuntimeRepository()
+        start = await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/start",
+            json={"scene_code": "create_paid_order", "inputs": {"buyer_id": "U1"}},
+        )
+
+    assert start.status_code == 503
+    assert runtime_api.get_store().get_task_run(task_run_id).status == "CREATED"
 
 
 @pytest.mark.anyio
