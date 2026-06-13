@@ -12,9 +12,8 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
-
-from fastapi import HTTPException
 
 from .adapters.catalog import SceneCatalogPort
 from .catalog import create_scene_requirement, resolve_explicit_scene, search_scenes
@@ -24,6 +23,7 @@ from .decision import (
     build_scene_selection_decision,
     build_user_scene_selection_decision,
 )
+from .errors import RuntimeServiceError
 from .flow import create_input_variables, create_single_step, make_scene_action
 from .log_text import (
     describe_bool,
@@ -68,6 +68,7 @@ from .transitions import transition_action, transition_requirement, transition_s
 logger = logging.getLogger(__name__)
 
 _PENDING_START_REF_PREFIX = "ref:agent-runtime/pending-start"
+IdempotencyGate = Callable[[str, str, str], Awaitable[bool]]
 
 
 class StartTaskRunRequestLike(Protocol):
@@ -94,6 +95,7 @@ async def run_task(
     request: StartTaskRunRequestLike,
     store: Store,
     catalog: SceneCatalogPort | None = None,
+    idempotency_gate: IdempotencyGate | None = None,
 ) -> TaskRun:
     """主循环：解析/搜索 Scene → 选定 → 执行 → 判定。"""
     catalog = catalog or get_catalog()
@@ -130,11 +132,11 @@ async def run_task(
     try:
         if scene_code:
             return await _run_explicit_scene(
-                task_run, step, requirement, scene_code, request.inputs, store, catalog
+                task_run, step, requirement, scene_code, request.inputs, store, catalog, idempotency_gate
             )
 
-        return await _run_search(task_run, step, requirement, request.inputs, store, catalog)
-    except HTTPException:
+        return await _run_search(task_run, step, requirement, request.inputs, store, catalog, idempotency_gate)
+    except RuntimeServiceError:
         # Catalog 失败发生在写请求前；恢复启动前账本，避免任务卡在 RUNNING。
         if not _has_attempts(store, task_run.task_run_id):
             store.restore(original_store_snapshot)
@@ -163,6 +165,7 @@ async def _run_explicit_scene(
     inputs: dict[str, Any],
     store: Store,
     catalog: SceneCatalogPort,
+    idempotency_gate: IdempotencyGate | None,
 ) -> TaskRun:
     """显式 scene_code 路径：契约解析 → 合成单候选 → 同搜索路径的选择/审批 gate。"""
     # scene_code 不存在 / 未发布 -> catalog.get_contract 抛 HTTPException(404)，由 API 层处理。
@@ -199,6 +202,7 @@ async def _run_explicit_scene(
         _is_approved_request(inputs),
         store,
         catalog,
+        idempotency_gate,
     )
 
 
@@ -212,6 +216,7 @@ async def _run_search(
     inputs: dict[str, Any],
     store: Store,
     catalog: SceneCatalogPort,
+    idempotency_gate: IdempotencyGate | None,
 ) -> TaskRun:
     """搜索路径：调 Catalog → decide_selection → 自动执行 / 等用户 / 零候选收口。"""
     proposal = await search_scenes(requirement, inputs, task_run.env_code, catalog)
@@ -270,6 +275,7 @@ async def _run_search(
             _is_approved_request(inputs),
             store,
             catalog,
+            idempotency_gate,
         )
 
     # NEED_USER：多候选 / 低分 / 缺参 / 需审批，挂起等用户选择或审批。
@@ -301,6 +307,7 @@ async def _select_and_maybe_execute(
     approved: bool,
     store: Store,
     catalog: SceneCatalogPort,
+    idempotency_gate: IdempotencyGate | None,
 ) -> TaskRun:
     """对选定 scene_code 先写选定事实，再执行 preflight 和审批 gate。"""
     candidate = _candidate_of(proposal, scene_code)
@@ -356,7 +363,7 @@ async def _select_and_maybe_execute(
 
     task_run.pending_question = None
     task_run.suspend_reason = None
-    return await execute_scene(task_run, step, requirement, scene_code, inputs, candidate, store)
+    return await execute_scene(task_run, step, requirement, scene_code, inputs, candidate, store, idempotency_gate)
 
 
 # ---------- 第一阶段执行链路（抽出，可复用） ----------
@@ -370,6 +377,7 @@ async def execute_scene(
     inputs: dict[str, Any],
     candidate: SceneCandidate,
     store: Store,
+    idempotency_gate: IdempotencyGate | None = None,
 ) -> TaskRun:
     """第一阶段执行链路：make_scene_action → run_action → evidence → judge → apply_verdict。
 
@@ -377,7 +385,7 @@ async def execute_scene(
     执行失败（Verdict=FAILED）后把 scene_code 加入 requirement.blacklist，便于重搜排除。
     """
     action, step = _plan_scene_execution(task_run, step, requirement, scene_code, inputs, candidate, store)
-    action, attempt, observation = await _run_and_record_attempt(task_run, action, store)
+    action, attempt, observation = await _run_and_record_attempt(task_run, action, store, idempotency_gate)
     evidence = _build_and_record_evidence(task_run, step, action, observation, attempt, store)
     verdict = _judge_and_record_verdict(task_run, evidence, action, store)
     task_run, step, action = _apply_and_record_verdict(task_run, step, action, verdict, store)
@@ -447,11 +455,12 @@ async def _run_and_record_attempt(
     task_run: TaskRun,
     action: Action,
     store: Store,
+    idempotency_gate: IdempotencyGate | None,
 ) -> tuple[Action, ActionAttempt, Observation]:
     """记录执行尝试、原始观察和 Action 技术状态。"""
     from .execution import run_action
 
-    attempt, observation = await run_action(action, store)
+    attempt, observation = await run_action(action, store, idempotency_gate)
     action = _sync_action_status_with_attempt(action, attempt)
     store.save_attempt(attempt)
     store.save_observation(observation)

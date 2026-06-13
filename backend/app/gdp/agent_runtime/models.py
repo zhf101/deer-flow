@@ -61,6 +61,16 @@ class SuspendReason(StrEnum):
     NEED_EVIDENCE = "NEED_EVIDENCE"
 
 
+class ReplyType(StrEnum):
+    """恢复 WAITING_USER 任务的用户回复类型。"""
+
+    APPROVE = "APPROVE"
+    SUPPLY_INPUT = "SUPPLY_INPUT"
+    CONFIRM_UNKNOWN_STATE = "CONFIRM_UNKNOWN_STATE"
+    SELECT_SCENE = "SELECT_SCENE"
+    SUPPLY_SCENE_CODE = "SUPPLY_SCENE_CODE"
+
+
 class StepEdge(BaseModel):
     """PlanStep 依赖边。MVP 只有一个 step，但保留拓扑结构。"""
 

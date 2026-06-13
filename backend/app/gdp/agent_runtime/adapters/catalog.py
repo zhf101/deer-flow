@@ -11,10 +11,9 @@ import hashlib
 import json
 from typing import Any, Protocol
 
-from fastapi import HTTPException
-
 from app.gdp.datagen.agent_catalog.models import AgentSceneCandidate, AgentSceneContract
 
+from ..errors import RuntimeDependencyError
 from ..models import SceneCandidate
 
 
@@ -116,6 +115,16 @@ def _explicit_candidate(contract: AgentSceneContract, user_inputs: dict[str, Any
     )
 
 
+def _to_runtime_dependency_error(exc: Exception) -> RuntimeDependencyError | None:
+    """把下游 FastAPI 风格异常收敛成 runtime 领域错误。"""
+
+    status_code = getattr(exc, "status_code", None)
+    if not isinstance(status_code, int):
+        return None
+    detail = getattr(exc, "detail", None)
+    return RuntimeDependencyError(status_code, str(detail or exc))
+
+
 class AgentCatalogAdapter:
     """SceneCatalogPort 的默认实现，委托给 datagen AgentCatalogService。"""
 
@@ -131,7 +140,7 @@ class AgentCatalogAdapter:
 
         session_factory = get_session_factory()
         if session_factory is None:
-            raise HTTPException(status_code=503, detail="Catalog persistence not available")
+            raise RuntimeDependencyError(503, "Catalog persistence not available")
         self._service = AgentCatalogService(scene_repository=SceneRepository(session_factory))
         return self._service
 
@@ -146,15 +155,21 @@ class AgentCatalogAdapter:
     ) -> tuple[list[SceneCandidate], list[str]]:
         from app.gdp.datagen.agent_catalog.models import AgentSceneSearchRequest
 
-        response = await self._get_service().search_scene_contracts(
-            AgentSceneSearchRequest(
-                goal=goal,
-                envCode=env_code,
-                userInputs=user_inputs,
-                visibleVariables=visible_variables,
-                limit=limit,
+        try:
+            response = await self._get_service().search_scene_contracts(
+                AgentSceneSearchRequest(
+                    goal=goal,
+                    envCode=env_code,
+                    userInputs=user_inputs,
+                    visibleVariables=visible_variables,
+                    limit=limit,
+                )
             )
-        )
+        except Exception as exc:
+            mapped = _to_runtime_dependency_error(exc)
+            if mapped is not None:
+                raise mapped from exc
+            raise
         candidates = [_to_candidate(item) for item in response.candidates]
         return candidates, list(response.queryTerms)
 
@@ -164,6 +179,12 @@ class AgentCatalogAdapter:
         scene_code: str,
         user_inputs: dict[str, Any],
     ) -> SceneCandidate:
-        # scene_code 不存在 / 未发布 -> AgentCatalogService.get_scene_contract 抛 HTTPException(404)。
-        contract = await self._get_service().get_scene_contract(scene_code)
+        # scene_code 不存在 / 未发布 -> 下游服务可能抛 HTTP 风格异常，这里收敛成 runtime 错误。
+        try:
+            contract = await self._get_service().get_scene_contract(scene_code)
+        except Exception as exc:
+            mapped = _to_runtime_dependency_error(exc)
+            if mapped is not None:
+                raise mapped from exc
+            raise
         return _explicit_candidate(contract, user_inputs)
