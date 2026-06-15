@@ -158,3 +158,42 @@ async def test_runtime_repository_persists_only_current_task_payloads(tmp_path) 
             await repository.get_payload(task_a.task_run_id, "ref:only-b")
     finally:
         await close_engine()
+
+
+@pytest.mark.anyio
+async def test_runtime_repository_idempotency_gate_detects_started_action(tmp_path) -> None:
+    """数据库幂等门控能识别同一任务中已发起过写请求的同键动作。"""
+
+    db_path = tmp_path / "agent-runtime-idempotency.db"
+    await init_engine("sqlite", url=f"sqlite+aiosqlite:///{db_path}", sqlite_dir=str(tmp_path))
+    try:
+        session_factory = get_session_factory()
+        assert session_factory is not None
+        repository = AgentRuntimeRepository(session_factory)
+
+        store = Store()
+        task_run = create_task_run("造一笔已支付订单", env_code="SIT1")
+        step = create_single_step(task_run)
+        started_action = make_scene_action(step, "create_paid_order", {"buyer_id": "U1"})
+        duplicate_action = make_scene_action(step, "create_paid_order", {"buyer_id": "U1"})
+        started_action.attempt_ids.append("att-existing")
+
+        store.save_task_run(task_run)
+        store.save_step(step)
+        store.save_action(started_action)
+        store.save_action(duplicate_action)
+
+        await repository.persist_store(store, task_run.task_run_id)
+
+        assert await repository.claim_idempotency_key(
+            task_run.task_run_id,
+            duplicate_action.action_id,
+            duplicate_action.idempotency_key,
+        ) is True
+        assert await repository.claim_idempotency_key(
+            task_run.task_run_id,
+            started_action.action_id,
+            started_action.idempotency_key,
+        ) is False
+    finally:
+        await close_engine()

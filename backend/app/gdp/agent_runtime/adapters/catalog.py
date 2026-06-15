@@ -18,8 +18,8 @@ from typing import Any, Protocol
 
 from app.gdp.datagen.agent_catalog.models import AgentSceneCandidate, AgentSceneContract
 
-from ..errors import RuntimeDependencyError
 from ..models import SceneCandidate
+from ..support.errors import RuntimeDependencyError
 
 
 class SceneCatalogPort(Protocol):
