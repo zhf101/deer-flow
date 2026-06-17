@@ -13,6 +13,7 @@ from ..models import (
     PlanStep,
     Requirement,
     RequirementProposal,
+    TaskRun,
     Variable,
     Verdict,
 )
@@ -20,6 +21,7 @@ from ..models import (
 
 def build_timeline(
     *,
+    task_run: TaskRun,
     task_run_id: str,
     steps: list[PlanStep],
     actions: list[Action],
@@ -36,17 +38,40 @@ def build_timeline(
     """把完整账本事实投影为前端可渲染的任务时间线。"""
     return {
         "task_run_id": task_run_id,
+        "task_run": {
+            "task_run_id": task_run.task_run_id,
+            "status": task_run.status.value,
+            "active_step_id": task_run.active_step_id,
+            "suspend_reason": task_run.suspend_reason.value if task_run.suspend_reason else None,
+        },
         "steps": [s.model_dump(mode="json") for s in steps],
+        "step_edges": [edge.model_dump(mode="json") for edge in task_run.step_edges],
         "actions": [a.model_dump(mode="json") for a in actions],
         "attempts": [a.model_dump(mode="json") for a in attempts],
         "observations": [o.model_dump(mode="json") for o in observations],
         "evidences": [e.model_dump(mode="json") for e in evidences],
         "verdicts": [v.model_dump(mode="json") for v in verdicts],
-        "variables": [v.model_dump(mode="json") for v in variables],
+        "variables": [_variable_view(v) for v in variables],
         "requirements": [r.model_dump(mode="json") for r in requirements],
         "proposals": [_proposal_view(p) for p in proposals],
         "decisions": [d.model_dump(mode="json") for d in decisions],
         "approval_records": approval_records,
+    }
+
+
+def _variable_view(variable: Variable) -> dict[str, Any]:
+    """变量投影——前端只拿展示和追踪信息，不暴露完整值引用。"""
+    return {
+        "variable_id": variable.variable_id,
+        "task_run_id": variable.task_run_id,
+        "name": variable.name,
+        "semantic_type": variable.semantic_type,
+        "value_preview": variable.value_preview,
+        "sensitive": variable.sensitive,
+        "tainted": variable.tainted,
+        "provenance": variable.provenance.model_dump(mode="json"),
+        "consumed_by": list(variable.consumed_by),
+        "created_at": variable.created_at.isoformat(),
     }
 
 

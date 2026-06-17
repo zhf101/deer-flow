@@ -176,6 +176,10 @@ class MemoryLedger:
             raise EntityNotFoundError("Variable", variable_id)
         return self._variables[variable_id]
 
+    def list_variables(self, task_run_id: str) -> list[Variable]:
+        """返回任务内全部变量，供步骤入参绑定和时间线展示使用。"""
+        return [item for item in self._variables.values() if item.task_run_id == task_run_id]
+
     def save_requirement(self, requirement: Requirement) -> None:
         self._requirements[requirement.requirement_id] = requirement
 
@@ -296,6 +300,7 @@ class MemoryLedger:
         预期结果：用户在前端详情页看到完整时间线，包括每个步骤的状态、每步的证据
         和最终判定结果。候选集使用安全投影，不暴露敏感入参。
         """
+        task_run = self.get_task_run(task_run_id)
         steps = [s for s in self._steps.values() if s.task_run_id == task_run_id]
         actions = [a for a in self._actions.values() if a.task_run_id == task_run_id]
         attempts = [a for a in self._attempts.values() if a.action_id in {act.action_id for act in actions}]
@@ -308,6 +313,7 @@ class MemoryLedger:
         decisions = self.list_decisions(task_run_id)
         approval_records = self.list_approval_records(task_run_id)
         return build_timeline(
+            task_run=task_run,
             task_run_id=task_run_id,
             steps=steps,
             actions=actions,

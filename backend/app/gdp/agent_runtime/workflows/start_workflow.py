@@ -11,21 +11,28 @@ import logging
 from typing import Any, Protocol
 
 from ..adapters.catalog import SceneCatalogPort
+from ..bindings import resolve_step_inputs
 from ..domain.factories import create_single_step
-from ..domain.transitions import transition_requirement, transition_task_run
+from ..domain.transitions import transition_requirement, transition_step, transition_task_run
 from ..ledger.refs import pending_start_ref
 from ..models import (
+    Action,
+    Evidence,
+    Observation,
     PlanStep,
     Requirement,
     RequirementStatus,
     SelectionSource,
+    StepStatus,
     SuspendReason,
     TaskRun,
     TaskRunStatus,
+    Verdict,
 )
+from ..planner import PlanStepSpec, build_plan, create_plan_steps, plan_step_spec_ref
 from ..ports.idempotency import IdempotencyGate
 from ..store import EntityNotFoundError, Store
-from ..support.errors import RuntimeServiceError
+from ..support.errors import RuntimeConflictError, RuntimeServiceError
 from ..support.log_text import (
     describe_bool,
     describe_code,
@@ -33,6 +40,7 @@ from ..support.log_text import (
     describe_name_list,
     describe_optional,
 )
+from ..variables import extract_scene_output_variables
 from .decision_records import (
     build_scene_search_decision,
     build_scene_selection_decision,
@@ -81,19 +89,18 @@ async def run_start_workflow(
         {"scene_code": scene_code, "inputs": request.inputs},
     )
 
-    step = create_single_step(task_run)
-    requirement = create_scene_requirement(task_run, step)
-    logger.info(
-        "GDP Agent 运行时计划步骤已创建：任务ID=%s，步骤ID=%s，缺口ID=%s，任务目标=%s",
-        task_run.task_run_id,
-        step.step_id,
-        requirement.requirement_id,
-        step.goal,
-    )
-
     try:
         # 根据是否指定场景编码走不同路径：快速通道或智能搜索。
         if scene_code:
+            step = create_single_step(task_run)
+            requirement = create_scene_requirement(task_run, step)
+            logger.info(
+                "GDP Agent 运行时计划步骤已创建：任务ID=%s，步骤ID=%s，缺口ID=%s，任务目标=%s",
+                task_run.task_run_id,
+                step.step_id,
+                requirement.requirement_id,
+                step.goal,
+            )
             return await _run_explicit_scene(
                 task_run,
                 step,
@@ -105,6 +112,20 @@ async def run_start_workflow(
                 idempotency_gate,
             )
 
+        specs = build_plan(task_run.user_goal, request.inputs)
+        if len(specs) > 1:
+            create_plan_steps(task_run, specs, store)
+            return await _run_multistep(task_run, request.inputs, store, catalog, idempotency_gate)
+
+        step = create_single_step(task_run)
+        requirement = create_scene_requirement(task_run, step)
+        logger.info(
+            "GDP Agent 运行时计划步骤已创建：任务ID=%s，步骤ID=%s，缺口ID=%s，任务目标=%s",
+            task_run.task_run_id,
+            step.step_id,
+            requirement.requirement_id,
+            step.goal,
+        )
         return await _run_search(task_run, step, requirement, request.inputs, store, catalog, idempotency_gate)
     except RuntimeServiceError:
         # Catalog 服务失败且尚未发起任何写请求时，恢复账本快照避免任务卡在 RUNNING 状态。
@@ -134,6 +155,7 @@ async def _run_explicit_scene(
     store: Store,
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
+    complete_task_run: bool = True,
 ) -> TaskRun:
     """用户已指定场景编码时的快速通道——解析契约确认入参齐全后直接执行。"""
 
@@ -171,6 +193,7 @@ async def _run_explicit_scene(
         _is_approved_request(inputs),
         store,
         idempotency_gate,
+        complete_task_run=complete_task_run,
     )
 
 
@@ -182,6 +205,7 @@ async def _run_search(
     store: Store,
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
+    complete_task_run: bool = True,
 ) -> TaskRun:
     """用户未指定场景时的智能搜索——调场景目录搜索、规则选择、必要时暂停等用户。"""
 
@@ -244,10 +268,168 @@ async def _run_search(
             _is_approved_request(inputs),
             store,
             idempotency_gate,
+            complete_task_run=complete_task_run,
         )
 
     # NEED_USER：多候选、低分、缺参或需审批时，暂停等用户选择或批准后继续。
     return suspend_for_selection_decision(task_run, step, requirement, proposal, outcome.question, store)
+
+
+async def _run_multistep(
+    task_run: TaskRun,
+    request_inputs: dict[str, Any],
+    store: Store,
+    catalog: SceneCatalogPort,
+    idempotency_gate: IdempotencyGate | None,
+) -> TaskRun:
+    """按 active_step_id 串行推进多步骤计划。"""
+
+    return await continue_multistep(
+        task_run,
+        request_inputs,
+        store,
+        catalog,
+        idempotency_gate,
+        run_active_step=True,
+    )
+
+
+async def continue_multistep(
+    task_run: TaskRun,
+    request_inputs: dict[str, Any],
+    store: Store,
+    catalog: SceneCatalogPort,
+    idempotency_gate: IdempotencyGate | None,
+    *,
+    run_active_step: bool = False,
+) -> TaskRun:
+    """从当前 active_step_id 继续多步骤计划，可用于 start 和 reply 恢复。"""
+
+    should_run_active_step = run_active_step
+    while True:
+        step = _get_active_step(task_run, store)
+        spec = _get_step_spec(task_run, step, store)
+        if should_run_active_step:
+            task_run = await _run_plan_step(task_run, step, spec, request_inputs, store, catalog, idempotency_gate)
+            if task_run.status != TaskRunStatus.RUNNING:
+                return task_run
+
+            step = store.get_step(step.step_id)
+        elif task_run.status != TaskRunStatus.RUNNING:
+            return task_run
+
+        if step.status != StepStatus.DONE:
+            return task_run
+
+        if spec.output_bindings:
+            try:
+                action, evidence, observation = _latest_success_context(step, store)
+                extract_scene_output_variables(task_run, step, action, evidence, observation, spec.output_bindings, store)
+            except ValueError as exc:
+                # Verdict DONE 只证明场景执行成功；计划必需产出缺失时，业务步骤要修正为失败。
+                step.status = StepStatus.FAILED
+                store.save_step(step)
+                task_run.failure_reason = str(exc)
+                task_run = transition_task_run(task_run, TaskRunStatus.FAILED)
+                store.save_task_run(task_run)
+                return task_run
+
+        next_step = _next_pending_step(task_run, store)
+        if next_step is None:
+            final_step = _final_assertion_step(task_run, store)
+            task_run.final_verdict_id = final_step.verdict_id
+            task_run = transition_task_run(task_run, TaskRunStatus.COMPLETED)
+            store.save_task_run(task_run)
+            return task_run
+
+        task_run.active_step_id = next_step.step_id
+        store.save_task_run(task_run)
+        should_run_active_step = True
+
+
+async def _run_plan_step(
+    task_run: TaskRun,
+    step: PlanStep,
+    spec: PlanStepSpec,
+    request_inputs: dict[str, Any],
+    store: Store,
+    catalog: SceneCatalogPort,
+    idempotency_gate: IdempotencyGate | None,
+) -> TaskRun:
+    """推进当前 PlanStep：绑定输入、搜索场景、选择并执行。"""
+
+    resolution = resolve_step_inputs(task_run, step, spec.input_bindings, request_inputs, store)
+    if resolution.missing_inputs:
+        return suspend_for_user(
+            task_run,
+            step,
+            "缺少必填信息：" + "，".join(f"inputs.{name}" for name in resolution.missing_inputs) + "。请补充后继续。",
+            SuspendReason.MISSING_INPUT,
+            store,
+        )
+    if resolution.missing_variables:
+        step = transition_step(step, StepStatus.RUNNING)
+        step = transition_step(step, StepStatus.FAILED)
+        store.save_step(step)
+        task_run.failure_reason = "计划变量缺失：" + "，".join(resolution.missing_variables)
+        task_run = transition_task_run(task_run, TaskRunStatus.FAILED)
+        store.save_task_run(task_run)
+        return task_run
+
+    requirement = create_scene_requirement(task_run, step)
+    return await _run_search(
+        task_run,
+        step,
+        requirement,
+        resolution.inputs,
+        store,
+        catalog,
+        idempotency_gate,
+        complete_task_run=False,
+    )
+
+
+def _get_active_step(task_run: TaskRun, store: Store) -> PlanStep:
+    if task_run.active_step_id is None:
+        raise RuntimeConflictError("TaskRun 缺少 active_step_id")
+    return store.get_step(task_run.active_step_id)
+
+
+def _get_step_spec(task_run: TaskRun, step: PlanStep, store: Store) -> PlanStepSpec:
+    payload = store.get_payload(task_run.task_run_id, plan_step_spec_ref(step.step_id))
+    return PlanStepSpec.model_validate(payload)
+
+
+def _next_pending_step(task_run: TaskRun, store: Store) -> PlanStep | None:
+    steps = [store.get_step(step_id) for step_id in task_run.step_ids]
+    for step in sorted(steps, key=lambda item: item.step_no):
+        if step.status != StepStatus.PENDING:
+            continue
+        if all(store.get_step(depends_on).status == StepStatus.DONE for depends_on in step.depends_on):
+            return step
+    return None
+
+
+def _final_assertion_step(task_run: TaskRun, store: Store) -> PlanStep:
+    steps = [store.get_step(step_id) for step_id in task_run.step_ids]
+    return max(steps, key=lambda item: item.step_no)
+
+
+def _latest_success_context(step: PlanStep, store: Store) -> tuple[Action, Evidence, Observation]:
+    if not step.action_ids or not step.verdict_id:
+        raise ValueError("步骤缺少成功执行上下文。")
+    action = store.get_action(step.action_ids[-1])
+    verdict: Verdict = store.get_verdict(step.verdict_id)
+    evidence = store.get_evidence(verdict.evidence_id)
+    observation_id = _first_observation_id(evidence)
+    observation = store.get_observation(observation_id)
+    return action, evidence, observation
+
+
+def _first_observation_id(evidence: Evidence) -> str:
+    for fact in evidence.facts:
+        return fact.source_observation_id
+    raise ValueError("步骤缺少可追溯观察。")
 
 
 def _is_approved_request(inputs: dict[str, Any]) -> bool:

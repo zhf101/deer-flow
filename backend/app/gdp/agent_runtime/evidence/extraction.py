@@ -67,7 +67,10 @@ def extract_evidence_parts(action: Action, observation: Observation, attempt: Ac
         return parts
 
     # 场景没有配置业务判定规则（businessResult 为空）时的回退逻辑。
-    # 非 create_paid_order 的场景没有可抽取的固定字段契约，只能凭已有 scene.status 事实判定。
+    # 通用场景先抽取实际返回里已经存在的关键 finalOutput 字段，不强加缺失事实。
+    _collect_generic_final_output_facts(parts, observation, preview)
+
+    # 非 create_paid_order 的场景没有固定必填字段契约，凭已有 scene.status 和通用事实判定。
     if action.scene_code != "create_paid_order":
         return parts
 
@@ -151,3 +154,36 @@ def _collect_create_paid_order_facts(parts: EvidenceParts, observation: Observat
         )
     else:
         parts.missing_facts.append("order.pay_status")
+
+
+def _collect_generic_final_output_facts(parts: EvidenceParts, observation: Observation, preview: dict) -> None:
+    """抽取通用 finalOutput 字段，供多步骤变量绑定使用。"""
+
+    final_output = preview.get("finalOutput")
+    if not isinstance(final_output, dict):
+        return
+
+    if "order_id" in final_output:
+        parts.facts.append(
+            EvidenceFact(
+                subject="finalOutput.order_id",
+                predicate=FactPredicate.EXISTS,
+                expected=True,
+                actual=final_output.get("order_id"),
+                passed=final_output.get("order_id") is not None,
+                source_observation_id=observation.observation_id,
+            )
+        )
+
+    if "pay_status" in final_output:
+        pay_status = final_output.get("pay_status")
+        parts.facts.append(
+            EvidenceFact(
+                subject="finalOutput.pay_status",
+                predicate=FactPredicate.EQUALS,
+                expected="PAID",
+                actual=pay_status,
+                passed=(pay_status == "PAID"),
+                source_observation_id=observation.observation_id,
+            )
+        )

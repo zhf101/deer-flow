@@ -43,6 +43,7 @@ async def select_and_maybe_execute(
     approved: bool,
     store: Store,
     idempotency_gate: IdempotencyGate | None,
+    complete_task_run: bool = True,
 ) -> TaskRun:
     """选定场景后的三重门——校验入参齐全 → 审批有副作用的场景 → 执行。"""
 
@@ -107,7 +108,17 @@ async def select_and_maybe_execute(
     # 三重门全部通过，清除暂停提示后进入执行链路。
     task_run.pending_question = None
     task_run.suspend_reason = None
-    return await execute_scene(task_run, step, requirement, scene_code, inputs, candidate, store, idempotency_gate)
+    return await execute_scene(
+        task_run,
+        step,
+        requirement,
+        scene_code,
+        inputs,
+        candidate,
+        store,
+        idempotency_gate,
+        complete_task_run=complete_task_run,
+    )
 
 
 def suspend_for_selection_decision(

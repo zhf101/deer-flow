@@ -279,8 +279,10 @@ class RuntimeService:
             raise RuntimeNotFoundError(f"TaskRun {task_run.task_run_id} not found")
 
     def _ensure_payload_access(self, task_run: TaskRun, principal: RuntimePrincipal) -> None:
-        """校验审计数据访问权限：只有管理员或未认证测试入口可查看完整 payload。"""
+        """校验审计数据访问权限：任务本人、管理员或未认证测试入口可查看完整 payload。"""
         if principal.user_id is None or principal.has_audit_access:
+            return
+        if task_run.user_id == principal.user_id:
             return
         raise RuntimeForbiddenError(f"TaskRun {task_run.task_run_id} payload 需要审计权限")
 

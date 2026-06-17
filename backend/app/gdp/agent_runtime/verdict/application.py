@@ -21,6 +21,8 @@ def apply_verdict(
     step: PlanStep,
     action: Action,
     verdict: Verdict,
+    *,
+    complete_task_run: bool = True,
 ) -> tuple[TaskRun, PlanStep, Action]:
     """将判定结论转化为用户可感知的任务状态变化。"""
 
@@ -29,8 +31,9 @@ def apply_verdict(
     if verdict.verdict_type == VerdictType.DONE:
         step.verdict_id = verdict.verdict_id
         step = transition_step(step, StepStatus.DONE)
-        task_run.final_verdict_id = verdict.verdict_id
-        task_run = transition_task_run(task_run, TaskRunStatus.COMPLETED)
+        if complete_task_run:
+            task_run.final_verdict_id = verdict.verdict_id
+            task_run = transition_task_run(task_run, TaskRunStatus.COMPLETED)
 
     elif verdict.verdict_type == VerdictType.FAILED:
         step.verdict_id = verdict.verdict_id

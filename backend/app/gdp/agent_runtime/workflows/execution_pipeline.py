@@ -53,6 +53,7 @@ async def execute_scene(
     candidate: SceneCandidate,
     store: Store,
     idempotency_gate: IdempotencyGate | None = None,
+    complete_task_run: bool = True,
 ) -> TaskRun:
     """执行已选定场景并收口任务状态。"""
 
@@ -60,7 +61,7 @@ async def execute_scene(
     action, attempt, observation = await _run_and_record_attempt(task_run, action, store, idempotency_gate)
     evidence = _build_and_record_evidence(task_run, step, action, observation, attempt, store)
     verdict = _judge_and_record_verdict(task_run, evidence, action, store)
-    task_run, step, action = _apply_and_record_verdict(task_run, step, action, verdict, store)
+    task_run, step, action = _apply_and_record_verdict(task_run, step, action, verdict, store, complete_task_run)
     _record_failed_scene_blacklist(requirement, scene_code, verdict, store)
 
     logger.info(
@@ -210,12 +211,13 @@ def _apply_and_record_verdict(
     action: Action,
     verdict: Verdict,
     store: Store,
+    complete_task_run: bool,
 ) -> tuple[TaskRun, PlanStep, Action]:
     """根据判定更新任务和步骤状态。"""
 
     from ..verdict import apply_verdict
 
-    task_run, step, action = apply_verdict(task_run, step, action, verdict)
+    task_run, step, action = apply_verdict(task_run, step, action, verdict, complete_task_run=complete_task_run)
     store.save_task_run(task_run)
     store.save_step(step)
     store.save_action(action)

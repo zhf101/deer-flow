@@ -222,10 +222,12 @@ class AgentCatalogAdapter:
         scene_code: str,
         user_inputs: dict[str, Any],
     ) -> SceneCandidate:
-        # scene_code 不存在 / 未发布 -> 下游服务可能抛 HTTP 风格异常，这里收敛成 runtime 错误。
+        # scene_code 不存在 / 未发布保持 404 语义；依赖不可用仍收敛成运行时错误。
         try:
             contract = await self._get_service().get_scene_contract(scene_code)
         except Exception as exc:
+            if getattr(exc, "status_code", None) == 404:
+                raise
             mapped = _to_runtime_dependency_error(exc)
             if mapped is not None:
                 raise mapped from exc

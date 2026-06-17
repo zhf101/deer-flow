@@ -11,9 +11,13 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import ValidationError
+
+from ..bindings import resolve_step_inputs
 from ..domain.transitions import transition_requirement, transition_task_run
 from ..ledger.refs import pending_start_ref
 from ..models import (
+    PlanStep,
     ProposalStatus,
     Requirement,
     RequirementProposal,
@@ -24,6 +28,7 @@ from ..models import (
     TaskRun,
     TaskRunStatus,
 )
+from ..planner import PlanStepSpec, plan_step_spec_ref
 from ..ports.idempotency import IdempotencyGate
 from ..store import EntityNotFoundError, Store
 from ..support.errors import RuntimeConflictError, RuntimeValidationError
@@ -39,6 +44,7 @@ from .reply_commands import (
 )
 from .scene_catalog import resolve_explicit_scene
 from .selection_policy import apply_selection, ensure_selection_consistency
+from .start_workflow import continue_multistep
 
 ReplyHandler = Callable[[TaskRun, RuntimeCommand, Store, IdempotencyGate | None], Awaitable[TaskRun]]
 
@@ -84,7 +90,7 @@ async def _handle_supply_input(
 ) -> TaskRun:
     """用户补充缺失的输入后继续任务，核心保护是已有写请求时不允许重放。"""
 
-    if _has_write_attempts(task_run.task_run_id, store):
+    if _has_write_attempts_for_reply(task_run, store):
         raise RuntimeConflictError("当前 TaskRun 已发起写请求，不能通过 SUPPLY_INPUT 重放")
 
     pending_start = _get_pending_start(task_run, store)
@@ -107,14 +113,36 @@ async def _handle_supply_input(
     if proposal is None:
         raise RuntimeConflictError("当前 TaskRun 没有可恢复的 Proposal")
 
+    extra_input_names = set(_supplied_input_names(command.payload))
     if proposal.status == ProposalStatus.SELECTED:
         selected_scene_code = proposal.selected_scene_code or scene_code
         if selected_scene_code is None:
             raise RuntimeConflictError("当前已选定 Proposal 缺少 scene_code")
         ensure_selection_consistency(requirement, proposal, selected_scene_code)
-        candidate = await _refresh_candidate_contract(proposal, selected_scene_code, inputs, store)
+        extra_input_names.update(_proposal_missing_inputs(proposal, selected_scene_code))
+        contract_inputs = _execution_inputs_for_contract_refresh(
+            task_run,
+            requirement,
+            inputs,
+            extra_input_names,
+            store,
+        )
+        if isinstance(contract_inputs, TaskRun):
+            return contract_inputs
+        candidate = await _refresh_candidate_contract(proposal, selected_scene_code, contract_inputs, store)
     elif proposal.status == ProposalStatus.PENDING and len(proposal.candidates) == 1:
-        candidate = await _refresh_candidate_contract(proposal, proposal.candidates[0].scene_code, inputs, store)
+        selected_scene_code = proposal.candidates[0].scene_code
+        extra_input_names.update(_proposal_missing_inputs(proposal, selected_scene_code))
+        contract_inputs = _execution_inputs_for_contract_refresh(
+            task_run,
+            requirement,
+            inputs,
+            extra_input_names,
+            store,
+        )
+        if isinstance(contract_inputs, TaskRun):
+            return contract_inputs
+        candidate = await _refresh_candidate_contract(proposal, selected_scene_code, contract_inputs, store)
         if requirement.status == RequirementStatus.PENDING:
             requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
         requirement, proposal = apply_selection(requirement, proposal, candidate.scene_code, SelectionSource.AUTO)
@@ -146,18 +174,15 @@ async def _handle_supply_input(
         store.save_task_run(task_run)
         return task_run
 
-    task_run.pending_question = None
-    task_run.suspend_reason = None
-    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
-    return await execute_scene(
+    return await _execute_selected_scene(
         task_run,
-        store.get_step(requirement.step_id),
         requirement,
         candidate.scene_code,
         inputs,
         candidate,
         store,
         idempotency_gate,
+        extra_input_names=extra_input_names,
     )
 
 
@@ -232,18 +257,15 @@ async def _handle_select_scene(
             )
         )
 
-    task_run.pending_question = None
-    task_run.suspend_reason = None
-    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
-    return await execute_scene(
+    return await _execute_selected_scene(
         task_run,
-        store.get_step(requirement.step_id),
         requirement,
         scene_code,
         inputs,
         candidate,
         store,
         idempotency_gate,
+        extra_input_names=_supplied_input_names(command.payload),
     )
 
 
@@ -318,18 +340,15 @@ async def _handle_supply_scene_code(
             )
         )
 
-    task_run.pending_question = None
-    task_run.suspend_reason = None
-    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
-    return await execute_scene(
+    return await _execute_selected_scene(
         task_run,
-        store.get_step(requirement.step_id),
         requirement,
         scene_code,
         inputs,
         resolved,
         store,
         idempotency_gate,
+        extra_input_names=_supplied_input_names(command.payload),
     )
 
 
@@ -378,18 +397,15 @@ async def _handle_approve_scene(
             input_ref=pending_start_ref(task_run.task_run_id),
         )
     )
-    task_run.pending_question = None
-    task_run.suspend_reason = None
-    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
-    return await execute_scene(
+    return await _execute_selected_scene(
         task_run,
-        store.get_step(requirement.step_id),
         requirement,
         proposal.selected_scene_code,
         inputs,
         candidate,
         store,
         idempotency_gate,
+        extra_input_names=_supplied_input_names(command.payload),
     )
 
 
@@ -435,6 +451,190 @@ def _has_write_attempts(task_run_id: str, store: Store) -> bool:
     """检查任务是否已发起过执行尝试，用于决定是否允许重放写请求。"""
 
     return bool(store.get_timeline(task_run_id)["attempts"])
+
+
+def _has_write_attempts_for_reply(task_run: TaskRun, store: Store) -> bool:
+    """补参重放保护：多步骤只检查当前 active step，单步骤保持任务级保护。"""
+
+    if not _is_multistep_task(task_run):
+        return _has_write_attempts(task_run.task_run_id, store)
+    if task_run.active_step_id is None:
+        return _has_write_attempts(task_run.task_run_id, store)
+    step = store.get_step(task_run.active_step_id)
+    if not step.action_ids:
+        return False
+    actions = {
+        action["action_id"]: action
+        for action in store.get_timeline(task_run.task_run_id)["actions"]
+        if action.get("action_id") in step.action_ids
+    }
+    return any(action.get("attempt_ids") for action in actions.values())
+
+
+async def _execute_selected_scene(
+    task_run: TaskRun,
+    requirement: Requirement,
+    scene_code: str,
+    request_inputs: dict[str, Any],
+    candidate: SceneCandidate,
+    store: Store,
+    idempotency_gate: IdempotencyGate | None,
+    *,
+    extra_input_names: set[str] | list[str] | tuple[str, ...] = (),
+) -> TaskRun:
+    """执行当前选定场景；多步骤完成当前步骤后继续推进后续步骤。"""
+
+    step = store.get_step(requirement.step_id)
+    execution_inputs = request_inputs
+    complete_task_run = True
+    if _is_multistep_task(task_run):
+        prepared = _prepare_multistep_execution_inputs(task_run, requirement, request_inputs, extra_input_names, store)
+        if isinstance(prepared, TaskRun):
+            return prepared
+        step, execution_inputs = prepared
+        complete_task_run = False
+
+    task_run.pending_question = None
+    task_run.suspend_reason = None
+    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
+    task_run = await execute_scene(
+        task_run,
+        step,
+        requirement,
+        scene_code,
+        execution_inputs,
+        candidate,
+        store,
+        idempotency_gate,
+        complete_task_run=complete_task_run,
+    )
+    if not _is_multistep_task(task_run):
+        return task_run
+    return await continue_multistep(
+        task_run,
+        request_inputs,
+        store,
+        _get_scene_catalog(),
+        idempotency_gate,
+    )
+
+
+def _execution_inputs_for_contract_refresh(
+    task_run: TaskRun,
+    requirement: Requirement,
+    request_inputs: dict[str, Any],
+    extra_input_names: set[str],
+    store: Store,
+) -> dict[str, Any] | TaskRun:
+    """刷新候选契约前，按当前步骤快照组装真实步骤入参。"""
+
+    if not _is_multistep_task(task_run):
+        return request_inputs
+    prepared = _prepare_multistep_execution_inputs(task_run, requirement, request_inputs, extra_input_names, store)
+    if isinstance(prepared, TaskRun):
+        return prepared
+    _, execution_inputs = prepared
+    return execution_inputs
+
+
+def _prepare_multistep_execution_inputs(
+    task_run: TaskRun,
+    requirement: Requirement,
+    request_inputs: dict[str, Any],
+    extra_input_names: set[str] | list[str] | tuple[str, ...],
+    store: Store,
+) -> tuple[PlanStep, dict[str, Any]] | TaskRun:
+    """从 PlanStepSpec 快照重新解析当前步骤入参，避免 reply 依赖旧内存计划。"""
+
+    step = store.get_step(requirement.step_id)
+    spec = _get_step_spec_or_fail(task_run, step, store)
+    if isinstance(spec, TaskRun):
+        return spec
+
+    resolution = resolve_step_inputs(task_run, step, spec.input_bindings, request_inputs, store)
+    if resolution.missing_inputs:
+        return _keep_waiting_for_missing_inputs(task_run, step, resolution.missing_inputs, store)
+    if resolution.missing_variables:
+        return _fail_waiting_task_run(task_run, "计划变量缺失：" + "，".join(resolution.missing_variables), store)
+
+    execution_inputs = dict(resolution.inputs)
+    for name in extra_input_names:
+        if name in request_inputs and not _is_blank(request_inputs[name]):
+            execution_inputs[name] = request_inputs[name]
+    return step, execution_inputs
+
+
+def _get_step_spec_or_fail(task_run: TaskRun, step: PlanStep, store: Store) -> PlanStepSpec | TaskRun:
+    """读取当前步骤规格快照；缺失时失败收口，不重新 build_plan 猜测。"""
+
+    try:
+        payload = store.get_payload(task_run.task_run_id, plan_step_spec_ref(step.step_id))
+        return PlanStepSpec.model_validate(payload)
+    except (EntityNotFoundError, ValidationError):
+        return _fail_waiting_task_run(task_run, "计划步骤快照缺失，无法恢复当前步骤。", store)
+
+
+def _keep_waiting_for_missing_inputs(
+    task_run: TaskRun,
+    step: PlanStep,
+    missing_inputs: list[str],
+    store: Store,
+) -> TaskRun:
+    """当前步骤绑定仍缺用户输入时保持 WAITING_USER。"""
+
+    task_run.pending_question = "缺少必填信息：" + "，".join(f"inputs.{name}" for name in missing_inputs) + "。请补充后继续。"
+    task_run.suspend_reason = SuspendReason.MISSING_INPUT
+    store.save_step(step)
+    store.save_task_run(task_run)
+    return task_run
+
+
+def _fail_waiting_task_run(
+    task_run: TaskRun,
+    reason: str,
+    store: Store,
+) -> TaskRun:
+    """WAITING_USER 恢复遇到不可恢复账本问题时，按状态机先恢复运行再失败收口。"""
+
+    task_run.pending_question = None
+    task_run.suspend_reason = None
+    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
+    task_run.failure_reason = reason
+    task_run = transition_task_run(task_run, TaskRunStatus.FAILED)
+    store.save_task_run(task_run)
+    return task_run
+
+
+def _is_multistep_task(task_run: TaskRun) -> bool:
+    return len(task_run.step_ids) > 1
+
+
+def _supplied_input_names(payload: dict[str, Any]) -> set[str]:
+    supplied_inputs = payload.get("inputs")
+    if isinstance(supplied_inputs, dict):
+        return {str(key) for key in supplied_inputs}
+    return {
+        str(key)
+        for key in payload
+        if key not in {"env_code", "message", "scene_code", "approved"}
+    }
+
+
+def _proposal_missing_inputs(proposal: RequirementProposal, scene_code: str) -> set[str]:
+    for candidate in proposal.candidates:
+        if candidate.scene_code == scene_code:
+            return {_strip_input_prefix(name) for name in candidate.missing_inputs}
+    return set()
+
+
+def _strip_input_prefix(name: str) -> str:
+    return name.removeprefix("inputs.")
+
+
+def _is_blank(value: Any) -> bool:
+    if value is None:
+        return True
+    return isinstance(value, str) and value.strip() == ""
 
 
 def _format_unknown_state_confirmation(payload: dict[str, Any]) -> str:
