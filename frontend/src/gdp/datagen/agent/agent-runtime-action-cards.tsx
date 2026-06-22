@@ -295,29 +295,51 @@ export function ActionCard({
   onConfirmUnknownState: () => void;
   onViewAttempts: () => void;
 }) {
-  switch (interaction.type) {
-    case "candidate_selection":
-      return (
-        <CandidateSelectionCard proposal={interaction.proposal} busy={busy} onSelect={onSelectCandidate} />
-      );
-    case "approval":
-      return (
-        <ApprovalCard candidate={interaction.candidate} busy={busy} onApprove={onApprove} onCancel={onCancel} />
-      );
-    case "manual_scene_code":
-      return <ManualSceneCard busy={busy} onSubmit={onSupplySceneCode} />;
-    case "missing_input":
-      return <MissingInputCard fields={interaction.fields} busy={busy} onSubmit={onSupplyInput} />;
-    case "unknown_state":
-      return (
-        <UnknownStateCard
-          reason={interaction.reason}
-          busy={busy}
-          onConfirm={onConfirmUnknownState}
-          onViewAttempts={onViewAttempts}
-        />
-      );
-    case "generic":
-      return <GenericWaitingCard message={interaction.message} />;
-  }
+  const renderCard = () => {
+    switch (interaction.type) {
+      case "candidate_selection":
+        return (
+          <CandidateSelectionCard proposal={interaction.proposal} busy={busy} onSelect={onSelectCandidate} />
+        );
+      case "approval":
+        return (
+          <ApprovalCard candidate={interaction.candidate} busy={busy} onApprove={onApprove} onCancel={onCancel} />
+        );
+      case "manual_scene_code":
+        return <ManualSceneCard busy={busy} onSubmit={onSupplySceneCode} />;
+      case "missing_input":
+        return <MissingInputCard fields={interaction.fields} busy={busy} onSubmit={onSupplyInput} />;
+      case "unknown_state":
+        return (
+          <UnknownStateCard
+            reason={interaction.reason}
+            busy={busy}
+            onConfirm={onConfirmUnknownState}
+            onViewAttempts={onViewAttempts}
+          />
+        );
+      case "generic":
+        return <GenericWaitingCard message={interaction.message} />;
+      default:
+        return null;
+    }
+  };
+
+  const card = renderCard();
+  if (!card) return null;
+
+  return (
+    <div className="space-y-2">
+      {interaction.stepId ? (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground px-1">
+          <AlertTriangleIcon className="size-3 text-amber-500" />
+          <span>阻塞于编排步骤:</span>
+          <Badge variant="outline" className="font-mono text-[9px] bg-background">
+            {interaction.stepId}
+          </Badge>
+        </div>
+      ) : null}
+      {card}
+    </div>
+  );
 }

@@ -26,6 +26,7 @@ from app.gdp.datagen.config.httpsource.executor import (
     _friendly_error_message,
     _parse_set_cookie,
     apply_error_mapping,
+    build_request_info,
     build_runtime_context,
     evaluate_business_result,
     extract_outputs,
@@ -96,6 +97,101 @@ class TestHttpTimeoutConfig:
         assert "服务器响应超时" in _friendly_error_message("ReadTimeout", "")
         assert "发送请求数据超时" in _friendly_error_message("WriteTimeout", "")
         assert "连接池可用连接超时" in _friendly_error_message("PoolTimeout", "")
+
+
+# ── 请求体构造 ─────────────────────────────────────────────────────
+
+class TestBuildRequestBody:
+    def _make_config(self, request_mapping):
+        from app.gdp.datagen.config.common.models import HttpMethod
+
+        return HttpSourceConfig(
+            sourceCode="test",
+            sourceName="test",
+            sysCode="SYS",
+            path="/test",
+            method=HttpMethod.POST,
+            requestMapping=request_mapping,
+            outputMapping={},
+        )
+
+    def test_raw_json_uses_raw_body(self):
+        info = build_request_info(
+            "http://mock.local",
+            self._make_config(
+                {
+                    "bodyType": "raw-json",
+                    "rawBody": '{"user":{"name":"张三"},"tags":["vip"]}',
+                }
+            ),
+        )
+
+        assert info.bodyType == "raw-json"
+        assert info.body == {"user": {"name": "张三"}, "tags": ["vip"]}
+
+    def test_raw_json_can_use_body_tree(self):
+        info = build_request_info(
+            "http://mock.local",
+            self._make_config(
+                {
+                    "bodyType": "raw-json",
+                    "bodyTree": [
+                        {"name": "buyer_id", "type": "string", "defaultValue": "U10001"},
+                        {"name": "amount", "type": "number", "defaultValue": "99.9"},
+                    ],
+                }
+            ),
+        )
+
+        assert info.body == {"buyer_id": "U10001", "amount": 99.9}
+
+    def test_urlencoded_uses_unified_url_encoded_data(self):
+        info = build_request_info(
+            "http://mock.local",
+            self._make_config(
+                {
+                    "bodyType": "x-www-form-urlencoded",
+                    "urlEncodedData": {
+                        "grant_type": "password",
+                        "username": "demo",
+                    },
+                }
+            ),
+        )
+
+        assert info.bodyType == "x-www-form-urlencoded"
+        assert info.body == {"grant_type": "password", "username": "demo"}
+
+    def test_form_data_uses_unified_form_data_rows(self):
+        info = build_request_info(
+            "http://mock.local",
+            self._make_config(
+                {
+                    "bodyType": "form-data",
+                    "formData": [
+                        {"key": "file", "value": "demo.csv", "enabled": True},
+                        {"key": "disabled", "value": "skip", "enabled": False},
+                        {"key": "bizType", "value": "ORDER", "enabled": True},
+                    ],
+                }
+            ),
+        )
+
+        assert info.bodyType == "form-data"
+        assert info.body == {"file": "demo.csv", "bizType": "ORDER"}
+
+    def test_old_body_field_names_are_not_supported(self):
+        info = build_request_info(
+            "http://mock.local",
+            self._make_config(
+                {
+                    "bodyType": "form-urlencoded",
+                    "formFields": {"username": "legacy"},
+                }
+            ),
+        )
+
+        assert info.body is None
 
 
 # ── Cookie 解析 ─────────────────────────────────────────────────────

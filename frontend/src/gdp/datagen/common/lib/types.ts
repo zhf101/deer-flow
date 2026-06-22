@@ -50,7 +50,6 @@ export type AgentRuntimeStepStatus =
   | "BLOCKED";
 export type AgentRuntimeActionStatus =
   | "PLANNED"
-  | "WAITING_APPROVAL"
   | "RUNNING"
   | "SUCCEEDED"
   | "FAILED"
@@ -877,6 +876,7 @@ export interface AgentRuntimeTaskRunResponse {
   status: AgentRuntimeTaskRunStatus;
   user_goal: string;
   env_code?: string | null;
+  suspend_reason?: string | null;
   pending_question?: string | null;
   failure_reason?: string | null;
   created_at: string;
@@ -974,7 +974,6 @@ export interface AgentRuntimeVariable {
   task_run_id: string;
   name: string;
   semantic_type: string;
-  value_ref: string;
   value_preview: string;
   sensitive: boolean;
   tainted: boolean;
@@ -1041,9 +1040,24 @@ export interface AgentRuntimeDecisionRecord {
   created_at: string;
 }
 
+export interface AgentRuntimeTaskRunDetail {
+  task_run_id: string;
+  status: AgentRuntimeTaskRunStatus;
+  active_step_id?: string | null;
+  suspend_reason?: string | null;
+}
+
+export interface AgentRuntimeStepEdge {
+  from_step_id: string;
+  to_step_id: string;
+  variable_ids: string[];
+}
+
 export interface AgentRuntimeTimelineResponse {
   task_run_id: string;
+  task_run: AgentRuntimeTaskRunDetail;
   steps: AgentRuntimePlanStep[];
+  step_edges: AgentRuntimeStepEdge[];
   actions: AgentRuntimeAction[];
   attempts: AgentRuntimeActionAttempt[];
   observations: AgentRuntimeObservation[];

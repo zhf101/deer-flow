@@ -68,7 +68,7 @@ class HttpSourceConfig(BaseModel):
     timeoutConfig: HttpTimeoutConfig = Field(default_factory=HttpTimeoutConfig, description="HTTP 请求分阶段超时配置。运行时分别控制连接、读取、写入和连接池等待超时。")
     requestMapping: dict[str, Any] = Field(
         default_factory=dict,
-        description="请求入参映射配置。保存 query、headers、body、authConfig、bodyType 等请求构造信息。",
+        description="请求入参映射配置。保存 query、headers、authConfig、bodyType、rawBody、bodyTree、formData、urlEncodedData 等请求构造信息。",
     )
     bodySchema: list[InputFieldDefinition] | None = Field(
         default=None,

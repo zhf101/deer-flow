@@ -31,7 +31,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response
 # 常量
 # ============================================================
 
-DEFAULT_DB_PATH = Path(".deer-flow/data/deerflow.db")
+DEFAULT_DB_PATH = Path(__file__).resolve().parents[2] / ".deer-flow/data/deerflow.db"
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 18080
 TEST_SYS_CODE = "SYS_HTTP_TEST"
@@ -100,6 +100,36 @@ async def _read_body_json(request: Request) -> dict | None:
         return json.loads(text)
     except json.JSONDecodeError:
         return None
+
+
+def _bad_request(message: str) -> JSONResponse:
+    """返回 mock 接口的参数错误响应。"""
+    return JSONResponse(
+        status_code=400,
+        content={
+            "success": False,
+            "errorCode": "MOCK_BAD_REQUEST",
+            "errorMessage": message,
+        },
+    )
+
+
+def _require_json_object(body: Any, fields: list[str]) -> JSONResponse | None:
+    """校验 JSON 请求体必须为对象且包含指定字段。"""
+    if not isinstance(body, dict):
+        return _bad_request("请求体必须是 JSON 对象")
+    missing = [field for field in fields if body.get(field) in (None, "")]
+    if missing:
+        return _bad_request("缺少必填 JSON 字段：" + "，".join(missing))
+    return None
+
+
+def _require_form_fields(form_data: dict[str, str], fields: list[str]) -> JSONResponse | None:
+    """校验表单请求体必须包含指定字段。"""
+    missing = [field for field in fields if form_data.get(field) in (None, "")]
+    if missing:
+        return _bad_request("缺少必填表单字段：" + "，".join(missing))
+    return None
 
 
 def _sync_service_endpoints(db_path: Path, sys_code: str, base_url: str) -> None:
@@ -277,9 +307,14 @@ def create_app() -> FastAPI:
         log.info("    认证: Bearer %s", "***" if headers.get("authorization", "").startswith("Bearer ") else "缺失!")
         log.info("    dryRun: %s", params.get("dryRun", "false"))
 
-        # 从请求体提取数据
+        invalid = _require_json_object(body, ["tenantId", "user"])
+        if invalid:
+            return invalid
+
         tenant_id = (body or {}).get("tenantId", "T10001")
         user_info = (body or {}).get("user", {})
+        if not isinstance(user_info, dict) or not user_info.get("name"):
+            return _bad_request("缺少必填 JSON 字段：user.name")
         user_name = user_info.get("name", "未知")
 
         response = {
@@ -290,6 +325,7 @@ def create_app() -> FastAPI:
                 "name": user_name,
                 "age": user_info.get("age", 0),
                 "enabled": user_info.get("enabled", True),
+                "profile": user_info.get("profile", {}),
                 "tags": (body or {}).get("tags", []),
                 "createdAt": "2026-06-07T12:00:00",
             },
@@ -387,6 +423,7 @@ timestamp=2026-06-07T12:00:00"""
 
         # 读取 form-data 字段
         form = await request.form()
+        form_data: dict[str, str] = {}
         file_name = "unknown"
         biz_type = "UNKNOWN"
         for key, value in form.items():
@@ -395,7 +432,12 @@ timestamp=2026-06-07T12:00:00"""
                 file_name = getattr(value, "filename", str(value))
             elif key == "bizType":
                 biz_type = str(value)
+            form_data[key] = str(value)
             log.info("    form字段: %s = %s", key, value)
+
+        invalid = _require_form_fields(form_data, ["file", "bizType"])
+        if invalid:
+            return invalid
 
         file_id = f"F{int(time.time()) % 100000:05d}"
         response = {
@@ -435,6 +477,10 @@ timestamp=2026-06-07T12:00:00"""
         for key, value in form.items():
             form_data[key] = str(value)
             log.info("    form字段: %s = %s", key, value if key != "password" else "***")
+
+        invalid = _require_form_fields(form_data, ["grant_type", "username", "password"])
+        if invalid:
+            return invalid
 
         username = form_data.get("username", "unknown")
         scope = form_data.get("scope", "")
@@ -498,8 +544,13 @@ timestamp=2026-06-07T12:00:00"""
         body = await _read_body_json(request)
         _log_request("POST", "/api/v1/orders/pending", headers, body)
 
+        invalid = _require_json_object(body, ["buyer_id", "amount"])
+        if invalid:
+            return invalid
+
         buyer_id = (body or {}).get("buyer_id", "UNKNOWN")
         amount = (body or {}).get("amount", 100.00)
+        metadata = (body or {}).get("metadata") if isinstance(body, dict) else {}
         order_id = f"ORD-PENDING-{int(time.time()) % 100000:05d}"
 
         response = {
@@ -508,6 +559,8 @@ timestamp=2026-06-07T12:00:00"""
                 "order_id": order_id,
                 "buyer_id": buyer_id,
                 "amount": amount,
+                "currency": (body or {}).get("currency", "CNY"),
+                "metadata": metadata if isinstance(metadata, dict) else {},
                 "pay_status": "PENDING",
                 "created_at": "2026-06-12T10:00:00"
             },
@@ -524,9 +577,18 @@ timestamp=2026-06-07T12:00:00"""
         body = await _read_body_json(request)
         _log_request("POST", "/api/v1/orders/with-items", headers, body)
 
+        invalid = _require_json_object(body, ["buyer_id", "items"])
+        if invalid:
+            return invalid
+
         buyer_id = (body or {}).get("buyer_id", "UNKNOWN")
-        product_id = (body or {}).get("product_id", "P001")
-        quantity = (body or {}).get("quantity", 1)
+        items = (body or {}).get("items", [])
+        if not isinstance(items, list) or not items:
+            return _bad_request("JSON 字段 items 必须是非空数组")
+        first_item = items[0] if isinstance(items[0], dict) else {}
+        product_id = first_item.get("product_id") or first_item.get("sku_id") or "P001"
+        quantity = first_item.get("quantity", 1)
+        delivery = (body or {}).get("delivery", {})
         order_id = f"ORD-ITEMS-{int(time.time()) % 100000:05d}"
 
         response = {
@@ -536,6 +598,8 @@ timestamp=2026-06-07T12:00:00"""
                 "buyer_id": buyer_id,
                 "product_id": product_id,
                 "quantity": quantity,
+                "items": items,
+                "delivery": delivery if isinstance(delivery, dict) else {},
                 "pay_status": "PENDING",
                 "inventory_locked": True,
                 "created_at": "2026-06-12T10:00:00"
@@ -553,8 +617,13 @@ timestamp=2026-06-07T12:00:00"""
         body = await _read_body_json(request)
         _log_request("POST", "/api/v1/payments", headers, body)
 
+        invalid = _require_json_object(body, ["order_id", "payment_method"])
+        if invalid:
+            return invalid
+
         order_id = (body or {}).get("order_id", "UNKNOWN")
         payment_method = (body or {}).get("payment_method", "ALIPAY")
+        amount = (body or {}).get("amount", 100.00)
         payment_id = f"PAY-{int(time.time()) % 100000:05d}"
 
         response = {
@@ -564,7 +633,8 @@ timestamp=2026-06-07T12:00:00"""
                 "order_id": order_id,
                 "payment_method": payment_method,
                 "status": "SUCCESS",
-                "amount_paid": 100.00,
+                "amount_paid": amount,
+                "client_request_id": (body or {}).get("client_request_id", ""),
                 "paid_at": "2026-06-12T10:00:00"
             },
             "errorCode": "",
@@ -600,6 +670,10 @@ timestamp=2026-06-07T12:00:00"""
         body = await _read_body_json(request)
         _log_request("POST", "/api/v1/inventory/lock", headers, body)
 
+        invalid = _require_json_object(body, ["product_id", "quantity"])
+        if invalid:
+            return invalid
+
         product_id = (body or {}).get("product_id", "P001")
         quantity = (body or {}).get("quantity", 1)
         lock_id = f"LOCK-{int(time.time()) % 100000:05d}"
@@ -610,6 +684,8 @@ timestamp=2026-06-07T12:00:00"""
                 "lock_id": lock_id,
                 "product_id": product_id,
                 "quantity_locked": quantity,
+                "warehouse_code": (body or {}).get("warehouse_code", "WH-DEFAULT"),
+                "reason": (body or {}).get("reason", ""),
                 "expires_at": "2026-06-12T12:00:00",
                 "locked_at": "2026-06-12T10:00:00"
             },
@@ -689,6 +765,343 @@ timestamp=2026-06-07T12:00:00"""
         }
         resp_headers = {"X-Trace-Id": _trace_id("test-order")}
         _log_response("POST", "/api/v1/orders/fail", 200, f"创建订单 {order_id}")
+        return JSONResponse(response, headers=resp_headers)
+
+    # ----------------------------------------------------------
+    # MVP3 多场景编排扩展接口（10个新接口）
+    # 支持变量传递、多步骤串联、错误场景测试
+    # ----------------------------------------------------------
+
+    # --- MVP3-1: POST /api/v1/orders/create (创建订单 - 简化版，支持变量注入) ---
+    @app.post("/api/v1/orders/create")
+    async def mvp3_create_order(request: Request):
+        headers = _important_headers(request)
+        body = await _read_body_json(request)
+        _log_request("POST", "/api/v1/orders/create", headers, body)
+
+        invalid = _require_json_object(body, ["buyer_id"])
+        if invalid:
+            return invalid
+
+        buyer_id = (body or {}).get("buyer_id", "UNKNOWN")
+        amount = (body or {}).get("amount", 299.00)
+        product_id = (body or {}).get("product_id", "SKU10001")
+        quantity = (body or {}).get("quantity", 1)
+
+        # 支持变量注入：如果传入 order_prefix，用它生成order_id
+        order_prefix = (body or {}).get("order_prefix", "ORD")
+        order_id = f"{order_prefix}-{int(time.time()) % 100000:05d}"
+
+        response = {
+            "success": True,
+            "data": {
+                "order_id": order_id,
+                "buyer_id": buyer_id,
+                "product_id": product_id,
+                "quantity": quantity,
+                "amount": amount,
+                "pay_status": "PENDING",
+                "created_at": "2026-06-22T10:00:00",
+                "trace_id": _trace_id("mvp3-create-order"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-create-order")}
+        _log_response("POST", "/api/v1/orders/create", 200, f"创建订单 {order_id} (buyer={buyer_id})")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-2: POST /api/v1/payments/pay (支付 - 支持order_id变量注入) ---
+    @app.post("/api/v1/payments/pay")
+    async def mvp3_pay_order(request: Request):
+        headers = _important_headers(request)
+        body = await _read_body_json(request)
+        _log_request("POST", "/api/v1/payments/pay", headers, body)
+
+        invalid = _require_json_object(body, ["order_id", "payment_method"])
+        if invalid:
+            return invalid
+
+        order_id = (body or {}).get("order_id", "UNKNOWN")
+        payment_method = (body or {}).get("payment_method", "ALIPAY")
+        amount = (body or {}).get("amount", 299.00)
+
+        # 模拟支付延迟（真实场景可能超时）
+        import asyncio
+        await asyncio.sleep(0.05)
+
+        payment_id = f"PAY-{int(time.time()) % 100000:05d}"
+        response = {
+            "success": True,
+            "data": {
+                "payment_id": payment_id,
+                "order_id": order_id,  # 回传order_id，证明变量传递
+                "payment_method": payment_method,
+                "status": "SUCCESS",
+                "pay_status": "PAID",  # 最终支付状态
+                "amount_paid": amount,
+                "paid_at": "2026-06-22T10:00:05",
+                "trace_id": _trace_id("mvp3-pay"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-pay")}
+        _log_response("POST", "/api/v1/payments/pay", 200, f"支付成功 {payment_id} (order={order_id})")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-3: GET /api/v1/orders/{order_id}/status (查询订单状态 - 验证支付结果) ---
+    @app.get("/api/v1/orders/{order_id}/status")
+    async def mvp3_query_order_status(order_id: str, request: Request):
+        headers = _important_headers(request)
+        _log_request("GET", f"/api/v1/orders/{order_id}/status", headers)
+
+        # 根据order_id前缀模拟不同状态
+        if order_id.startswith("ORD-FAIL"):
+            pay_status = "FAILED"
+        elif order_id.startswith("ORD-PENDING"):
+            pay_status = "PENDING"
+        else:
+            pay_status = "PAID"
+
+        response = {
+            "success": True,
+            "data": {
+                "order_id": order_id,
+                "pay_status": pay_status,
+                "updated_at": "2026-06-22T10:00:10",
+                "trace_id": _trace_id("mvp3-order-status"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-order-status")}
+        _log_response("GET", f"/api/v1/orders/{order_id}/status", 200, f"订单状态 {pay_status} (order={order_id})")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-4: POST /api/v1/inventory/check (检查库存 - 前置条件) ---
+    @app.post("/api/v1/inventory/check")
+    async def mvp3_check_inventory(request: Request):
+        headers = _important_headers(request)
+        body = await _read_body_json(request)
+        _log_request("POST", "/api/v1/inventory/check", headers, body)
+
+        invalid = _require_json_object(body, ["product_id", "quantity"])
+        if invalid:
+            return invalid
+
+        product_id = (body or {}).get("product_id", "SKU10001")
+        quantity = (body or {}).get("quantity", 1)
+
+        response = {
+            "success": True,
+            "data": {
+                "product_id": product_id,
+                "available": True,
+                "stock_num": 120,
+                "locked_num": 4,
+                "requested_quantity": quantity,
+                "trace_id": _trace_id("mvp3-inventory-check"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-inventory-check")}
+        _log_response("POST", "/api/v1/inventory/check", 200, f"库存检查通过 (product={product_id})")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-5: POST /api/v1/orders/{order_id}/confirm (确认订单 - 模拟审批) ---
+    @app.post("/api/v1/orders/{order_id}/confirm")
+    async def mvp3_confirm_order(order_id: str, request: Request):
+        headers = _important_headers(request)
+        body = await _read_body_json(request)
+        _log_request("POST", f"/api/v1/orders/{order_id}/confirm", headers, body)
+
+        confirmed = (body or {}).get("confirmed", True)
+        if not confirmed:
+            response = {
+                "success": False,
+                "errorCode": "ORDER_NOT_CONFIRMED",
+                "errorMessage": "订单未确认，取消执行"
+            }
+            _log_response("POST", f"/api/v1/orders/{order_id}/confirm", 400, "订单未确认")
+            return JSONResponse(response, status_code=400)
+
+        response = {
+            "success": True,
+            "data": {
+                "order_id": order_id,
+                "status": "CONFIRMED",
+                "confirmed_at": "2026-06-22T10:00:02",
+                "trace_id": _trace_id("mvp3-confirm"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-confirm")}
+        _log_response("POST", f"/api/v1/orders/{order_id}/confirm", 200, f"订单确认成功 (order={order_id})")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-6: GET /api/v1/payments/{payment_id}/receipt (支付凭证) ---
+    @app.get("/api/v1/payments/{payment_id}/receipt")
+    async def mvp3_get_payment_receipt(payment_id: str, request: Request):
+        headers = _important_headers(request)
+        _log_request("GET", f"/api/v1/payments/{payment_id}/receipt", headers)
+
+        response = {
+            "success": True,
+            "data": {
+                "payment_id": payment_id,
+                "receipt_no": f"RCPT-{int(time.time()) % 100000:05d}",
+                "amount": 299.00,
+                "currency": "CNY",
+                "issued_at": "2026-06-22T10:00:15",
+                "trace_id": _trace_id("mvp3-receipt"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-receipt")}
+        _log_response("GET", f"/api/v1/payments/{payment_id}/receipt", 200, f"支付凭证 {payment_id}")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-7: POST /api/v1/notifications/send (发送通知 - 支付后通知) ---
+    @app.post("/api/v1/notifications/send")
+    async def mvp3_send_notification(request: Request):
+        headers = _important_headers(request)
+        body = await _read_body_json(request)
+        _log_request("POST", "/api/v1/notifications/send", headers, body)
+
+        invalid = _require_json_object(body, ["order_id", "channel"])
+        if invalid:
+            return invalid
+
+        order_id = (body or {}).get("order_id", "UNKNOWN")
+        channel = (body or {}).get("channel", "SMS")
+        message = (body or {}).get("message", f"订单 {order_id} 支付成功")
+
+        response = {
+            "success": True,
+            "data": {
+                "notification_id": f"NOTIF-{int(time.time()) % 100000:05d}",
+                "order_id": order_id,
+                "channel": channel,
+                "status": "SENT",
+                "message": message,
+                "sent_at": "2026-06-22T10:00:20",
+                "trace_id": _trace_id("mvp3-notif"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-notif")}
+        _log_response("POST", "/api/v1/notifications/send", 200, f"通知已发送 (order={order_id}, channel={channel})")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-8: POST /api/v1/orders/{order_id}/cancel (取消订单 - 失败场景) ---
+    @app.post("/api/v1/orders/{order_id}/cancel")
+    async def mvp3_cancel_order(order_id: str, request: Request):
+        headers = _important_headers(request)
+        body = await _read_body_json(request)
+        _log_request("POST", f"/api/v1/orders/{order_id}/cancel", headers, body)
+
+        reason = (body or {}).get("reason", "用户取消")
+
+        response = {
+            "success": True,
+            "data": {
+                "order_id": order_id,
+                "status": "CANCELLED",
+                "reason": reason,
+                "cancelled_at": "2026-06-22T10:00:25",
+                "trace_id": _trace_id("mvp3-cancel"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-cancel")}
+        _log_response("POST", f"/api/v1/orders/{order_id}/cancel", 200, f"订单已取消 (order={order_id})")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-9: GET /api/v1/health/detailed (健康检查 - 含各服务状态) ---
+    @app.get("/api/v1/health/detailed")
+    async def mvp3_health_detailed(request: Request):
+        headers = _important_headers(request)
+        _log_request("GET", "/api/v1/health/detailed", headers)
+
+        response = {
+            "success": True,
+            "data": {
+                "status": "HEALTHY",
+                "timestamp": "2026-06-22T10:00:00",
+                "services": {
+                    "order_service": {"status": "UP", "latency_ms": 12},
+                    "payment_service": {"status": "UP", "latency_ms": 8},
+                    "inventory_service": {"status": "UP", "latency_ms": 5},
+                    "notification_service": {"status": "UP", "latency_ms": 15},
+                },
+                "trace_id": _trace_id("mvp3-health"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-health")}
+        _log_response("GET", "/api/v1/health/detailed", 200, "所有服务健康")
+        return JSONResponse(response, headers=resp_headers)
+
+    # --- MVP3-10: POST /api/v1/batch/execute (批量执行 - 模拟多步骤批量操作) ---
+    @app.post("/api/v1/batch/execute")
+    async def mvp3_batch_execute(request: Request):
+        headers = _important_headers(request)
+        body = await _read_body_json(request)
+        _log_request("POST", "/api/v1/batch/execute", headers, body)
+
+        operations = (body or {}).get("operations", [])
+        if not isinstance(operations, list):
+            return _bad_request("operations 必须是非空数组")
+
+        results = []
+        for idx, op in enumerate(operations):
+            op_type = op.get("type", "UNKNOWN")
+            if op_type == "create_order":
+                results.append({
+                    "index": idx,
+                    "type": op_type,
+                    "success": True,
+                    "order_id": f"BATCH-ORD-{idx}-{int(time.time()) % 100000:05d}",
+                    "trace_id": _trace_id(f"mvp3-batch-{idx}"),
+                })
+            elif op_type == "create_payment":
+                results.append({
+                    "index": idx,
+                    "type": op_type,
+                    "success": True,
+                    "payment_id": f"BATCH-PAY-{idx}-{int(time.time()) % 100000:05d}",
+                    "trace_id": _trace_id(f"mvp3-batch-{idx}"),
+                })
+            else:
+                results.append({
+                    "index": idx,
+                    "type": op_type,
+                    "success": False,
+                    "error": f"不支持的操作类型: {op_type}",
+                })
+
+        response = {
+            "success": True,
+            "data": {
+                "batch_id": f"BATCH-{int(time.time()) % 100000:05d}",
+                "total": len(operations),
+                "succeeded": sum(1 for r in results if r["success"]),
+                "failed": sum(1 for r in results if not r["success"]),
+                "results": results,
+                "trace_id": _trace_id("mvp3-batch"),
+            },
+            "errorCode": "",
+            "errorMessage": ""
+        }
+        resp_headers = {"X-Trace-Id": _trace_id("mvp3-batch")}
+        _log_response("POST", "/api/v1/batch/execute", 200, f"批量执行完成: {len(operations)} 个操作")
         return JSONResponse(response, headers=resp_headers)
 
     # ----------------------------------------------------------

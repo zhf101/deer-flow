@@ -41,6 +41,7 @@ from app.gdp.datagen.config.base.service import BaseConfigService
 from app.gdp.datagen.config.common.models import (
     CapabilitySideEffect,
     CapabilityType,
+    ConditionRule,
     ConfigStatus,
     HttpMethod,
     HttpTimeoutConfig,
@@ -48,12 +49,17 @@ from app.gdp.datagen.config.common.models import (
     InputFieldType,
     ResponseConditionGroup,
     ResponseHandling,
+    SceneStatus,
+    SceneSuccessCriteria,
     SqlOperation,
     SqlSourceSafety,
 )
 from app.gdp.datagen.config.httpsource.models import HttpSourceConfig
 from app.gdp.datagen.config.httpsource.repository import HttpSourceRepository
 from app.gdp.datagen.config.httpsource.service import HttpSourceService
+from app.gdp.datagen.config.scene.models import HttpStepDefinition, SceneDefinition, SqlStepDefinition
+from app.gdp.datagen.config.scene.repository import SceneRepository
+from app.gdp.datagen.config.scene.service import SceneService
 from app.gdp.datagen.config.sqlsource.models import SqlSourceConfig, SqlSourceParameter
 from app.gdp.datagen.config.sqlsource.repository import SqlSourceRepository
 from app.gdp.datagen.config.sqlsource.service import SqlSourceService
@@ -102,6 +108,72 @@ def _json_request_mapping(body: dict[str, Any]) -> dict[str, Any]:
         "headers": {"Accept": "application/json", "Content-Type": "application/json"},
         "bodyType": "raw-json",
         "rawBody": _dumps(body),
+        "bodyTree": _body_tree(body),
+    }
+
+
+def _urlencoded_request_mapping(fields: dict[str, Any]) -> dict[str, Any]:
+    """构造 x-www-form-urlencoded 请求体映射。"""
+    return {
+        "headers": {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        "bodyType": "x-www-form-urlencoded",
+        "urlEncodedData": fields,
+    }
+
+
+def _form_data_request_mapping(fields: dict[str, Any], *, query: dict[str, Any] | None = None, headers: dict[str, Any] | None = None) -> dict[str, Any]:
+    """构造 multipart/form-data 请求体映射。"""
+    return {
+        "query": query or {},
+        "headers": headers or {"Accept": "application/json"},
+        "bodyType": "form-data",
+        "formData": [
+            {"key": key, "value": value, "description": "", "enabled": True}
+            for key, value in fields.items()
+        ],
+    }
+
+
+def _body_tree(body: dict[str, Any]) -> list[dict[str, Any]]:
+    """把示例请求体转换成前端树状 Body 编辑器使用的字段结构。"""
+    return [_body_field(name, value) for name, value in body.items()]
+
+
+def _body_field(name: str, value: Any) -> dict[str, Any]:
+    """构造统一的 Body 字段节点。"""
+    if isinstance(value, dict):
+        return {
+            "name": name,
+            "type": "object",
+            "required": True,
+            "batchEnabled": False,
+            "children": [_body_field(child_name, child_value) for child_name, child_value in value.items()],
+        }
+    if isinstance(value, list):
+        first = value[0] if value else ""
+        children = [_body_field("item", first)] if not isinstance(first, dict) else [_body_field(k, v) for k, v in first.items()]
+        return {
+            "name": name,
+            "type": "array",
+            "required": True,
+            "batchEnabled": False,
+            "children": children,
+        }
+    if isinstance(value, bool):
+        field_type = "boolean"
+    elif isinstance(value, int | float):
+        field_type = "number"
+    else:
+        field_type = "string"
+    return {
+        "name": name,
+        "type": field_type,
+        "required": True,
+        "defaultValue": value,
+        "batchEnabled": False,
     }
 
 
@@ -337,7 +409,13 @@ def build_http_sources() -> list[HttpSourceConfig]:
                 "name": "${input.name}",
                 "age": "${input.age}",
                 "enabled": True,
+                "profile": {
+                    "email": "${input.email}",
+                    "phone": "${input.phone}",
+                    "level": "${input.memberLevel}",
+                },
             },
+            "tags": ["mock", "${input.userTag}"],
         }),
         responseHandling=_success_response_handling(),
         outputMapping={
@@ -368,7 +446,7 @@ def build_http_sources() -> list[HttpSourceConfig]:
                 "Accept": "application/xml",
                 "Authorization": "Basic ${input.basicAuth}",
             },
-            "bodyType": "raw-text",
+            "bodyType": "raw-xml",
             "rawBody": (
                 '<CreateOrderRequest>'
                 '<tenantId>${input.tenantId}</tenantId>'
@@ -439,10 +517,11 @@ def build_http_sources() -> list[HttpSourceConfig]:
                 "Authorization": "Bearer ${input.token}",
             },
             "bodyType": "form-data",
-            "formFields": {
-                "file": "${input.file}",
-                "bizType": "${input.bizType}",
-            },
+            "formData": [
+                {"key": "file", "value": "${input.file}", "description": "文件内容或文件名", "enabled": True},
+                {"key": "bizType", "value": "${input.bizType}", "description": "业务类型", "enabled": True},
+                {"key": "overwrite", "value": "${input.overwrite}", "description": "是否覆盖同名文件", "enabled": True},
+            ],
         },
         responseHandling=_success_response_handling(),
         outputMapping={
@@ -467,17 +546,16 @@ def build_http_sources() -> list[HttpSourceConfig]:
         method=HttpMethod.POST,
         timeoutConfig=HttpTimeoutConfig(),
         requestMapping={
-            "headers": {
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Accept": "application/json",
-                "Authorization": "Basic ${input.clientCredentials}",
-            },
-            "bodyType": "form-urlencoded",
-            "formFields": {
+            **_urlencoded_request_mapping({
                 "grant_type": "password",
                 "username": "${input.username}",
                 "password": "${input.password}",
                 "scope": "${input.scope}",
+            }),
+            "headers": {
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Accept": "application/json",
+                "Authorization": "Basic ${input.clientCredentials}",
             },
         },
         outputMapping={
@@ -537,6 +615,11 @@ def build_http_sources() -> list[HttpSourceConfig]:
         requestMapping=_json_request_mapping({
             "buyer_id": "${input.buyer_id}",
             "amount": "${input.amount}",
+            "currency": "${input.currency}",
+            "metadata": {
+                "channel": "${input.channel}",
+                "request_id": "${input.request_id}",
+            },
         }),
         responseHandling=_success_response_handling(),
         outputMapping={
@@ -564,8 +647,18 @@ def build_http_sources() -> list[HttpSourceConfig]:
         timeoutConfig=HttpTimeoutConfig(),
         requestMapping=_json_request_mapping({
             "buyer_id": "${input.buyer_id}",
-            "product_id": "${input.product_id}",
-            "quantity": "${input.quantity}",
+            "items": [
+                {
+                    "product_id": "${input.product_id}",
+                    "sku_id": "${input.sku_id}",
+                    "quantity": "${input.quantity}",
+                    "unit_price": "${input.unit_price}",
+                }
+            ],
+            "delivery": {
+                "city": "${input.city}",
+                "address": "${input.address}",
+            },
         }),
         responseHandling=_success_response_handling(),
         outputMapping={
@@ -594,6 +687,8 @@ def build_http_sources() -> list[HttpSourceConfig]:
         requestMapping=_json_request_mapping({
             "order_id": "${input.order_id}",
             "payment_method": "${input.payment_method}",
+            "amount": "${input.amount}",
+            "client_request_id": "${input.client_request_id}",
         }),
         responseHandling=_success_response_handling(),
         outputMapping={
@@ -645,6 +740,8 @@ def build_http_sources() -> list[HttpSourceConfig]:
         requestMapping=_json_request_mapping({
             "product_id": "${input.product_id}",
             "quantity": "${input.quantity}",
+            "warehouse_code": "${input.warehouse_code}",
+            "reason": "${input.reason}",
         }),
         responseHandling=_success_response_handling(),
         outputMapping={
@@ -705,6 +802,260 @@ def build_http_sources() -> list[HttpSourceConfig]:
         },
         status=ConfigStatus.ENABLED,
     ))
+
+    # --- 5.17-5.26 MVP3 多场景编排测试接口 ---
+    mvp3_http_sources = [
+        HttpSourceConfig(
+            sourceCode="httpMvp3CreateOrder",
+            sourceName="MVP3 创建订单",
+            tags=["MVP3", "订单", "创建", "变量传递"],
+            capabilityType=CapabilityType.CREATE,
+            businessDomain="交易",
+            sideEffects=[
+                CapabilitySideEffect(effectType="CREATE_ORDER", target="trade_order", description="创建订单记录"),
+            ],
+            agentDescription="MVP3 测试：创建订单，产出 order_id 供后续步骤消费",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/orders/create",
+            method=HttpMethod.POST,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping=_json_request_mapping({
+                "buyer_id": "${input.buyer_id}",
+                "amount": "${input.amount}",
+                "product_id": "${input.product_id}",
+                "quantity": "${input.quantity}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "order_id": "${RES_BODY(data.order_id)}",
+                "buyer_id": "${RES_BODY(data.buyer_id)}",
+                "amount": "${RES_BODY(data.amount)}",
+                "pay_status": "${RES_BODY(data.pay_status)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3PayOrder",
+            sourceName="MVP3 支付订单",
+            tags=["MVP3", "支付", "付款", "变量传递"],
+            capabilityType=CapabilityType.UPDATE,
+            businessDomain="支付",
+            sideEffects=[
+                CapabilitySideEffect(effectType="MODIFY_PAYMENT", target="payment_record", description="创建支付记录"),
+            ],
+            agentDescription="MVP3 测试：支付订单，消费上游 order_id，产出 pay_status/payment_id",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/payments/pay",
+            method=HttpMethod.POST,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping=_json_request_mapping({
+                "order_id": "${input.order_id}",
+                "payment_method": "${input.payment_method}",
+                "amount": "${input.amount}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "payment_id": "${RES_BODY(data.payment_id)}",
+                "pay_status": "${RES_BODY(data.pay_status)}",
+                "amount_paid": "${RES_BODY(data.amount_paid)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3QueryOrderStatus",
+            sourceName="MVP3 查询订单状态",
+            tags=["MVP3", "订单", "查询", "状态", "变量传递"],
+            capabilityType=CapabilityType.QUERY,
+            businessDomain="交易",
+            sideEffects=[],
+            agentDescription="MVP3 测试：查询订单支付状态，消费上游 order_id，验证支付结果",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/orders/${input.order_id}/status",
+            method=HttpMethod.GET,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping={
+                "headers": {"Accept": "application/json"},
+                "query": {},
+                "bodyType": "none",
+            },
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "pay_status": "${RES_BODY(data.pay_status)}",
+                "updated_at": "${RES_BODY(data.updated_at)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3CheckInventory",
+            sourceName="MVP3 检查库存",
+            tags=["MVP3", "库存", "检查", "前置条件"],
+            capabilityType=CapabilityType.QUERY,
+            businessDomain="库存",
+            sideEffects=[],
+            agentDescription="MVP3 测试：检查商品库存是否充足，作为下单前置条件",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/inventory/check",
+            method=HttpMethod.POST,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping=_json_request_mapping({
+                "product_id": "${input.product_id}",
+                "quantity": "${input.quantity}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "available": "${RES_BODY(data.available)}",
+                "stock_num": "${RES_BODY(data.stock_num)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3ConfirmOrder",
+            sourceName="MVP3 确认订单",
+            tags=["MVP3", "订单", "确认", "审批"],
+            capabilityType=CapabilityType.UPDATE,
+            businessDomain="交易",
+            sideEffects=[
+                CapabilitySideEffect(effectType="MODIFY_ORDER", target="trade_order", description="更新订单状态为已确认"),
+            ],
+            agentDescription="MVP3 测试：确认订单，消费上游 order_id，有写副作用需审批",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/orders/${input.order_id}/confirm",
+            method=HttpMethod.POST,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping=_json_request_mapping({
+                "confirmed": True,
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "status": "${RES_BODY(data.status)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3SendNotification",
+            sourceName="MVP3 发送通知",
+            tags=["MVP3", "通知", "消息"],
+            capabilityType=CapabilityType.CREATE,
+            businessDomain="消息",
+            sideEffects=[
+                CapabilitySideEffect(effectType="SEND_MESSAGE", target="notification", description="发送支付通知"),
+            ],
+            agentDescription="MVP3 测试：发送支付成功通知，消费 order_id 和 payment_id",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/notifications/send",
+            method=HttpMethod.POST,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping=_json_request_mapping({
+                "order_id": "${input.order_id}",
+                "channel": "${input.channel}",
+                "message": "订单 ${input.order_id} 支付成功",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "notification_id": "${RES_BODY(data.notification_id)}",
+                "status": "${RES_BODY(data.status)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3BatchExecute",
+            sourceName="MVP3 批量执行操作",
+            tags=["MVP3", "批量", "执行"],
+            capabilityType=CapabilityType.CREATE,
+            businessDomain="交易",
+            sideEffects=[
+                CapabilitySideEffect(effectType="CREATE_ORDER", target="trade_order", description="批量创建订单"),
+            ],
+            agentDescription="MVP3 测试：批量执行多个操作，验证批量场景",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/batch/execute",
+            method=HttpMethod.POST,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping=_json_request_mapping({
+                "operations": [
+                    {"type": "create_order", "buyer_id": "${input.buyer_id}", "amount": "${input.amount}"},
+                ]
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "batch_id": "${RES_BODY(data.batch_id)}",
+                "succeeded": "${RES_BODY(data.succeeded)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3CancelOrder",
+            sourceName="MVP3 取消订单",
+            tags=["MVP3", "订单", "取消"],
+            capabilityType=CapabilityType.UPDATE,
+            businessDomain="交易",
+            sideEffects=[
+                CapabilitySideEffect(effectType="MODIFY_ORDER", target="trade_order", description="取消订单"),
+            ],
+            agentDescription="MVP3 测试：取消订单，测试失败场景",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/orders/${input.order_id}/cancel",
+            method=HttpMethod.POST,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping=_json_request_mapping({
+                "reason": "${input.reason}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "status": "${RES_BODY(data.status)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3HealthCheck",
+            sourceName="MVP3 服务健康检查",
+            tags=["MVP3", "健康", "检查", "无副作用"],
+            capabilityType=CapabilityType.QUERY,
+            businessDomain="基础",
+            sideEffects=[],
+            agentDescription="MVP3 测试：检查各微服务健康状态，纯查询无副作用",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/health/detailed",
+            method=HttpMethod.GET,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping={
+                "headers": {"Accept": "application/json"},
+                "query": {},
+                "bodyType": "none",
+            },
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "status": "${RES_BODY(data.status)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+        HttpSourceConfig(
+            sourceCode="httpMvp3GetPaymentReceipt",
+            sourceName="MVP3 查询支付凭证",
+            tags=["MVP3", "支付", "凭证", "查询"],
+            capabilityType=CapabilityType.QUERY,
+            businessDomain="支付",
+            sideEffects=[],
+            agentDescription="MVP3 测试：查询支付凭证详情，消费上游 payment_id",
+            sysCode=HTTP_SYS_CODE,
+            path="/api/v1/payments/${input.payment_id}/receipt",
+            method=HttpMethod.GET,
+            timeoutConfig=HttpTimeoutConfig(),
+            requestMapping={
+                "headers": {"Accept": "application/json"},
+                "query": {},
+                "bodyType": "none",
+            },
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "receipt_no": "${RES_BODY(data.receipt_no)}",
+                "amount": "${RES_BODY(data.amount)}",
+            },
+            status=ConfigStatus.ENABLED,
+        ),
+    ]
+    for src in mvp3_http_sources:
+        sources.append(src)
 
     return sources
 
@@ -958,8 +1309,884 @@ def build_sql_sources() -> list[SqlSourceConfig]:
 
 
 # ============================================================
-# 7. 标识引用配置
+# 7. 场景编排配置
 # ============================================================
+
+
+def _output_meta(label: str, remark: str) -> dict[str, str]:
+    """构造步骤输出元数据。"""
+    return {"label": label, "remark": remark}
+
+
+def build_scenes() -> list[SceneDefinition]:
+    """构建多组场景：MVP4A 五步闭环 + MVP3 多场景编排测试场景。"""
+    return build_mvp4a_scenes() + build_mvp3_planstep_scenes() + build_mvp3_scenes()
+
+
+def build_mvp4a_scenes() -> list[SceneDefinition]:
+    """MVP4A 五步闭环场景。"""
+    order_flow_steps = [
+        HttpStepDefinition(
+            stepId="create_order",
+            stepName="创建带商品订单",
+            type="HTTP",
+            executionOrder=1,
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/orders/with-items",
+            requestMapping=_json_request_mapping({
+                "buyer_id": "${input.buyer_id}",
+                "items": [
+                    {
+                        "product_id": "${input.sku_id}",
+                        "sku_id": "${input.sku_id}",
+                        "quantity": "${input.quantity}",
+                        "unit_price": "${input.unit_price}",
+                    }
+                ],
+                "delivery": {
+                    "city": "${input.city}",
+                    "address": "${input.address}",
+                },
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "order_id": "${RES_BODY(data.order_id)}",
+                "buyer_id": "${RES_BODY(data.buyer_id)}",
+                "sku_id": "${RES_BODY(data.product_id)}",
+                "quantity": "${RES_BODY(data.quantity)}",
+                "pay_status": "${RES_BODY(data.pay_status)}",
+            },
+            outputMeta={
+                "order_id": _output_meta("订单号", "HTTP 创建订单接口返回的业务订单号。"),
+                "buyer_id": _output_meta("买家 ID", "本次订单归属的买家用户 ID。"),
+                "sku_id": _output_meta("商品 SKU", "订单首个商品 SKU，用于后续库存和 SQL 校验。"),
+                "quantity": _output_meta("下单数量", "订单首个商品数量，用于后续库存锁定。"),
+                "pay_status": _output_meta("支付状态", "创建订单后的初始支付状态。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="lock_inventory",
+            stepName="锁定库存",
+            type="HTTP",
+            executionOrder=2,
+            dependsOn=["create_order"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/inventory/lock",
+            requestMapping=_json_request_mapping({
+                "product_id": "${steps.create_order.outputs.sku_id}",
+                "quantity": "${steps.create_order.outputs.quantity}",
+                "warehouse_code": "${input.warehouse_code}",
+                "reason": "order:${steps.create_order.outputs.order_id}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "lock_id": "${RES_BODY(data.lock_id)}",
+                "warehouse_code": "${RES_BODY(data.warehouse_code)}",
+                "quantity_locked": "${RES_BODY(data.quantity_locked)}",
+            },
+            outputMeta={
+                "lock_id": _output_meta("库存锁 ID", "库存服务返回的锁定记录 ID。"),
+                "warehouse_code": _output_meta("仓库编码", "执行锁库存的仓库编码。"),
+                "quantity_locked": _output_meta("锁定数量", "本次锁定的库存数量。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="create_payment",
+            stepName="发起支付",
+            type="HTTP",
+            executionOrder=3,
+            dependsOn=["create_order", "lock_inventory"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/payments",
+            requestMapping=_json_request_mapping({
+                "order_id": "${steps.create_order.outputs.order_id}",
+                "payment_method": "${input.payment_method}",
+                "amount": "${input.amount}",
+                "client_request_id": "${input.request_id}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "payment_id": "${RES_BODY(data.payment_id)}",
+                "payment_status": "${RES_BODY(data.status)}",
+                "amount_paid": "${RES_BODY(data.amount_paid)}",
+            },
+            outputMeta={
+                "payment_id": _output_meta("支付单号", "支付接口返回的支付流水 ID。"),
+                "payment_status": _output_meta("支付结果", "支付接口返回的处理状态。"),
+                "amount_paid": _output_meta("实付金额", "支付接口确认的支付金额。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="query_payment",
+            stepName="查询支付状态",
+            type="HTTP",
+            executionOrder=4,
+            dependsOn=["create_payment"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.GET,
+            path="/api/v1/payments/${steps.create_order.outputs.order_id}/status",
+            requestMapping={
+                "headers": {"Accept": "application/json"},
+                "query": {},
+                "bodyType": "none",
+            },
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "pay_status": "${RES_BODY(data.pay_status)}",
+                "paid_at": "${RES_BODY(data.paid_at)}",
+            },
+            outputMeta={
+                "pay_status": _output_meta("最终支付状态", "查询接口返回的最终支付状态。"),
+                "paid_at": _output_meta("支付完成时间", "订单支付完成时间。"),
+            },
+        ),
+        SqlStepDefinition(
+            stepId="check_member_orders",
+            stepName="SQL 查询买家历史订单",
+            type="SQL",
+            executionOrder=5,
+            dependsOn=["query_payment"],
+            sysCode=SQL_SYS_CODE,
+            datasourceCode="mockTradeSqlite",
+            operation=SqlOperation.SELECT,
+            sqlText=(
+                "SELECT order_no, user_id, sku_id, quantity, order_amount, order_status, created_at, paid_at "
+                "FROM trade_order WHERE user_id = :userId"
+            ),
+            normalizedSql=(
+                "SELECT order_no, user_id, sku_id, quantity, order_amount, order_status, created_at, paid_at "
+                "FROM trade_order WHERE user_id = :userId"
+            ),
+            parameters=[
+                SqlSourceParameter(
+                    name="userId",
+                    type=InputFieldType.STRING,
+                    required=True,
+                    defaultValue="U10001",
+                    description="买家用户 ID",
+                ).model_dump(mode="json")
+            ],
+            safety=SqlSourceSafety(requireWhere=True, maxAffectedRows=None),
+            paramMapping={
+                "userId": "${steps.create_order.outputs.buyer_id}",
+            },
+            outputMapping={
+                "history_order_no": "${SQL_RESULT(rows[0].order_no)}",
+                "history_order_status": "${SQL_RESULT(rows[0].order_status)}",
+            },
+            outputMeta={
+                "history_order_no": _output_meta("历史订单号", "SQL 查询结果第一行订单号，用于证明数据库查询链路已执行。"),
+                "history_order_status": _output_meta("历史订单状态", "SQL 查询结果第一行订单状态。"),
+            },
+        ),
+    ]
+
+    return [
+        SceneDefinition(
+            sceneCode="mvp4a_order_payment_inventory_sql_flow",
+            sceneName="MVP4A 订单支付库存 SQL 五步闭环",
+            sceneRemark="用于运行台压测的多步骤场景：创建带商品订单、锁定库存、发起支付、查询支付状态，并通过 SQL 查询买家历史订单验证数据库链路。",
+            sceneType="MVP4A_RUNTIME",
+            tags=["MVP4A", "订单", "支付", "库存", "SQL", "多步骤"],
+            capabilityType=CapabilityType.COMPOSITE,
+            businessDomain="交易",
+            sideEffects=[
+                CapabilitySideEffect(effectType="CREATE_ORDER", target="trade_order", description="创建订单记录。"),
+                CapabilitySideEffect(effectType="MODIFY_INVENTORY", target="inventory", description="锁定商品库存。"),
+                CapabilitySideEffect(effectType="MODIFY_PAYMENT", target="payment_record", description="创建支付流水。"),
+            ],
+            agentDescription="一键执行订单、库存、支付和 SQL 校验的五步闭环，用于验证运行台对多 PlanStep / 多 Scene 串联、变量传递和跨 HTTP/SQL 执行证据的展示能力。",
+            inputSchema=[
+                InputFieldDefinition(name="buyer_id", type=InputFieldType.STRING, required=True, defaultValue="U10001", label="买家 ID", remark="下单用户 ID。"),
+                InputFieldDefinition(name="sku_id", type=InputFieldType.STRING, required=True, defaultValue="SKU10001", label="商品 SKU", remark="要购买和锁库存的商品 SKU。"),
+                InputFieldDefinition(name="quantity", type=InputFieldType.NUMBER, required=True, defaultValue=1, label="购买数量", remark="本次下单和锁库存数量。"),
+                InputFieldDefinition(name="unit_price", type=InputFieldType.NUMBER, required=True, defaultValue=299.0, label="商品单价", remark="订单商品单价。"),
+                InputFieldDefinition(name="amount", type=InputFieldType.NUMBER, required=True, defaultValue=299.0, label="支付金额", remark="支付接口提交的订单金额。"),
+                InputFieldDefinition(name="payment_method", type=InputFieldType.STRING, required=True, defaultValue="ALIPAY", label="支付方式", remark="支付渠道。"),
+                InputFieldDefinition(name="request_id", type=InputFieldType.STRING, required=True, defaultValue="req-mvp4a-001", label="请求 ID", remark="支付幂等请求 ID。"),
+                InputFieldDefinition(name="warehouse_code", type=InputFieldType.STRING, required=True, defaultValue="WH-SH-01", label="仓库编码", remark="锁库存使用的仓库编码。"),
+                InputFieldDefinition(name="city", type=InputFieldType.STRING, required=True, defaultValue="上海", label="收货城市", remark="收货地址城市。"),
+                InputFieldDefinition(name="address", type=InputFieldType.STRING, required=True, defaultValue="浦东新区测试路 100 号", label="收货地址", remark="收货详细地址。"),
+            ],
+            steps=order_flow_steps,
+            resultMapping={
+                "order_id": "${steps.create_order.outputs.order_id}",
+                "lock_id": "${steps.lock_inventory.outputs.lock_id}",
+                "payment_id": "${steps.create_payment.outputs.payment_id}",
+                "pay_status": "${steps.query_payment.outputs.pay_status}",
+                "history_order_no": "${steps.check_member_orders.outputs.history_order_no}",
+                "history_order_status": "${steps.check_member_orders.outputs.history_order_status}",
+            },
+            successCriteria=SceneSuccessCriteria(
+                enabled=True,
+                businessSuccess=ResponseConditionGroup(
+                    allOf=[
+                        ConditionRule(path="pay_status", op="EQ", value="PAID"),
+                        ConditionRule(path="history_order_no", op="NOT_EMPTY", value=""),
+                    ],
+                ),
+                businessFailure=ResponseConditionGroup(
+                    anyOf=[
+                        ConditionRule(path="pay_status", op="NE", value="PAID"),
+                    ],
+                ),
+            ),
+            errorPolicy="STOP_ON_ERROR",
+            status=SceneStatus.DRAFT,
+        )
+    ]
+
+
+def build_mvp3_planstep_scenes() -> list[SceneDefinition]:
+    """MVP3 Runtime 多 PlanStep 串联使用的三个独立 Scene。"""
+
+    create_order_step = HttpStepDefinition(
+        stepId="create_order_http",
+        stepName="创建订单 HTTP",
+        type="HTTP",
+        executionOrder=1,
+        sysCode=HTTP_SYS_CODE,
+        method=HttpMethod.POST,
+        path="/api/v1/orders/create",
+        requestMapping=_json_request_mapping({
+            "buyer_id": "${input.buyer_id}",
+            "amount": "${input.amount}",
+            "product_id": "${input.product_id}",
+            "quantity": "${input.quantity}",
+            "order_prefix": "${input.order_prefix}",
+        }),
+        responseHandling=_success_response_handling(),
+        outputMapping={
+            "order_id": "${RES_BODY(data.order_id)}",
+            "buyer_id": "${RES_BODY(data.buyer_id)}",
+            "amount": "${RES_BODY(data.amount)}",
+        },
+        outputMeta={
+            "order_id": _output_meta("订单号", "创建订单后产出的订单号，后续支付和查询步骤会消费该变量。"),
+            "buyer_id": _output_meta("买家 ID", "下单用户 ID。"),
+            "amount": _output_meta("订单金额", "订单创建接口确认的订单金额。"),
+        },
+    )
+    pay_order_step = HttpStepDefinition(
+        stepId="pay_order_http",
+        stepName="支付订单 HTTP",
+        type="HTTP",
+        executionOrder=1,
+        sysCode=HTTP_SYS_CODE,
+        method=HttpMethod.POST,
+        path="/api/v1/payments/pay",
+        requestMapping=_json_request_mapping({
+            "order_id": "${input.order_id}",
+            "payment_method": "${input.payment_method}",
+            "amount": "${input.amount}",
+        }),
+        responseHandling=_success_response_handling(),
+        outputMapping={
+            "order_id": "${RES_BODY(data.order_id)}",
+            "payment_id": "${RES_BODY(data.payment_id)}",
+            "pay_status": "${RES_BODY(data.pay_status)}",
+            "amount_paid": "${RES_BODY(data.amount_paid)}",
+        },
+        outputMeta={
+            "order_id": _output_meta("订单号", "支付接口回传的订单号，用于证明消费了上游变量。"),
+            "payment_id": _output_meta("支付单号", "支付接口返回的支付流水 ID。"),
+            "pay_status": _output_meta("支付结果", "支付接口返回的最终支付状态，预期为 PAID。"),
+            "amount_paid": _output_meta("实付金额", "支付接口确认的实付金额。"),
+        },
+    )
+    query_order_step = HttpStepDefinition(
+        stepId="query_order_http",
+        stepName="查询订单状态 HTTP",
+        type="HTTP",
+        executionOrder=1,
+        sysCode=HTTP_SYS_CODE,
+        method=HttpMethod.GET,
+        path="/api/v1/orders/${input.order_id}/status",
+        requestMapping={
+            "headers": {"Accept": "application/json"},
+            "query": {},
+            "bodyType": "none",
+        },
+        responseHandling=_success_response_handling(),
+        outputMapping={
+            "order_id": "${RES_BODY(data.order_id)}",
+            "pay_status": "${RES_BODY(data.pay_status)}",
+            "updated_at": "${RES_BODY(data.updated_at)}",
+        },
+        outputMeta={
+            "order_id": _output_meta("订单号", "查询接口回传的订单号，用于证明消费了上游变量。"),
+            "pay_status": _output_meta("订单支付状态", "订单状态查询接口返回的最终支付状态。"),
+            "updated_at": _output_meta("状态更新时间", "订单支付状态最后更新时间。"),
+        },
+    )
+
+    return [
+        SceneDefinition(
+            sceneCode="create_order",
+            sceneName="创建订单",
+            sceneRemark="MVP3 Runtime 多 Scene 验收第一步：创建一笔待支付订单，只产出 order_id，供后续支付订单和查询订单状态两个 PlanStep 消费。",
+            sceneType="MVP3_RUNTIME_PLANSTEP",
+            tags=["MVP3", "Runtime", "多Scene", "创建订单", "订单", "变量传递"],
+            capabilityType=CapabilityType.CREATE,
+            businessDomain="交易",
+            sideEffects=[
+                CapabilitySideEffect(effectType="CREATE_ORDER", target="trade_order", description="创建订单记录。"),
+            ],
+            agentDescription="创建订单。MVP3 多 PlanStep / 多 Scene 编排验收专用原子 Scene：输入 buyer_id，调用订单创建 HTTP 接口，输出 finalOutput.order_id 作为 ORDER_ID 变量。",
+            inputSchema=[
+                InputFieldDefinition(name="buyer_id", type=InputFieldType.STRING, required=True, defaultValue="U10001", label="买家 ID", semanticType="USER_ID", aliases=["用户", "买家", "buyer_id"], remark="下单用户 ID。"),
+                InputFieldDefinition(name="amount", type=InputFieldType.NUMBER, required=False, defaultValue=299.0, label="订单金额", remark="订单金额，不传时使用默认验收金额。"),
+                InputFieldDefinition(name="product_id", type=InputFieldType.STRING, required=False, defaultValue="SKU10001", label="商品 SKU", semanticType="SKU_ID", aliases=["sku_id", "商品"], remark="订单商品 SKU。"),
+                InputFieldDefinition(name="quantity", type=InputFieldType.NUMBER, required=False, defaultValue=1, label="购买数量", remark="订单商品数量。"),
+                InputFieldDefinition(name="order_prefix", type=InputFieldType.STRING, required=False, defaultValue="ORD-MVP3", label="订单前缀", remark="Mock 服务生成订单号时使用的前缀，便于验收识别。"),
+            ],
+            steps=[create_order_step],
+            resultSchema=[
+                InputFieldDefinition(name="order_id", type=InputFieldType.STRING, required=False, label="订单号", semanticType="ORDER_ID", aliases=["订单 ID", "order_id"], remark="创建订单接口返回的订单号。"),
+                InputFieldDefinition(name="buyer_id", type=InputFieldType.STRING, required=False, label="买家 ID", semanticType="USER_ID", remark="创建订单接口回传的买家 ID。"),
+                InputFieldDefinition(name="amount", type=InputFieldType.NUMBER, required=False, label="订单金额", remark="创建订单接口回传的订单金额。"),
+            ],
+            resultMapping={
+                "order_id": "${steps.create_order_http.outputs.order_id}",
+                "buyer_id": "${steps.create_order_http.outputs.buyer_id}",
+                "amount": "${steps.create_order_http.outputs.amount}",
+            },
+            errorPolicy="STOP_ON_ERROR",
+            status=SceneStatus.DRAFT,
+        ),
+        SceneDefinition(
+            sceneCode="pay_order",
+            sceneName="支付订单",
+            sceneRemark="MVP3 Runtime 多 Scene 验收第二步：消费上一步产出的 order_id 发起支付，输出 pay_status 和 payment_id。",
+            sceneType="MVP3_RUNTIME_PLANSTEP",
+            tags=["MVP3", "Runtime", "多Scene", "支付订单", "支付", "变量传递"],
+            capabilityType=CapabilityType.UPDATE,
+            businessDomain="支付",
+            sideEffects=[
+                CapabilitySideEffect(effectType="MODIFY_PAYMENT", target="payment_record", description="创建支付流水并更新订单支付状态。"),
+            ],
+            agentDescription="支付订单。MVP3 多 PlanStep / 多 Scene 编排验收专用原子 Scene：输入上游变量 order_id，调用支付 HTTP 接口，输出 finalOutput.pay_status 和 finalOutput.payment_id。",
+            inputSchema=[
+                InputFieldDefinition(name="order_id", type=InputFieldType.STRING, required=True, label="订单号", semanticType="ORDER_ID", aliases=["订单 ID", "order_id"], remark="来自创建订单步骤的订单号。"),
+                InputFieldDefinition(name="payment_method", type=InputFieldType.STRING, required=False, defaultValue="ALIPAY", label="支付方式", remark="支付渠道，不传时使用 ALIPAY。"),
+                InputFieldDefinition(name="amount", type=InputFieldType.NUMBER, required=False, defaultValue=299.0, label="支付金额", remark="支付金额，不传时使用默认验收金额。"),
+            ],
+            steps=[pay_order_step],
+            resultSchema=[
+                InputFieldDefinition(name="order_id", type=InputFieldType.STRING, required=False, label="订单号", semanticType="ORDER_ID", remark="支付接口回传的订单号。"),
+                InputFieldDefinition(name="payment_id", type=InputFieldType.STRING, required=False, label="支付单号", semanticType="PAYMENT_ID", aliases=["支付流水", "payment_id"], remark="支付接口返回的支付流水 ID。"),
+                InputFieldDefinition(name="pay_status", type=InputFieldType.STRING, required=False, label="支付状态", semanticType="PAY_STATUS", aliases=["订单状态", "支付结果"], remark="支付接口返回的支付状态，预期为 PAID。"),
+                InputFieldDefinition(name="amount_paid", type=InputFieldType.NUMBER, required=False, label="实付金额", remark="支付接口确认的实付金额。"),
+            ],
+            resultMapping={
+                "order_id": "${steps.pay_order_http.outputs.order_id}",
+                "payment_id": "${steps.pay_order_http.outputs.payment_id}",
+                "pay_status": "${steps.pay_order_http.outputs.pay_status}",
+                "amount_paid": "${steps.pay_order_http.outputs.amount_paid}",
+            },
+            errorPolicy="STOP_ON_ERROR",
+            status=SceneStatus.DRAFT,
+        ),
+        SceneDefinition(
+            sceneCode="query_order",
+            sceneName="查询订单状态",
+            sceneRemark="MVP3 Runtime 多 Scene 验收第三步：消费创建订单步骤产出的 order_id 查询最终支付状态，作为多 Scene 编排的最终验收步骤。",
+            sceneType="MVP3_RUNTIME_PLANSTEP",
+            tags=["MVP3", "Runtime", "多Scene", "查询订单状态", "订单", "查询", "状态", "变量传递"],
+            capabilityType=CapabilityType.QUERY,
+            businessDomain="交易",
+            sideEffects=[],
+            agentDescription="查询订单状态。MVP3 多 PlanStep / 多 Scene 编排验收专用原子 Scene：输入上游变量 order_id，查询订单最终状态，输出 finalOutput.pay_status=PAID。",
+            inputSchema=[
+                InputFieldDefinition(name="order_id", type=InputFieldType.STRING, required=True, label="订单号", semanticType="ORDER_ID", aliases=["订单 ID", "order_id"], remark="来自创建订单步骤的订单号。"),
+            ],
+            steps=[query_order_step],
+            resultSchema=[
+                InputFieldDefinition(name="order_id", type=InputFieldType.STRING, required=False, label="订单号", semanticType="ORDER_ID", remark="查询接口回传的订单号。"),
+                InputFieldDefinition(name="pay_status", type=InputFieldType.STRING, required=False, label="订单状态", semanticType="PAY_STATUS", aliases=["支付状态", "支付结果"], remark="订单最终支付状态，预期为 PAID。"),
+                InputFieldDefinition(name="updated_at", type=InputFieldType.STRING, required=False, label="状态更新时间", remark="订单状态更新时间。"),
+            ],
+            resultMapping={
+                "order_id": "${steps.query_order_http.outputs.order_id}",
+                "pay_status": "${steps.query_order_http.outputs.pay_status}",
+                "updated_at": "${steps.query_order_http.outputs.updated_at}",
+            },
+            errorPolicy="STOP_ON_ERROR",
+            status=SceneStatus.DRAFT,
+        ),
+    ]
+
+
+def build_mvp3_scenes() -> list[SceneDefinition]:
+    """MVP3 多场景编排测试场景 — 变量传递、多步骤串联、边界 case。"""
+
+    # ============================================================
+    # Scene A: 创建订单并支付（3步 — 主 case）
+    # Step1 创建订单 → 产出 order_id
+    # Step2 支付订单 → 消费 order_id，产出 pay_status/payment_id
+    # Step3 查询订单状态 → 消费 order_id，验证 PAID
+    # ============================================================
+    create_order_and_pay_steps = [
+        HttpStepDefinition(
+            stepId="mvp3_create_order",
+            stepName="创建订单",
+            type="HTTP",
+            executionOrder=1,
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/orders/create",
+            requestMapping=_json_request_mapping({
+                "buyer_id": "${input.buyer_id}",
+                "amount": "${input.amount}",
+                "product_id": "${input.product_id}",
+                "quantity": "${input.quantity}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "order_id": "${RES_BODY(data.order_id)}",
+                "buyer_id": "${RES_BODY(data.buyer_id)}",
+                "amount": "${RES_BODY(data.amount)}",
+                "pay_status": "${RES_BODY(data.pay_status)}",
+            },
+            outputMeta={
+                "order_id": _output_meta("订单号", "Step1 创建订单后产出的订单号，Step2/Step3 需消费此变量。"),
+                "buyer_id": _output_meta("买家 ID", "下单用户 ID。"),
+                "amount": _output_meta("订单金额", "订单总金额。"),
+                "pay_status": _output_meta("支付状态", "创建后的初始支付状态 PENDING。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="mvp3_pay_order",
+            stepName="支付订单",
+            type="HTTP",
+            executionOrder=2,
+            dependsOn=["mvp3_create_order"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/payments/pay",
+            requestMapping=_json_request_mapping({
+                "order_id": "${steps.mvp3_create_order.outputs.order_id}",
+                "payment_method": "${input.payment_method}",
+                "amount": "${steps.mvp3_create_order.outputs.amount}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "payment_id": "${RES_BODY(data.payment_id)}",
+                "pay_status": "${RES_BODY(data.pay_status)}",
+                "amount_paid": "${RES_BODY(data.amount_paid)}",
+            },
+            outputMeta={
+                "payment_id": _output_meta("支付单号", "支付接口返回的支付流水 ID。"),
+                "pay_status": _output_meta("支付结果", "支付接口返回的处理状态 PAID。"),
+                "amount_paid": _output_meta("实付金额", "实际支付金额。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="mvp3_query_order_status",
+            stepName="查询订单支付状态",
+            type="HTTP",
+            executionOrder=3,
+            dependsOn=["mvp3_pay_order"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.GET,
+            path="/api/v1/orders/${steps.mvp3_create_order.outputs.order_id}/status",
+            requestMapping={
+                "headers": {"Accept": "application/json"},
+                "query": {},
+                "bodyType": "none",
+            },
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "pay_status": "${RES_BODY(data.pay_status)}",
+                "updated_at": "${RES_BODY(data.updated_at)}",
+            },
+            outputMeta={
+                "pay_status": _output_meta("最终支付状态", "查询接口返回的最终支付状态，预期 PAID。"),
+                "updated_at": _output_meta("更新时间", "订单状态最后更新时间。"),
+            },
+        ),
+    ]
+
+    # ============================================================
+    # Scene B: 完整交易流程（5步 — 含前置检查、确认、通知）
+    # Step1: 检查库存 → 产出 available
+    # Step2: 创建订单 → 产出 order_id
+    # Step3: 确认订单 → 消费 order_id
+    # Step4: 支付订单 → 消费 order_id + amount，产出 payment_id
+    # Step5: 发送支付通知 → 消费 order_id + payment_id
+    # ============================================================
+    full_trade_flow_steps = [
+        HttpStepDefinition(
+            stepId="mvp3_check_inventory",
+            stepName="检查库存",
+            type="HTTP",
+            executionOrder=1,
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/inventory/check",
+            requestMapping=_json_request_mapping({
+                "product_id": "${input.product_id}",
+                "quantity": "${input.quantity}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "available": "${RES_BODY(data.available)}",
+                "stock_num": "${RES_BODY(data.stock_num)}",
+            },
+            outputMeta={
+                "available": _output_meta("库存可用", "true 表示库存充足。"),
+                "stock_num": _output_meta("库存数量", "当前可用库存。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="mvp3_create_order_v2",
+            stepName="创建订单",
+            type="HTTP",
+            executionOrder=2,
+            dependsOn=["mvp3_check_inventory"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/orders/create",
+            requestMapping=_json_request_mapping({
+                "buyer_id": "${input.buyer_id}",
+                "amount": "${input.amount}",
+                "product_id": "${input.product_id}",
+                "quantity": "${input.quantity}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "order_id": "${RES_BODY(data.order_id)}",
+                "amount": "${RES_BODY(data.amount)}",
+            },
+            outputMeta={
+                "order_id": _output_meta("订单号", "新建订单号。"),
+                "amount": _output_meta("订单金额", "订单金额。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="mvp3_confirm_order",
+            stepName="确认订单",
+            type="HTTP",
+            executionOrder=3,
+            dependsOn=["mvp3_create_order_v2"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/orders/${steps.mvp3_create_order_v2.outputs.order_id}/confirm",
+            requestMapping=_json_request_mapping({
+                "confirmed": True,
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "status": "${RES_BODY(data.status)}",
+            },
+            outputMeta={
+                "status": _output_meta("确认状态", "CONFIRMED 表示已确认。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="mvp3_pay_order_v2",
+            stepName="支付订单",
+            type="HTTP",
+            executionOrder=4,
+            dependsOn=["mvp3_create_order_v2", "mvp3_confirm_order"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/payments/pay",
+            requestMapping=_json_request_mapping({
+                "order_id": "${steps.mvp3_create_order_v2.outputs.order_id}",
+                "payment_method": "${input.payment_method}",
+                "amount": "${steps.mvp3_create_order_v2.outputs.amount}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "payment_id": "${RES_BODY(data.payment_id)}",
+                "pay_status": "${RES_BODY(data.pay_status)}",
+            },
+            outputMeta={
+                "payment_id": _output_meta("支付单号", "支付流水号。"),
+                "pay_status": _output_meta("支付结果", "PAID。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="mvp3_send_notification",
+            stepName="发送支付通知",
+            type="HTTP",
+            executionOrder=5,
+            dependsOn=["mvp3_pay_order_v2"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/notifications/send",
+            requestMapping=_json_request_mapping({
+                "order_id": "${steps.mvp3_create_order_v2.outputs.order_id}",
+                "channel": "${input.notify_channel}",
+                "message": "订单 ${steps.mvp3_create_order_v2.outputs.order_id} 支付成功，支付单号 ${steps.mvp3_pay_order_v2.outputs.payment_id}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "notification_id": "${RES_BODY(data.notification_id)}",
+                "status": "${RES_BODY(data.status)}",
+            },
+            outputMeta={
+                "notification_id": _output_meta("通知 ID", "通知发送记录 ID。"),
+                "status": _output_meta("发送状态", "SENT。"),
+            },
+        ),
+    ]
+
+    # ============================================================
+    # Scene C: 创建并确认订单（2步 — 需审批场景）
+    # ============================================================
+    create_and_confirm_steps = [
+        HttpStepDefinition(
+            stepId="mvp3_create_simple_order",
+            stepName="创建订单",
+            type="HTTP",
+            executionOrder=1,
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/orders/create",
+            requestMapping=_json_request_mapping({
+                "buyer_id": "${input.buyer_id}",
+                "amount": "${input.amount}",
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={
+                "order_id": "${RES_BODY(data.order_id)}",
+            },
+            outputMeta={
+                "order_id": _output_meta("订单号", "新建订单号。"),
+            },
+        ),
+        HttpStepDefinition(
+            stepId="mvp3_confirm_simple_order",
+            stepName="确认订单",
+            type="HTTP",
+            executionOrder=2,
+            dependsOn=["mvp3_create_simple_order"],
+            sysCode=HTTP_SYS_CODE,
+            method=HttpMethod.POST,
+            path="/api/v1/orders/${steps.mvp3_create_simple_order.outputs.order_id}/confirm",
+            requestMapping=_json_request_mapping({
+                "confirmed": True,
+            }),
+            responseHandling=_success_response_handling(),
+            outputMapping={},
+            outputMeta={},
+        ),
+    ]
+
+    # ============================================================
+    # Scene D: 查询支付凭证（1步 — 纯查询，无副作用）
+    # ============================================================
+    query_payment_receipt_step = HttpStepDefinition(
+        stepId="mvp3_query_receipt",
+        stepName="查询支付凭证",
+        type="HTTP",
+        executionOrder=1,
+        sysCode=HTTP_SYS_CODE,
+        method=HttpMethod.GET,
+        path="/api/v1/payments/${input.payment_id}/receipt",
+        requestMapping={
+            "headers": {"Accept": "application/json"},
+            "query": {},
+            "bodyType": "none",
+        },
+        responseHandling=_success_response_handling(),
+        outputMapping={
+            "receipt_no": "${RES_BODY(data.receipt_no)}",
+            "amount": "${RES_BODY(data.amount)}",
+        },
+        outputMeta={
+            "receipt_no": _output_meta("凭证号", "支付凭证编号。"),
+            "amount": _output_meta("金额", "支付金额。"),
+        },
+    )
+
+    # ============================================================
+    # Scene E: 批量执行操作（1步 — 批量接口）
+    # ============================================================
+    batch_execute_step = HttpStepDefinition(
+        stepId="mvp3_batch_execute",
+        stepName="批量执行操作",
+        type="HTTP",
+        executionOrder=1,
+        sysCode=HTTP_SYS_CODE,
+        method=HttpMethod.POST,
+        path="/api/v1/batch/execute",
+        requestMapping=_json_request_mapping({
+            "operations": [
+                {"type": "create_order", "buyer_id": "${input.buyer_id}", "amount": "${input.amount}"},
+                {"type": "create_payment", "order_id": "ORD-BATCH-001", "payment_method": "${input.payment_method}"},
+            ]
+        }),
+        responseHandling=_success_response_handling(),
+        outputMapping={
+            "batch_id": "${RES_BODY(data.batch_id)}",
+            "succeeded": "${RES_BODY(data.succeeded)}",
+        },
+        outputMeta={
+            "batch_id": _output_meta("批次 ID", "批量操作批次号。"),
+            "succeeded": _output_meta("成功数", "成功执行的操作数。"),
+        },
+    )
+
+    # ============================================================
+    # Scene F: 取消订单（1步 — 失败/取消场景）
+    # ============================================================
+    cancel_order_step = HttpStepDefinition(
+        stepId="mvp3_cancel_order",
+        stepName="取消订单",
+        type="HTTP",
+        executionOrder=1,
+        sysCode=HTTP_SYS_CODE,
+        method=HttpMethod.POST,
+        path="/api/v1/orders/${input.order_id}/cancel",
+        requestMapping=_json_request_mapping({
+            "reason": "${input.reason}",
+        }),
+        responseHandling=_success_response_handling(),
+        outputMapping={
+            "status": "${RES_BODY(data.status)}",
+        },
+        outputMeta={
+            "status": _output_meta("取消状态", "CANCELLED。"),
+        },
+    )
+
+    # ============================================================
+    # Scene G: 健康检查（1步 — 纯查询，验证服务可用性）
+    # ============================================================
+    health_check_step = HttpStepDefinition(
+        stepId="mvp3_health_check",
+        stepName="健康检查",
+        type="HTTP",
+        executionOrder=1,
+        sysCode=HTTP_SYS_CODE,
+        method=HttpMethod.GET,
+        path="/api/v1/health/detailed",
+        requestMapping={
+            "headers": {"Accept": "application/json"},
+            "query": {},
+            "bodyType": "none",
+        },
+        responseHandling=_success_response_handling(),
+        outputMapping={
+            "status": "${RES_BODY(data.status)}",
+        },
+        outputMeta={
+            "status": _output_meta("健康状态", "HEALTHY 表示所有服务正常。"),
+        },
+    )
+
+    def _make_scene(
+        scene_code: str,
+        scene_name: str,
+        steps: list,
+        input_schema: list = None,
+        tags: list[str] | None = None,
+    ) -> SceneDefinition:
+        default_inputs = [
+            InputFieldDefinition(name="buyer_id", type=InputFieldType.STRING, required=True, defaultValue="U10001", label="买家 ID"),
+            InputFieldDefinition(name="product_id", type=InputFieldType.STRING, required=True, defaultValue="SKU10001", label="商品 SKU"),
+            InputFieldDefinition(name="quantity", type=InputFieldType.NUMBER, required=True, defaultValue=1, label="数量"),
+            InputFieldDefinition(name="amount", type=InputFieldType.NUMBER, required=True, defaultValue=299.0, label="金额"),
+            InputFieldDefinition(name="payment_method", type=InputFieldType.STRING, required=True, defaultValue="ALIPAY", label="支付方式"),
+            InputFieldDefinition(name="order_id", type=InputFieldType.STRING, required=False, defaultValue="ORD-001", label="订单 ID"),
+            InputFieldDefinition(name="payment_id", type=InputFieldType.STRING, required=False, defaultValue="PAY-001", label="支付 ID"),
+            InputFieldDefinition(name="notify_channel", type=InputFieldType.STRING, required=False, defaultValue="SMS", label="通知渠道"),
+            InputFieldDefinition(name="reason", type=InputFieldType.STRING, required=False, defaultValue="测试取消", label="取消原因"),
+        ]
+        schema = input_schema if input_schema is not None else default_inputs
+        return SceneDefinition(
+            sceneCode=scene_code,
+            sceneName=scene_name,
+            sceneRemark=f"MVP3 多场景编排测试场景: {scene_name}",
+            sceneType="MVP3_TEST",
+            tags=tags or ["MVP3", "多场景", "编排", "变量传递"],
+            capabilityType=CapabilityType.COMPOSITE,
+            businessDomain="交易",
+            sideEffects=[
+                CapabilitySideEffect(effectType="CREATE_ORDER", target="trade_order", description="创建订单记录。"),
+            ],
+            agentDescription=f"MVP3 测试场景: {scene_name}，用于验证多步骤场景串联时变量传递、依赖执行和证据收集。",
+            inputSchema=schema,
+            steps=steps,
+            resultMapping={},
+            successCriteria=SceneSuccessCriteria(
+                enabled=True,
+                businessSuccess=ResponseConditionGroup(
+                    allOf=[ConditionRule(path="pay_status", op="EQ", value="PAID")],
+                ),
+                businessFailure=ResponseConditionGroup(
+                    anyOf=[ConditionRule(path="pay_status", op="NE", value="PAID")],
+                ),
+            ),
+            errorPolicy="STOP_ON_ERROR",
+            status=SceneStatus.PUBLISHED,
+        )
+
+    return [
+        # Scene A: 创建订单并支付（3步 — 主 case）
+        _make_scene(
+            scene_code="mvp3_create_order_and_pay",
+            scene_name="MVP3 创建订单并支付",
+            steps=create_order_and_pay_steps,
+            tags=["MVP3", "订单", "支付", "变量传递", "3步"],
+        ),
+        # Scene B: 完整交易流程（5步 — 含前置检查、确认、通知）
+        _make_scene(
+            scene_code="mvp3_full_trade_flow",
+            scene_name="MVP3 完整交易流程",
+            steps=full_trade_flow_steps,
+            tags=["MVP3", "订单", "支付", "通知", "5步", "完整流程"],
+        ),
+        # Scene C: 创建并确认订单（2步 — 需审批）
+        _make_scene(
+            scene_code="mvp3_create_and_confirm",
+            scene_name="MVP3 创建并确认订单",
+            steps=create_and_confirm_steps,
+            tags=["MVP3", "订单", "确认", "2步", "审批"],
+        ),
+        # Scene D: 查询支付凭证（1步 — 纯查询）
+        _make_scene(
+            scene_code="mvp3_query_payment_receipt",
+            scene_name="MVP3 查询支付凭证",
+            steps=[query_payment_receipt_step],
+            input_schema=[
+                InputFieldDefinition(name="payment_id", type=InputFieldType.STRING, required=True, defaultValue="PAY-001", label="支付 ID"),
+            ],
+            tags=["MVP3", "支付", "查询", "凭证", "1步"],
+        ),
+        # Scene E: 批量执行操作（1步 — 批量接口）
+        _make_scene(
+            scene_code="mvp3_batch_execute",
+            scene_name="MVP3 批量执行操作",
+            steps=[batch_execute_step],
+            tags=["MVP3", "批量", "执行", "1步"],
+        ),
+        # Scene F: 取消订单（1步 — 取消场景）
+        _make_scene(
+            scene_code="mvp3_cancel_order",
+            scene_name="MVP3 取消订单",
+            steps=[cancel_order_step],
+            input_schema=[
+                InputFieldDefinition(name="order_id", type=InputFieldType.STRING, required=True, defaultValue="ORD-001", label="订单 ID"),
+                InputFieldDefinition(name="reason", type=InputFieldType.STRING, required=False, defaultValue="用户取消", label="取消原因"),
+            ],
+            tags=["MVP3", "订单", "取消", "1步"],
+        ),
+        # Scene G: 健康检查（1步 — 服务可用性）
+        _make_scene(
+            scene_code="mvp3_health_check",
+            scene_name="MVP3 服务健康检查",
+            steps=[health_check_step],
+            input_schema=[],
+            tags=["MVP3", "健康", "检查", "1步", "无副作用"],
+        ),
+    ]
 
 
 def build_identifier_references() -> list[IdentifierReferenceConfig]:
@@ -1290,6 +2517,22 @@ async def seed_sql_sources(sql_service: SqlSourceService) -> None:
         print(f"  [OK] SQL Source: {config.sourceCode} ({config.sourceName}) [{config.operation.value}]")
 
 
+async def seed_scenes(scene_service: SceneService) -> None:
+    """写入并发布 MVP4A 多步骤场景。"""
+    print("\n--- 写入场景编排配置 ---")
+    for scene in build_scenes():
+        try:
+            await scene_service.update_scene(scene.sceneCode, scene, operator=OPERATOR)
+            action = "更新"
+        except Exception as exc:
+            if "not found" not in str(exc).lower() and "不存在" not in str(exc):
+                raise
+            await scene_service.create_scene(scene, operator=OPERATOR)
+            action = "创建"
+        await scene_service.publish_scene(scene.sceneCode, operator=OPERATOR)
+        print(f"  [OK] {action}并发布场景: {scene.sceneCode} ({scene.sceneName}) [{len(scene.steps)} 步]")
+
+
 async def run_seed(
     *,
     dry_run: bool = False,
@@ -1315,7 +2558,7 @@ async def run_seed(
     mock_db_dir = DEFAULT_MOCK_DB_DIR
     mock_db_path = mock_db_dir / "gdp_mock_trade.sqlite"
 
-    if not dry_run and not http_only:
+    if not dry_run:
         print("\n--- 创建 Mock SQLite 业务数据库 ---")
         mock_db_path = create_mock_sqlite_db(mock_db_dir)
 
@@ -1330,6 +2573,8 @@ async def run_seed(
         if not http_only:
             print(f"[DRY-RUN] SQL Sources: {len(build_sql_sources())} 个")
             print(f"[DRY-RUN] 标识引用: {len(build_identifier_references())} 个")
+        if not sql_only:
+            print(f"[DRY-RUN] 场景: {len(build_scenes())} 个")
         return
 
     # 初始化数据库引擎
@@ -1344,6 +2589,7 @@ async def run_seed(
         base_service = BaseConfigService(base_repo)
         http_service = HttpSourceService(HttpSourceRepository(session_factory), base_repo)
         sql_service = SqlSourceService(SqlSourceRepository(session_factory), base_repo)
+        scene_service = SceneService(SceneRepository(session_factory))
 
         # 基础配置（系统、环境、端点、数据源）— 两种模式都需要
         if not http_only and not sql_only:
@@ -1360,6 +2606,10 @@ async def run_seed(
         # SQL 配置
         if not http_only:
             await seed_sql_sources(sql_service)
+
+        # 场景编排配置：依赖 HTTP Source、SQL 数据源和 Mock SQLite 业务库
+        if not sql_only:
+            await seed_scenes(scene_service)
 
         # 标识引用
         if not http_only and not sql_only:

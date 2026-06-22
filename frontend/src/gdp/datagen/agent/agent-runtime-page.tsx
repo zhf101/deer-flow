@@ -43,6 +43,14 @@ import type {
 import { AgentRuntimeChat } from "./agent-runtime-chat";
 import { AgentRuntimeDetailPanel } from "./agent-runtime-detail-panel";
 import {
+  AGENT_RUNTIME_PRESETS,
+  buildAgentRuntimeStartRequest,
+  findPresetBySceneCode,
+  getAgentRuntimePreset,
+  getSceneDefaultInputs,
+  type AgentRuntimePresetId,
+} from "./agent-runtime-presets";
+import {
   deriveAuditDecisions,
   deriveAuditExecutions,
   deriveAuditSteps,
@@ -57,11 +65,8 @@ const TERMINAL_STATUSES = new Set<AgentRuntimeTaskRunStatus>([
   "CANCELLED",
 ]);
 
-const DEFAULT_INPUTS = `{
-  "buyer_id": "U1"
-}`;
-
 const POLL_INTERVAL_MS = 3000;
+const DEFAULT_PRESET = getAgentRuntimePreset("mvp3_multi_scene");
 
 function statusTone(status?: string) {
   switch (status) {
@@ -91,11 +96,17 @@ function parseJsonObject(text: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+function jsonText(value: unknown): string {
+  return JSON.stringify(value, null, 2);
+}
+
 export function AgentRuntimePage() {
   // 表单状态
-  const [userGoal, setUserGoal] = useState("造一笔已支付订单");
+  const [userGoal, setUserGoal] = useState(DEFAULT_PRESET.userGoal);
   const [envCode, setEnvCode] = useState("");
-  const [inputsText, setInputsText] = useState(DEFAULT_INPUTS);
+  const [inputsText, setInputsText] = useState(jsonText(DEFAULT_PRESET.inputs));
+  const [selectedSceneCode, setSelectedSceneCode] = useState<string | null>(DEFAULT_PRESET.sceneCode);
+  const [selectedPresetId, setSelectedPresetId] = useState<AgentRuntimePresetId | null>(DEFAULT_PRESET.id);
 
   // 数据状态
   const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
@@ -141,9 +152,41 @@ export function AgentRuntimePage() {
         toast.error(error instanceof Error ? error.message : "加载环境失败");
       });
 
-    listScenes({ status: "PUBLISHED", limit: 200 }).catch((error) => {
-      toast.error(error instanceof Error ? error.message : "加载场景失败");
-    });
+    listScenes({ status: "PUBLISHED", limit: 200 })
+      .then((items) => {
+        setScenes(items);
+      })
+      .catch((error) => {
+        toast.error(error instanceof Error ? error.message : "加载场景失败");
+      });
+  }, []);
+
+  const selectedScene = useMemo(
+    () => scenes.find((scene) => scene.sceneCode === selectedSceneCode) ?? null,
+    [scenes, selectedSceneCode],
+  );
+
+  const handleSceneCodeChange = useCallback(
+    (sceneCode: string | null) => {
+      setSelectedSceneCode(sceneCode);
+      setSelectedPresetId(findPresetBySceneCode(sceneCode));
+      const scene = scenes.find((item) => item.sceneCode === sceneCode);
+      if (!scene) return;
+      setUserGoal(scene.sceneName);
+      const defaults = getSceneDefaultInputs(scene);
+      if (Object.keys(defaults).length > 0) {
+        setInputsText(jsonText(defaults));
+      }
+    },
+    [scenes],
+  );
+
+  const handleApplyPreset = useCallback((presetId: AgentRuntimePresetId) => {
+    const preset = getAgentRuntimePreset(presetId);
+    setSelectedPresetId(preset.id);
+    setUserGoal(preset.userGoal);
+    setSelectedSceneCode(preset.sceneCode);
+    setInputsText(jsonText(preset.inputs));
   }, []);
 
   // 加载 timeline
@@ -227,10 +270,10 @@ export function AgentRuntimePage() {
         env_code: envCode,
       });
       setTaskRun(created);
-      const started = await startAgentRuntimeTaskRun(created.task_run_id, {
-        scene_code: null,
-        inputs,
-      });
+      const started = await startAgentRuntimeTaskRun(
+        created.task_run_id,
+        buildAgentRuntimeStartRequest(selectedSceneCode, inputs),
+      );
       setTaskRun(started);
       await loadTimeline(started.task_run_id);
     } catch (error) {
@@ -238,7 +281,7 @@ export function AgentRuntimePage() {
     } finally {
       setBusy(false);
     }
-  }, [envCode, inputsText, loadTimeline, userGoal]);
+  }, [envCode, inputsText, loadTimeline, selectedSceneCode, userGoal]);
 
   // 取消
   const handleCancel = useCallback(async () => {
@@ -510,6 +553,15 @@ export function AgentRuntimePage() {
           onViewDetails={handleOpenAudit}
           userGoal={userGoal}
           onUserGoalChange={setUserGoal}
+          presets={AGENT_RUNTIME_PRESETS}
+          selectedPresetId={selectedPresetId}
+          onApplyPreset={handleApplyPreset}
+          scenes={scenes}
+          selectedSceneCode={selectedSceneCode}
+          selectedSceneName={selectedScene?.sceneName ?? null}
+          inputsText={inputsText}
+          onSceneCodeChange={handleSceneCodeChange}
+          onInputsTextChange={setInputsText}
         />
 
         <AgentRuntimeDetailPanel
@@ -517,6 +569,7 @@ export function AgentRuntimePage() {
           decisions={auditDecisions}
           steps={auditSteps}
           executions={auditExecutions}
+          variables={timeline?.variables ?? []}
           open={detailOpen}
           onClose={() => setDetailOpen(false)}
         />

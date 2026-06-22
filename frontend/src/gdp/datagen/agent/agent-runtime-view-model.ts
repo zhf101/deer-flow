@@ -17,12 +17,12 @@ import type {
 // ── 等待交互类型 ────────────────────────────────────────────────────────
 
 export type WaitingInteraction =
-  | { type: "approval"; candidate: AgentRuntimeSceneCandidate }
-  | { type: "candidate_selection"; proposal: AgentRuntimeProposal }
-  | { type: "manual_scene_code"; proposal: AgentRuntimeProposal }
-  | { type: "missing_input"; fields: string[] }
-  | { type: "unknown_state"; reason: string }
-  | { type: "generic"; message: string };
+  | { type: "approval"; candidate: AgentRuntimeSceneCandidate; stepId?: string }
+  | { type: "candidate_selection"; proposal: AgentRuntimeProposal; stepId?: string }
+  | { type: "manual_scene_code"; proposal: AgentRuntimeProposal; stepId?: string }
+  | { type: "missing_input"; fields: string[]; stepId?: string }
+  | { type: "unknown_state"; reason: string; stepId?: string }
+  | { type: "generic"; message: string; stepId?: string };
 
 // ── 聊天消息类型 ────────────────────────────────────────────────────────
 
@@ -93,20 +93,21 @@ export function deriveWaitingInteraction(
   const latestVerdict = timeline.verdicts.at(-1);
   const latestProposal = timeline.proposals.at(-1);
   const latestCandidates = getProposalCandidates(latestProposal);
+  const activeStepId = timeline.task_run?.active_step_id || undefined;
 
   // 1. 最新 Verdict 是 UNKNOWN_STATE
   if (latestVerdict?.verdict_type === "UNKNOWN_STATE") {
-    return { type: "unknown_state", reason: latestVerdict.reason };
+    return { type: "unknown_state", reason: latestVerdict.reason, stepId: activeStepId };
   }
 
   // 2. 最新 Proposal 是 PENDING 且有候选
   if (latestProposal?.status === "PENDING" && latestCandidates.length > 0) {
-    return { type: "candidate_selection", proposal: latestProposal };
+    return { type: "candidate_selection", proposal: latestProposal, stepId: activeStepId };
   }
 
   // 3. 最新 Proposal 是 PENDING 且无候选
   if (latestProposal?.status === "PENDING" && latestCandidates.length === 0) {
-    return { type: "manual_scene_code", proposal: latestProposal };
+    return { type: "manual_scene_code", proposal: latestProposal, stepId: activeStepId };
   }
 
   // 4. 最新 Proposal 是 SELECTED，候选 requires_confirmation 且无 approval record
@@ -119,7 +120,7 @@ export function deriveWaitingInteraction(
         (r) => r.proposal_id === latestProposal.proposal_id,
       );
       if (!hasApproval) {
-        return { type: "approval", candidate };
+        return { type: "approval", candidate, stepId: activeStepId };
       }
     }
   }
@@ -132,13 +133,13 @@ export function deriveWaitingInteraction(
         .split(/[,，、]/)
         .map((s) => normalizeMissingInputField(s))
         .filter(Boolean);
-      return { type: "missing_input", fields };
+      return { type: "missing_input", fields, stepId: activeStepId };
     }
   }
 
   // 6. 兜底
   if (taskRun.pending_question) {
-    return { type: "generic", message: taskRun.pending_question };
+    return { type: "generic", message: taskRun.pending_question, stepId: activeStepId };
   }
 
   return null;
@@ -229,14 +230,7 @@ export function deriveChatMessages(
 
   // 从 actions 派生执行状态
   for (const action of timeline.actions) {
-    if (action.status === "WAITING_APPROVAL") {
-      messages.push({
-        id: `msg:action-waiting:${action.action_id}`,
-        role: "agent",
-        content: `场景 ${action.scene_code} 需要批准后执行`,
-        timestamp: action.status,
-      });
-    } else if (action.status === "RUNNING") {
+    if (action.status === "RUNNING") {
       messages.push({
         id: `msg:action-running:${action.action_id}`,
         role: "agent",
@@ -380,6 +374,8 @@ export interface AuditStep {
   dependsOn: string[];
   consumes: string[];
   produces: string[];
+  isActive: boolean;
+  incomingEdges: { fromStepId: string; variableIds: string[] }[];
 }
 
 /** 执行层审计数据 */
@@ -414,15 +410,28 @@ export function deriveAuditSteps(
   timeline: AgentRuntimeTimelineResponse | null,
 ): AuditStep[] {
   if (!timeline) return [];
-  return timeline.steps.map((step) => ({
-    stepId: step.step_id,
-    stepNo: step.step_no,
-    goal: step.goal,
-    status: step.status,
-    dependsOn: step.depends_on,
-    consumes: step.consumes,
-    produces: step.produces,
-  }));
+  const activeStepId = timeline.task_run?.active_step_id;
+  
+  return timeline.steps.map((step) => {
+    const incomingEdges = (timeline.step_edges || [])
+      .filter((e) => e.to_step_id === step.step_id)
+      .map((e) => ({
+        fromStepId: e.from_step_id,
+        variableIds: e.variable_ids || [],
+      }));
+
+    return {
+      stepId: step.step_id,
+      stepNo: step.step_no,
+      goal: step.goal,
+      status: step.status,
+      dependsOn: step.depends_on,
+      consumes: step.consumes,
+      produces: step.produces,
+      isActive: activeStepId === step.step_id,
+      incomingEdges,
+    };
+  });
 }
 
 /** 从 timeline 派生执行层审计数据 */

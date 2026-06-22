@@ -9,6 +9,7 @@ import {
   LayoutListIcon,
   PlayIcon,
   SettingsIcon,
+  TestTubeIcon,
   WorkflowIcon,
 } from "lucide-react";
 import { useCallback, useState } from "react";
@@ -19,6 +20,7 @@ import { AgentRuntimePage } from "./agent/agent-runtime-page";
 import { ConfigManagement } from "./baseconfig";
 import { TabBar, type Tab } from "./common/shell/module-tab-bar";
 import { HttpSourceManagement } from "./httpsource";
+import { Mvp3TestRunnerPage } from "./mvp3-test/mvp3-test-runner-page";
 import { SceneDashboard } from "./scene/scene-dashboard";
 import { SceneEditor } from "./scene/scene-editor";
 import { SceneExecutionPage } from "./scene/scene-execution-page";
@@ -44,7 +46,8 @@ type TabType =
   | "scene-new"
   | "task-edit"
   | "task-view"
-  | "task-new";
+  | "task-new"
+  | "mvp3-test";
 
 interface TabState {
   id: string;
@@ -65,6 +68,7 @@ const NAV_ITEMS: {
   group: string;
 }[] = [
   { id: "agent", type: "agent", label: "GDP Agent", icon: BotIcon, group: "Agent" },
+  { id: "mvp3-test", type: "mvp3-test", label: "MVP3 验收测试", icon: TestTubeIcon, group: "Agent" },
   { id: "config", type: "config", label: "基础配置", icon: SettingsIcon, group: "配置" },
   { id: "httpsource", type: "httpsource", label: "HTTP 接口", icon: GlobeIcon, group: "配置" },
   { id: "sqlsource", type: "sqlsource", label: "SQL 配置", icon: DatabaseIcon, group: "配置" },
@@ -114,6 +118,10 @@ export function DataFactoryPage() {
 
   const openConfig = useCallback(() => {
     ensureTab({ id: "config", type: "config", label: "基础配置" });
+  }, [ensureTab]);
+
+  const openMvp3Test = useCallback(() => {
+    ensureTab({ id: "mvp3-test", type: "mvp3-test", label: "MVP3 验收测试" });
   }, [ensureTab]);
 
   const openSceneEdit = useCallback(
@@ -217,12 +225,14 @@ export function DataFactoryPage() {
   const tabBarData: Tab[] = tabs.map((t) => ({
     id: t.id,
     label: t.label,
-    closable: t.type !== "scene-list",
+    closable: t.type !== "scene-list" && t.type !== "mvp3-test",
     icon:
       t.type === "scene-list" ? (
         <LayoutListIcon className="size-3" />
       ) : t.type === "agent" ? (
         <BotIcon className="size-3" />
+      ) : t.type === "mvp3-test" ? (
+        <TestTubeIcon className="size-3" />
       ) : t.type === "task-list" ? (
         <WorkflowIcon className="size-3" />
       ) : t.type === "config" ? (
@@ -250,6 +260,8 @@ export function DataFactoryPage() {
     switch (activeTab.type) {
       case "agent":
         return <AgentRuntimePage />;
+      case "mvp3-test":
+        return <Mvp3TestRunnerPage />;
       case "scene-list":
         return (
           <SceneDashboard
@@ -346,7 +358,7 @@ export function DataFactoryPage() {
   const activeNavId = (() => {
     if (!activeTab) return "scene-list";
     if (activeTab.type === "scene-history") return "scene-history";
-    if (activeTab.type === "agent") return "agent";
+    if (activeTab.type === "agent" || activeTab.type === "mvp3-test") return activeTab.type;
     // 从历史记录打开的执行详情也高亮执行历史
     if (activeTab.type === "scene-run" && activeTab.runId) return "scene-history";
     // 将编辑、查看、新建标签映射回父级导航项
@@ -387,11 +399,13 @@ export function DataFactoryPage() {
                     <button
                       key={item.id}
                       onClick={() =>
-                        ensureTab({
-                          id: item.id,
-                          type: item.type,
-                          label: item.label,
-                        })
+                        item.type === "mvp3-test"
+                          ? openMvp3Test()
+                          : ensureTab({
+                              id: item.id,
+                              type: item.type,
+                              label: item.label,
+                            })
                       }
                       className={cn(
                         "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-xs font-medium transition-colors",

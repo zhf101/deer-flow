@@ -34,6 +34,7 @@ import type {
   AuditExecution,
   AuditStep,
 } from "./agent-runtime-view-model";
+import type { AgentRuntimeVariable } from "../common/lib/types";
 
 // ── 工具函数 ─────────────────────────────────────────────────────────────
 
@@ -273,13 +274,19 @@ function StepCard({ step }: { step: AuditStep }) {
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="flex w-full items-center gap-2 rounded-md border bg-background px-3 py-2 text-left transition-colors hover:bg-muted/50">
+      <CollapsibleTrigger className={cn(
+        "flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+        step.isActive ? "border-sky-300 bg-sky-50/40 hover:bg-sky-50/60 ring-1 ring-sky-200" : "bg-background hover:bg-muted/50"
+      )}>
         {open ? (
           <ChevronDownIcon className="size-3.5 text-muted-foreground" />
         ) : (
           <ChevronRightIcon className="size-3.5 text-muted-foreground" />
         )}
-        <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
+        <span className={cn(
+          "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-bold",
+          step.isActive ? "bg-sky-500 text-primary-foreground shadow-sm" : "bg-muted"
+        )}>
           {step.stepNo}
         </span>
         <span className="min-w-0 flex-1 truncate text-xs font-medium">{step.goal}</span>
@@ -299,6 +306,24 @@ function StepCard({ step }: { step: AuditStep }) {
                 </Badge>
               ))}
             </div>
+            {step.incomingEdges && step.incomingEdges.length > 0 ? (
+              <div className="mt-1 space-y-1">
+                {step.incomingEdges.map((edge, idx) => (
+                  <div key={idx} className="flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground bg-muted/20 p-1.5 rounded border border-dashed">
+                    <span className="font-medium">来自步骤 {edge.fromStepId}:</span>
+                    {edge.variableIds.length > 0 ? (
+                      edge.variableIds.map((v) => (
+                        <Badge key={v} variant="secondary" className="text-[9px] px-1 py-0 h-4">
+                          {v}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="italic">仅控制流</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -597,16 +622,60 @@ function ExecutionTab({ executions }: { executions: AuditExecution[] }) {
   );
 }
 
+function VariableTab({ variables }: { variables: AgentRuntimeVariable[] }) {
+  if (variables.length === 0) {
+    return (
+      <div className="py-8 text-center text-xs text-muted-foreground">
+        <DatabaseIcon className="mx-auto size-5 text-muted-foreground/40" />
+        <p className="mt-2">暂无变量</p>
+        <p className="mt-1 text-[10px]">步骤执行产出的变量将在这里展示</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {variables.map((v) => (
+        <div key={v.variable_id} className="rounded-md border bg-background p-3 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="font-semibold">{v.name}</span>
+            <Badge variant="outline" className="text-[10px] px-1 py-0 h-4">{v.semantic_type}</Badge>
+            {v.tainted ? <Badge variant="destructive" className="text-[9px] px-1 py-0 h-4">污染 (Tainted)</Badge> : null}
+            {v.sensitive ? <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">敏感</Badge> : null}
+          </div>
+          <div className="mt-2 text-[10px] text-muted-foreground">
+            <div>
+              <span className="font-medium">来源: </span> 
+              {v.provenance.source_type} ({v.provenance.source_id})
+            </div>
+            {v.consumed_by.length > 0 ? (
+              <div className="mt-0.5">
+                <span className="font-medium">被消费: </span>
+                {v.consumed_by.join(", ")}
+              </div>
+            ) : null}
+          </div>
+          <div className="mt-2 rounded bg-muted/40 p-2 font-mono text-[10px] break-all">
+            {formatJson(v.value_preview)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── 主组件 ───────────────────────────────────────────────────────────────
 
 export function AgentRuntimeAuditPanel({
   decisions,
   steps,
   executions,
+  variables,
 }: {
   decisions: AuditDecision[];
   steps: AuditStep[];
   executions: AuditExecution[];
+  variables: AgentRuntimeVariable[];
 }) {
   const [activeTab, setActiveTab] = useState<string>("decisions");
 
@@ -642,6 +711,13 @@ export function AgentRuntimeAuditPanel({
             <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 h-3.5">{executions.length}</Badge>
           ) : null}
         </TabsTrigger>
+        <TabsTrigger value="variables" className="flex-1 text-[11px] gap-1">
+          <ListChecksIcon className="size-3" />
+          变量
+          {variables?.length > 0 ? (
+            <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 h-3.5">{variables.length}</Badge>
+          ) : null}
+        </TabsTrigger>
       </TabsList>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -654,6 +730,9 @@ export function AgentRuntimeAuditPanel({
           </TabsContent>
           <TabsContent value="execution" className="m-0">
             <ExecutionTab executions={executions} />
+          </TabsContent>
+          <TabsContent value="variables" className="m-0">
+            <VariableTab variables={variables || []} />
           </TabsContent>
         </div>
       </ScrollArea>

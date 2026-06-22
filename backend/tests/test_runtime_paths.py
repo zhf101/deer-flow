@@ -123,6 +123,34 @@ def test_app_config_falls_back_to_legacy_when_project_root_lacks_config(tmp_path
     assert AppConfig.resolve_config_path() == legacy_backend_config
 
 
+def test_database_sqlite_dir_resolves_relative_to_config_file(tmp_path: Path, monkeypatch):
+    _clear_path_env(monkeypatch)
+    config_dir = tmp_path / "project"
+    cwd = tmp_path / "cwd"
+    config_dir.mkdir()
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+
+    config_path = config_dir / "config.yaml"
+    config_path.write_text(
+        yaml.safe_dump(
+            {
+                "database": {"backend": "sqlite", "sqlite_dir": ".deer-flow/data"},
+                "sandbox": {"use": "deerflow.sandbox.local:LocalSandboxProvider"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (config_dir / "extensions_config.json").write_text('{"mcpServers": {}, "skills": {}}', encoding="utf-8")
+
+    monkeypatch.setenv("DEER_FLOW_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("DEER_FLOW_EXTENSIONS_CONFIG_PATH", str(config_dir / "extensions_config.json"))
+
+    config = AppConfig.from_file(str(config_path))
+
+    assert config.database.sqlite_path == str((config_dir / ".deer-flow/data/deerflow.db").resolve())
+
+
 def test_skills_config_falls_back_to_legacy_when_project_root_lacks_skills(tmp_path: Path, monkeypatch):
     """When DEER_FLOW_PROJECT_ROOT is unset and cwd has no `skills/`, the legacy
     repo-root candidate must be used so monorepo runs (cwd=backend/) keep finding

@@ -173,6 +173,7 @@ class AppConfig(BaseModel):
         config_data["extensions"] = extensions_config.model_dump()
 
         result = cls.model_validate(config_data)
+        result.database._path_base = str(resolved_path.parent)
         acp_agents = cls._validate_acp_agents(config_data.get("acp_agents", {}))
         cls._apply_singleton_configs(result, acp_agents)
         return result

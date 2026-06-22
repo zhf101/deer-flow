@@ -12,6 +12,7 @@ import type {
   AuditExecution,
   AuditStep,
 } from "./agent-runtime-view-model";
+import type { AgentRuntimeVariable } from "../common/lib/types";
 
 function statusTone(status?: string) {
   switch (status) {
@@ -49,6 +50,7 @@ export function AgentRuntimeDetailPanel({
   decisions,
   steps,
   executions,
+  variables,
   open,
   onClose,
 }: {
@@ -56,6 +58,7 @@ export function AgentRuntimeDetailPanel({
   decisions: AuditDecision[];
   steps: AuditStep[];
   executions: AuditExecution[];
+  variables: AgentRuntimeVariable[];
   open: boolean;
   onClose: () => void;
 }) {
@@ -105,6 +108,7 @@ export function AgentRuntimeDetailPanel({
         decisions={decisions}
         steps={steps}
         executions={executions}
+        variables={variables}
       />
     </aside>
   );

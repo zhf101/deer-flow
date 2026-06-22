@@ -34,10 +34,12 @@ from __future__ import annotations
 import os
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 class DatabaseConfig(BaseModel):
+    _path_base: str | None = PrivateAttr(default=None)
+
     backend: Literal["memory", "sqlite", "postgres"] = Field(
         default="memory",
         description=("Storage backend for both checkpointer and application data. 'memory' for development (no persistence across restarts), 'sqlite' for single-node deployment, 'postgres' for production multi-node deployment."),
@@ -68,10 +70,13 @@ class DatabaseConfig(BaseModel):
 
     @property
     def _resolved_sqlite_dir(self) -> str:
-        """Resolve sqlite_dir to an absolute path (relative to CWD)."""
+        """把 sqlite_dir 解析成绝对路径；相对路径优先按 config.yaml 所在目录解析。"""
         from pathlib import Path
 
-        return str(Path(self.sqlite_dir).resolve())
+        path = Path(self.sqlite_dir)
+        if not path.is_absolute() and self._path_base:
+            path = Path(self._path_base) / path
+        return str(path.resolve())
 
     @property
     def sqlite_path(self) -> str:

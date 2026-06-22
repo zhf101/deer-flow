@@ -25,7 +25,14 @@ function makeTaskRun(pendingQuestion: string): AgentRuntimeTaskRunResponse {
 
 const emptyTimeline: AgentRuntimeTimelineResponse = {
   task_run_id: "tr-1",
+  task_run: {
+    task_run_id: "tr-1",
+    status: "WAITING_USER",
+    active_step_id: null,
+    suspend_reason: null,
+  },
   steps: [],
+  step_edges: [],
   actions: [],
   attempts: [],
   observations: [],
@@ -44,7 +51,7 @@ test("deriveWaitingInteraction strips backend input prefixes from missing fields
     emptyTimeline,
   );
 
-  expect(interaction).toEqual({ type: "missing_input", fields: ["buyer_id"] });
+  expect(interaction).toEqual({ type: "missing_input", fields: ["buyer_id"], stepId: undefined });
 });
 
 test("deriveWaitingInteraction treats malformed null candidates as empty candidates", () => {
@@ -68,7 +75,7 @@ test("deriveWaitingInteraction treats malformed null candidates as empty candida
 
   const interaction = deriveWaitingInteraction(makeTaskRun("请选择场景"), timeline);
 
-  expect(interaction).toEqual({ type: "manual_scene_code", proposal: timeline.proposals[0] });
+  expect(interaction).toEqual({ type: "manual_scene_code", proposal: timeline.proposals[0], stepId: undefined });
 });
 
 test("deriveCompletionResult rejects unknown verdict types", () => {

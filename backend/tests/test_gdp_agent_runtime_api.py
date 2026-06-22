@@ -255,6 +255,169 @@ async def test_api_start_allows_missing_scene_code_and_auto_selects(monkeypatch:
 
 
 @pytest.mark.anyio
+async def test_api_start_mvp4a_scene_records_five_step_scene_run_audit(monkeypatch: pytest.MonkeyPatch):
+    """MVP4A 五步场景从运行台启动后，Runtime 保留场景运行下钻 ID 和完整步骤证据。"""
+
+    scene_code = "mvp4a_order_payment_inventory_sql_flow"
+    scene_run_id = "scene-run-mvp4a-1"
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        assert scene_code == "mvp4a_order_payment_inventory_sql_flow"
+        assert env_code == "SIT1"
+        assert inputs["approved"] is True
+        assert inputs["request_id"] == "req-mvp4a-001"
+        return {
+            "runId": scene_run_id,
+            "sceneCode": scene_code,
+            "versionNo": 1,
+            "envCode": env_code,
+            "inputs": inputs,
+            "status": "SUCCESS",
+            "startedAt": "2026-06-18T00:00:00Z",
+            "finishedAt": "2026-06-18T00:00:01Z",
+            "durationMs": 1000,
+            "stepResults": [
+                {
+                    "stepId": "create_order",
+                    "stepName": "HTTP 创建带商品订单",
+                    "type": "HTTP",
+                    "stepOrder": 1,
+                    "timelineOrder": 1,
+                    "status": "SUCCESS",
+                    "startedAt": "2026-06-18T00:00:00Z",
+                    "finishedAt": "2026-06-18T00:00:00.200Z",
+                    "durationMs": 200,
+                    "outputs": {"order_id": "T202606180001", "buyer_id": "U10001", "sku_id": "SKU10001", "quantity": 1},
+                    "rawResponse": {"request": {"method": "POST"}, "response": {"statusCode": 200}},
+                    "error": None,
+                    "statusCode": 200,
+                },
+                {
+                    "stepId": "lock_inventory",
+                    "stepName": "HTTP 锁定库存",
+                    "type": "HTTP",
+                    "stepOrder": 2,
+                    "timelineOrder": 2,
+                    "status": "SUCCESS",
+                    "startedAt": "2026-06-18T00:00:00.200Z",
+                    "finishedAt": "2026-06-18T00:00:00.400Z",
+                    "durationMs": 200,
+                    "outputs": {"lock_id": "LOCK-1"},
+                    "rawResponse": {"request": {"method": "POST"}, "response": {"statusCode": 200}},
+                    "error": None,
+                    "statusCode": 200,
+                },
+                {
+                    "stepId": "create_payment",
+                    "stepName": "HTTP 发起支付",
+                    "type": "HTTP",
+                    "stepOrder": 3,
+                    "timelineOrder": 3,
+                    "status": "SUCCESS",
+                    "startedAt": "2026-06-18T00:00:00.400Z",
+                    "finishedAt": "2026-06-18T00:00:00.600Z",
+                    "durationMs": 200,
+                    "outputs": {"payment_id": "PAY-1"},
+                    "rawResponse": {"request": {"method": "POST"}, "response": {"statusCode": 200}},
+                    "error": None,
+                    "statusCode": 200,
+                },
+                {
+                    "stepId": "query_payment",
+                    "stepName": "HTTP 查询支付状态",
+                    "type": "HTTP",
+                    "stepOrder": 4,
+                    "timelineOrder": 4,
+                    "status": "SUCCESS",
+                    "startedAt": "2026-06-18T00:00:00.600Z",
+                    "finishedAt": "2026-06-18T00:00:00.800Z",
+                    "durationMs": 200,
+                    "outputs": {"pay_status": "PAID"},
+                    "rawResponse": {"request": {"method": "GET"}, "response": {"statusCode": 200}},
+                    "error": None,
+                    "statusCode": 200,
+                },
+                {
+                    "stepId": "check_member_orders",
+                    "stepName": "SQL 查询买家历史订单",
+                    "type": "SQL",
+                    "stepOrder": 5,
+                    "timelineOrder": 5,
+                    "status": "SUCCESS",
+                    "startedAt": "2026-06-18T00:00:00.800Z",
+                    "finishedAt": "2026-06-18T00:00:01Z",
+                    "durationMs": 200,
+                    "outputs": {"history_order_no": "T202606180001", "history_order_status": "PAID"},
+                    "rawResponse": {"operation": "SELECT", "rows": [{"order_no": "T202606180001"}]},
+                    "error": None,
+                    "statusCode": None,
+                },
+            ],
+            "finalOutput": {
+                "order_id": "T202606180001",
+                "lock_id": "LOCK-1",
+                "payment_id": "PAY-1",
+                "pay_status": "PAID",
+                "history_order_no": "T202606180001",
+                "history_order_status": "PAID",
+            },
+            "errors": [],
+        }
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    app = _make_app(monkeypatch, catalog=FakeSceneCatalog())
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create = await client.post(
+            "/api/v1/datagen/agent-runtime/task-runs",
+            json={"user_goal": "MVP4A 订单支付库存 SQL 五步闭环", "env_code": "SIT1"},
+        )
+        task_run_id = create.json()["task_run_id"]
+
+        start = await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/start",
+            json={
+                "scene_code": scene_code,
+                "inputs": {
+                    "buyer_id": "U10001",
+                    "sku_id": "SKU10001",
+                    "quantity": 1,
+                    "unit_price": 299,
+                    "amount": 299,
+                    "payment_method": "ALIPAY",
+                    "request_id": "req-mvp4a-001",
+                    "warehouse_code": "WH-SH-01",
+                    "city": "上海",
+                    "address": "浦东新区测试路 100 号",
+                    "approved": True,
+                },
+            },
+        )
+        assert start.status_code == 200, start.text
+        assert start.json()["status"] == "COMPLETED"
+
+        timeline = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
+        body = timeline.json()
+        assert body["actions"][0]["scene_code"] == scene_code
+        assert body["attempts"][0]["scene_run_id"] == scene_run_id
+
+        payload = await client.get(
+            f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/payloads",
+            params={"ref": body["attempts"][0]["response_ref"]},
+        )
+        scene_result = payload.json()["payload"]
+        assert [step["stepId"] for step in scene_result["stepResults"]] == [
+            "create_order",
+            "lock_inventory",
+            "create_payment",
+            "query_payment",
+            "check_member_orders",
+        ]
+        assert scene_result["finalOutput"]["pay_status"] == "PAID"
+        assert scene_result["stepResults"][4]["type"] == "SQL"
+
+
+@pytest.mark.anyio
 async def test_api_reply_select_scene_rejects_scene_outside_candidates(monkeypatch: pytest.MonkeyPatch):
     """SELECT_SCENE 只能选择最近候选内的 scene_code。"""
     app = _make_app(

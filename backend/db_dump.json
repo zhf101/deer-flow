@@ -1,0 +1,2163 @@
+{
+  "df_system": [
+    {
+      "id": "88344e3b-78fc-43d4-a4d6-3a981e97d399",
+      "sys_code": "SYS_HTTP_TEST",
+      "sys_name": "HTTP Mock 测试系统",
+      "status": "ENABLED",
+      "remark": "本地 HTTP Mock 服务器（datagen_http_mock_server.py），提供各类 HTTP 接口用于造数测试。",
+      "created_at": "2026-06-15 10:22:13.401698",
+      "updated_at": "2026-06-15 10:22:13.401698"
+    },
+    {
+      "id": "84d90ecd-7341-4dd8-aed7-f155bfc222ac",
+      "sys_code": "mockTrade",
+      "sys_name": "Mock 交易系统",
+      "status": "ENABLED",
+      "remark": "本地 SQLite mock 数据源，包含会员、商品、库存、订单等业务表。",
+      "created_at": "2026-06-15 10:22:13.424887",
+      "updated_at": "2026-06-15 10:22:13.424887"
+    }
+  ],
+  "df_environment": [
+    {
+      "id": "dd9e0fc7-8ac6-4916-8b5a-102463f70b03",
+      "env_code": "dev",
+      "env_name": "开发环境",
+      "status": "ENABLED",
+      "remark": "本地开发环境，连接 Mock 服务和 SQLite。",
+      "created_at": "2026-06-15 10:22:13.430072",
+      "updated_at": "2026-06-15 10:22:13.430072"
+    },
+    {
+      "id": "44397bb0-6149-4245-9e5d-1d2764dcd5a5",
+      "env_code": "test",
+      "env_name": "测试环境",
+      "status": "ENABLED",
+      "remark": "测试环境，复用同一套 Mock 服务。",
+      "created_at": "2026-06-15 10:22:13.434607",
+      "updated_at": "2026-06-15 10:22:13.434607"
+    }
+  ],
+  "df_service_endpoint": [
+    {
+      "id": "046895ed-6f74-4c4b-987b-f9cbdf7a05b4",
+      "env_code": "dev",
+      "sys_code": "SYS_HTTP_TEST",
+      "base_url": "http://127.0.0.1:18080",
+      "status": "ENABLED",
+      "created_at": "2026-06-15 10:22:13.440146",
+      "updated_at": "2026-06-15 10:22:13.440146"
+    },
+    {
+      "id": "ffdcac06-0b8b-4b3c-9c20-c396162d138f",
+      "env_code": "test",
+      "sys_code": "SYS_HTTP_TEST",
+      "base_url": "http://127.0.0.1:18080",
+      "status": "ENABLED",
+      "created_at": "2026-06-15 10:22:13.443661",
+      "updated_at": "2026-06-15 10:22:13.443661"
+    }
+  ],
+  "df_datasource": [
+    {
+      "id": "74e3d840-5484-4717-a124-8cf6c00fe434",
+      "env_code": "dev",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "datasource_name": "Mock 交易 SQLite",
+      "db_type": "SQLite",
+      "host": "localhost",
+      "port": 1,
+      "database_name": "D:/agent/deer-flow/backend/.deer-flow/datagen/mock/gdp_mock_trade.sqlite",
+      "username": "",
+      "password": "",
+      "status": "ENABLED",
+      "created_at": "2026-06-15 10:22:13.450627",
+      "updated_at": "2026-06-15 10:22:13.450627"
+    },
+    {
+      "id": "c1de87cd-d9f9-4d37-b84c-85cce15b5a67",
+      "env_code": "test",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "datasource_name": "Mock 交易 SQLite",
+      "db_type": "SQLite",
+      "host": "localhost",
+      "port": 1,
+      "database_name": "D:/agent/deer-flow/backend/.deer-flow/datagen/mock/gdp_mock_trade.sqlite",
+      "username": "",
+      "password": "",
+      "status": "ENABLED",
+      "created_at": "2026-06-15 10:22:13.457938",
+      "updated_at": "2026-06-15 10:22:13.457938"
+    }
+  ],
+  "df_http_source": [
+    {
+      "id": "5e788124-71d5-4066-a556-2693fa1c1dc7",
+      "source_code": "httpGetUserList",
+      "source_name": "查询用户列表",
+      "tags_json": [
+        "用户",
+        "查询",
+        "列表"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "用户",
+      "side_effects_json": [],
+      "agent_description": "查询用户列表，支持分页和关键字搜索，返回用户 ID、姓名、年龄、状态等基本信息",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/users",
+      "method": "GET",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "query": {
+          "pageNo": "1",
+          "pageSize": "20"
+        },
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "body_schema_json": null,
+      "response_schema_json": [
+        {
+          "name": "success",
+          "label": "是否成功",
+          "remark": null,
+          "type": "boolean",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        },
+        {
+          "name": "data",
+          "label": "响应数据",
+          "remark": null,
+          "type": "object",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        },
+        {
+          "name": "data.total",
+          "label": "总数",
+          "remark": null,
+          "type": "number",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        },
+        {
+          "name": "data.list",
+          "label": "用户列表",
+          "remark": null,
+          "type": "array",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        }
+      ],
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "total": "${RES_BODY(data.total)}",
+        "userList": "${RES_BODY(data.list)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.464444",
+      "updated_at": "2026-06-15 10:22:13.464444"
+    },
+    {
+      "id": "3c3d3d7a-99e8-47e0-83da-7e7428323a00",
+      "source_code": "httpGetAccountDetail",
+      "source_name": "查询账户详情",
+      "tags_json": [
+        "账户",
+        "查询",
+        "详情"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "用户",
+      "side_effects_json": [],
+      "agent_description": "按账户 ID 查询账户详情，包含姓名、邮箱、手机、部门、角色等完整信息，需要 Bearer Token 认证",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/accounts/${input.accountId}",
+      "method": "GET",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer ${input.token}"
+        }
+      },
+      "body_schema_json": null,
+      "response_schema_json": [
+        {
+          "name": "success",
+          "label": "是否成功",
+          "remark": null,
+          "type": "boolean",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        },
+        {
+          "name": "data.id",
+          "label": "账户 ID",
+          "remark": null,
+          "type": "string",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        },
+        {
+          "name": "data.name",
+          "label": "姓名",
+          "remark": null,
+          "type": "string",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        },
+        {
+          "name": "data.email",
+          "label": "邮箱",
+          "remark": null,
+          "type": "string",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        }
+      ],
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "accountId": "${RES_BODY(data.id)}",
+        "name": "${RES_BODY(data.name)}",
+        "email": "${RES_BODY(data.email)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.471768",
+      "updated_at": "2026-06-15 10:22:13.471768"
+    },
+    {
+      "id": "24c78a94-22cf-4e32-ab3a-8bc12eeed566",
+      "source_code": "httpGetDictionary",
+      "source_name": "查询字典数据",
+      "tags_json": [
+        "字典",
+        "查询",
+        "枚举"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "基础",
+      "side_effects_json": [],
+      "agent_description": "按字典类型查询枚举值列表，支持 USER_STATUS、ORDER_STATUS 等字典类型，使用 API Key 认证",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/openapi/v1/dictionaries",
+      "method": "GET",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "query": {
+          "dictType": "${input.dictType}",
+          "api_key": "${input.apiKey}"
+        },
+        "headers": {
+          "Accept": "application/json",
+          "X-Api-Version": "1.0"
+        }
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "dictType": "${RES_BODY(data.dictType)}",
+        "items": "${RES_BODY(data.items)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.476719",
+      "updated_at": "2026-06-15 10:22:13.476719"
+    },
+    {
+      "id": "0cb1aac5-8697-40fe-88fb-f7255f7ecfdc",
+      "source_code": "httpCreateUser",
+      "source_name": "创建用户",
+      "tags_json": [
+        "用户",
+        "创建",
+        "注册"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "用户",
+      "side_effects_json": [
+        {
+          "effectType": "CREATE_USER",
+          "target": "user",
+          "description": "创建新用户记录"
+        }
+      ],
+      "agent_description": "创建新用户，需要提供租户 ID、用户姓名、年龄等信息，返回新创建的用户 ID",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/users",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "bodyType": "raw-json",
+        "rawBody": "{\"tenantId\":\"${input.tenantId}\",\"user\":{\"name\":\"${input.name}\",\"age\":\"${input.age}\",\"enabled\":true}}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "userId": "${RES_BODY(data.userId)}",
+        "name": "${RES_BODY(data.name)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.480432",
+      "updated_at": "2026-06-15 10:22:13.480432"
+    },
+    {
+      "id": "495e26a2-157b-4fc0-a750-2b3496a4a23c",
+      "source_code": "httpCreateSoapOrder",
+      "source_name": "创建 SOAP 订单",
+      "tags_json": [
+        "订单",
+        "创建",
+        "SOAP",
+        "XML"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "交易",
+      "side_effects_json": [
+        {
+          "effectType": "CREATE_ORDER",
+          "target": "order",
+          "description": "创建 SOAP 订单记录"
+        }
+      ],
+      "agent_description": "通过 SOAP/XML 接口创建订单，使用 Basic Auth 认证，请求体和响应体均为 XML 格式",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/soap/orders/create",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Content-Type": "application/xml",
+          "Accept": "application/xml",
+          "Authorization": "Basic ${input.basicAuth}"
+        },
+        "bodyType": "raw-text",
+        "rawBody": "<CreateOrderRequest><tenantId>${input.tenantId}</tenantId><orderNo>${input.orderNo}</orderNo><amount>${input.amount}</amount></CreateOrderRequest>"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": null,
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "orderId": "${RES_BODY(CreateOrderResponse.orderId)}",
+        "orderNo": "${RES_BODY(CreateOrderResponse.orderNo)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.483538",
+      "updated_at": "2026-06-15 10:22:13.483538"
+    },
+    {
+      "id": "e637d26b-4a74-4c29-9665-b6e4d88160c0",
+      "source_code": "httpSendTextMessage",
+      "source_name": "发送文本消息",
+      "tags_json": [
+        "消息",
+        "发送",
+        "通知"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "消息",
+      "side_effects_json": [
+        {
+          "effectType": "SEND_MESSAGE",
+          "target": "message",
+          "description": "发送文本消息"
+        }
+      ],
+      "agent_description": "通过纯文本接口发送消息，支持 SMS、EMAIL 等渠道，使用 API Key 认证",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/messages/text",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "query": {
+          "channel": "${input.channel}"
+        },
+        "headers": {
+          "Content-Type": "text/plain",
+          "Accept": "text/plain",
+          "X-Api-Key": "${input.apiKey}",
+          "X-Tenant-Id": "${input.tenantId}"
+        },
+        "bodyType": "raw-text",
+        "rawBody": "${input.messageText}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": null,
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "messageId": "${RES_BODY(messageId)}",
+        "status": "${RES_BODY(status)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.486805",
+      "updated_at": "2026-06-15 10:22:13.486805"
+    },
+    {
+      "id": "ba8262c7-2acd-466f-b20a-2eceebd6b176",
+      "source_code": "httpUploadFile",
+      "source_name": "上传文件",
+      "tags_json": [
+        "文件",
+        "上传",
+        "附件"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "文件",
+      "side_effects_json": [
+        {
+          "effectType": "UPLOAD_FILE",
+          "target": "file",
+          "description": "上传文件到服务器"
+        }
+      ],
+      "agent_description": "通过 multipart/form-data 上传文件，支持指定上传目录和业务类型，需要 Bearer Token 认证",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/files/upload",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 30.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "query": {
+          "folder": "${input.folder}"
+        },
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer ${input.token}"
+        },
+        "bodyType": "form-data",
+        "formFields": {
+          "file": "${input.file}",
+          "bizType": "${input.bizType}"
+        }
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "fileId": "${RES_BODY(data.fileId)}",
+        "fileName": "${RES_BODY(data.fileName)}",
+        "downloadUrl": "${RES_BODY(data.downloadUrl)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.489231",
+      "updated_at": "2026-06-15 10:22:13.489231"
+    },
+    {
+      "id": "bc0f42d3-e94b-4998-a44f-1860d6cc0402",
+      "source_code": "httpOAuthToken",
+      "source_name": "获取 OAuth Token",
+      "tags_json": [
+        "认证",
+        "Token",
+        "OAuth",
+        "登录"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "认证",
+      "side_effects_json": [],
+      "agent_description": "通过 OAuth 客户端凭证模式获取访问令牌，使用 Basic Auth 提交客户端凭证，返回 access_token",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/oauth/token",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Accept": "application/json",
+          "Authorization": "Basic ${input.clientCredentials}"
+        },
+        "bodyType": "form-urlencoded",
+        "formFields": {
+          "grant_type": "password",
+          "username": "${input.username}",
+          "password": "${input.password}",
+          "scope": "${input.scope}"
+        }
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": null,
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "access_token": "${RES_BODY(access_token)}",
+        "token_type": "${RES_BODY(token_type)}",
+        "expires_in": "${RES_BODY(expires_in)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.492885",
+      "updated_at": "2026-06-15 10:22:13.492885"
+    },
+    {
+      "id": "3344f987-c3ec-4c3a-8953-23917161a8aa",
+      "source_code": "httpSessionLogin",
+      "source_name": "会话登录",
+      "tags_json": [
+        "认证",
+        "登录",
+        "Session",
+        "Cookie"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "认证",
+      "side_effects_json": [],
+      "agent_description": "用户会话登录，提交用户名密码，返回 Session ID 和 CSRF Token，同时通过 Set-Cookie 写入会话信息",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/session/login",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "bodyType": "raw-json",
+        "rawBody": "{\"username\":\"${input.username}\",\"password\":\"${input.password}\",\"tenantId\":\"${input.tenantId}\"}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": [
+        {
+          "name": "session_id",
+          "label": "会话 ID",
+          "remark": null,
+          "type": "string",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        },
+        {
+          "name": "csrf_token",
+          "label": "CSRF Token",
+          "remark": null,
+          "type": "string",
+          "required": true,
+          "defaultValue": null,
+          "semanticType": null,
+          "aliases": [],
+          "exampleValue": null,
+          "optionsSource": null,
+          "validation": null,
+          "batchEnabled": false,
+          "children": null
+        }
+      ],
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "sessionId": "${RES_BODY(data.sessionId)}",
+        "csrfToken": "${RES_BODY(data.csrfToken)}",
+        "sessionCookie": "${RES_COOKIE(session_id)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.495453",
+      "updated_at": "2026-06-15 10:22:13.495453"
+    },
+    {
+      "id": "c58bbc0e-bf25-4c73-9a9d-45d7fe6a5f8d",
+      "source_code": "httpCreatePendingOrder",
+      "source_name": "创建待支付订单",
+      "tags_json": [
+        "订单",
+        "创建",
+        "待支付"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "交易",
+      "side_effects_json": [
+        {
+          "effectType": "CREATE_ORDER",
+          "target": "trade_order",
+          "description": "创建待支付订单记录"
+        }
+      ],
+      "agent_description": "创建待支付状态的订单，支付状态为 PENDING，适用于测试支付前订单状态",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/orders/pending",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "bodyType": "raw-json",
+        "rawBody": "{\"buyer_id\":\"${input.buyer_id}\",\"amount\":\"${input.amount}\"}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "order_id": "${RES_BODY(data.order_id)}",
+        "pay_status": "${RES_BODY(data.pay_status)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.498914",
+      "updated_at": "2026-06-15 10:22:13.498914"
+    },
+    {
+      "id": "522161d8-b7dd-4fd6-b36e-8bc8e44b247f",
+      "source_code": "httpCreateOrderWithItems",
+      "source_name": "创建带商品订单",
+      "tags_json": [
+        "订单",
+        "商品",
+        "创建",
+        "库存"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "交易",
+      "side_effects_json": [
+        {
+          "effectType": "CREATE_ORDER",
+          "target": "trade_order",
+          "description": "创建订单记录"
+        },
+        {
+          "effectType": "MODIFY_INVENTORY",
+          "target": "inventory",
+          "description": "锁定商品库存"
+        }
+      ],
+      "agent_description": "创建包含商品明细的订单，同时锁定库存数量，适用于测试完整下单流程",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/orders/with-items",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "bodyType": "raw-json",
+        "rawBody": "{\"buyer_id\":\"${input.buyer_id}\",\"product_id\":\"${input.product_id}\",\"quantity\":\"${input.quantity}\"}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "order_id": "${RES_BODY(data.order_id)}",
+        "inventory_locked": "${RES_BODY(data.inventory_locked)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.501012",
+      "updated_at": "2026-06-15 10:22:13.501012"
+    },
+    {
+      "id": "17c89755-26e3-4b28-a4fd-50a9b1c32c92",
+      "source_code": "httpCreatePayment",
+      "source_name": "发起支付",
+      "tags_json": [
+        "支付",
+        "付款",
+        "扣款"
+      ],
+      "capability_type": "UPDATE",
+      "business_domain": "支付",
+      "side_effects_json": [
+        {
+          "effectType": "MODIFY_PAYMENT",
+          "target": "payment_record",
+          "description": "创建支付记录"
+        },
+        {
+          "effectType": "MODIFY_ACCOUNT",
+          "target": "user_account",
+          "description": "扣减账户余额"
+        }
+      ],
+      "agent_description": "对指定订单发起支付操作，从用户账户扣款，涉及资金变动需确认",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/payments",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "bodyType": "raw-json",
+        "rawBody": "{\"order_id\":\"${input.order_id}\",\"payment_method\":\"${input.payment_method}\"}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "payment_id": "${RES_BODY(data.payment_id)}",
+        "status": "${RES_BODY(data.status)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.503017",
+      "updated_at": "2026-06-15 10:22:13.503017"
+    },
+    {
+      "id": "f0a139df-1fe8-4e75-afb1-f7655607306e",
+      "source_code": "httpQueryPaymentStatus",
+      "source_name": "查询支付状态",
+      "tags_json": [
+        "支付",
+        "查询",
+        "状态"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "支付",
+      "side_effects_json": [],
+      "agent_description": "查询订单当前的支付状态，纯查询操作无副作用",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/payments/${input.order_id}/status",
+      "method": "GET",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json"
+        }
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "pay_status": "${RES_BODY(data.pay_status)}",
+        "paid_at": "${RES_BODY(data.paid_at)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.508214",
+      "updated_at": "2026-06-15 10:22:13.508214"
+    },
+    {
+      "id": "e91ab27c-edc7-45b4-b266-4b2da63f5f4f",
+      "source_code": "httpLockInventory",
+      "source_name": "锁定库存",
+      "tags_json": [
+        "库存",
+        "锁定",
+        "预占"
+      ],
+      "capability_type": "UPDATE",
+      "business_domain": "库存",
+      "side_effects_json": [
+        {
+          "effectType": "MODIFY_INVENTORY",
+          "target": "inventory",
+          "description": "锁定商品库存数量"
+        }
+      ],
+      "agent_description": "为订单锁定商品库存，防止超卖",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/inventory/lock",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "bodyType": "raw-json",
+        "rawBody": "{\"product_id\":\"${input.product_id}\",\"quantity\":\"${input.quantity}\"}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "lock_id": "${RES_BODY(data.lock_id)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.511218",
+      "updated_at": "2026-06-15 10:22:13.511218"
+    },
+    {
+      "id": "db755181-d2a0-490c-bb7e-22f573769da6",
+      "source_code": "httpRefundOrder",
+      "source_name": "订单退款",
+      "tags_json": [
+        "退款",
+        "退单",
+        "订单"
+      ],
+      "capability_type": "UPDATE",
+      "business_domain": "交易",
+      "side_effects_json": [
+        {
+          "effectType": "MODIFY_ORDER",
+          "target": "trade_order",
+          "description": "更新订单状态为已退款"
+        },
+        {
+          "effectType": "MODIFY_PAYMENT",
+          "target": "payment_record",
+          "description": "创建退款记录"
+        }
+      ],
+      "agent_description": "处理订单退款申请，退回支付金额到用户账户，涉及资金操作",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/orders/${input.order_id}/refund",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "bodyType": "raw-json",
+        "rawBody": "{\"refund_amount\":\"${input.refund_amount}\",\"refund_reason\":\"${input.refund_reason}\"}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "refund_id": "${RES_BODY(data.refund_id)}",
+        "status": "${RES_BODY(data.status)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.513198",
+      "updated_at": "2026-06-15 10:22:13.513198"
+    },
+    {
+      "id": "22a58207-95f3-4668-b637-a98d09faf814",
+      "source_code": "httpIntentionalFailOrder",
+      "source_name": "创建订单（故意失败测试）",
+      "tags_json": [
+        "订单",
+        "创建",
+        "测试",
+        "黑名单"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "交易",
+      "side_effects_json": [
+        {
+          "effectType": "CREATE_ORDER",
+          "target": "trade_order",
+          "description": "创建订单记录"
+        }
+      ],
+      "agent_description": "测试用场景，当 buyer_id 为 FAIL_USER 时故意失败，用于验证错误处理和黑名单机制",
+      "sys_code": "SYS_HTTP_TEST",
+      "path": "/api/v1/orders/fail",
+      "method": "POST",
+      "timeout_config_json": {
+        "connectTimeoutSeconds": 10.0,
+        "readTimeoutSeconds": 10.0,
+        "writeTimeoutSeconds": 10.0,
+        "poolTimeoutSeconds": 10.0
+      },
+      "request_mapping_json": {
+        "headers": {
+          "Accept": "application/json",
+          "Content-Type": "application/json"
+        },
+        "bodyType": "raw-json",
+        "rawBody": "{\"buyer_id\":\"${input.buyer_id}\"}"
+      },
+      "body_schema_json": null,
+      "response_schema_json": null,
+      "response_headers_schema_json": null,
+      "response_cookies_schema_json": null,
+      "response_handling_json": {
+        "expectedContentType": "JSON",
+        "statusCode": {
+          "success": [
+            200
+          ]
+        },
+        "businessSuccess": {
+          "allOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": true
+            }
+          ],
+          "anyOf": []
+        },
+        "businessFailure": {
+          "allOf": [],
+          "anyOf": [
+            {
+              "path": "${RES_BODY(success)}",
+              "op": "EQ",
+              "value": false
+            }
+          ]
+        }
+      },
+      "error_mapping_json": null,
+      "business_error_mapping_json": null,
+      "output_mapping_json": {
+        "order_id": "${RES_BODY(data.order_id)}"
+      },
+      "output_meta_json": null,
+      "retry_policy_json": null,
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.513198",
+      "updated_at": "2026-06-15 10:22:13.513198"
+    }
+  ],
+  "df_sql_source": [
+    {
+      "id": "1a596be5-d8f0-4775-ac9a-fc5fe612a3d0",
+      "source_code": "mockQueryMemberStatus",
+      "source_name": "查询会员账户状态",
+      "tags_json": [
+        "会员",
+        "查询",
+        "账户"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "用户",
+      "side_effects_json": [],
+      "agent_description": "按用户 ID 查询会员账户信息，包含手机号、会员等级、账户状态和积分",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "operation": "SELECT",
+      "sql_text": "SELECT user_id, mobile, member_level, account_status, points FROM member_account WHERE user_id = :userId",
+      "normalized_sql": "SELECT user_id, mobile, member_level, account_status, points FROM member_account WHERE user_id = :userId",
+      "tables_json": [
+        {
+          "id": "table_0_member_account",
+          "tableName": "member_account",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "result_fields_json": [
+        {
+          "id": "field_0_user_id",
+          "fieldName": "user_id",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_1_mobile",
+          "fieldName": "mobile",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_2_member_level",
+          "fieldName": "member_level",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_3_account_status",
+          "fieldName": "account_status",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_4_points",
+          "fieldName": "points",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "condition_fields_json": [
+        {
+          "id": "condition_0_user_id",
+          "fieldName": "user_id",
+          "sourceTable": "",
+          "paramName": "userId",
+          "description": ""
+        }
+      ],
+      "parameters_json": [
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true,
+          "defaultValue": "U10001",
+          "description": "会员用户 ID"
+        }
+      ],
+      "safety_json": {
+        "requireWhere": true,
+        "maxAffectedRows": null
+      },
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.528987",
+      "updated_at": "2026-06-15 10:22:13.528987"
+    },
+    {
+      "id": "9885527e-99f4-40df-a592-b57c6f5e7e6d",
+      "source_code": "mockQueryInventoryBySku",
+      "source_name": "按 SKU 查询库存",
+      "tags_json": [
+        "库存",
+        "查询",
+        "SKU",
+        "商品"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "库存",
+      "side_effects_json": [],
+      "agent_description": "按商品 SKU 编码查询库存信息，包含商品名称、价格、库存数量和锁定数量",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "operation": "SELECT",
+      "sql_text": "SELECT p.sku_id, p.product_name, p.sale_price, i.stock_num, i.locked_num, i.status FROM product_sku p JOIN inventory i ON p.sku_id = i.sku_id WHERE p.sku_id = :skuId",
+      "normalized_sql": "SELECT p.sku_id, p.product_name, p.sale_price, i.stock_num, i.locked_num, i.status FROM product_sku p JOIN inventory i ON p.sku_id = i.sku_id WHERE p.sku_id = :skuId",
+      "tables_json": [
+        {
+          "id": "table_0_p",
+          "tableName": "product_sku",
+          "alias": "p",
+          "description": ""
+        },
+        {
+          "id": "table_1_i",
+          "tableName": "inventory",
+          "alias": "i",
+          "description": ""
+        }
+      ],
+      "result_fields_json": [
+        {
+          "id": "field_0_sku_id",
+          "fieldName": "sku_id",
+          "sourceTable": "p",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_1_product_name",
+          "fieldName": "product_name",
+          "sourceTable": "p",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_2_sale_price",
+          "fieldName": "sale_price",
+          "sourceTable": "p",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_3_stock_num",
+          "fieldName": "stock_num",
+          "sourceTable": "i",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_4_locked_num",
+          "fieldName": "locked_num",
+          "sourceTable": "i",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_5_status",
+          "fieldName": "status",
+          "sourceTable": "i",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "condition_fields_json": [
+        {
+          "id": "condition_0_sku_id",
+          "fieldName": "sku_id",
+          "sourceTable": "p",
+          "paramName": "skuId",
+          "description": ""
+        }
+      ],
+      "parameters_json": [
+        {
+          "name": "skuId",
+          "type": "string",
+          "required": true,
+          "defaultValue": "SKU10001",
+          "description": "商品 SKU 编码"
+        }
+      ],
+      "safety_json": {
+        "requireWhere": true,
+        "maxAffectedRows": null
+      },
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.538600",
+      "updated_at": "2026-06-15 10:22:13.538600"
+    },
+    {
+      "id": "9a529b99-6ff4-467b-9462-fd0a617aee0f",
+      "source_code": "mockCreateOrder",
+      "source_name": "创建交易订单",
+      "tags_json": [
+        "订单",
+        "创建",
+        "交易"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "交易",
+      "side_effects_json": [
+        {
+          "effectType": "CREATE_ORDER",
+          "target": "trade_order",
+          "description": "创建交易订单记录"
+        }
+      ],
+      "agent_description": "在交易订单表中创建新订单，状态初始为 CREATED",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "operation": "INSERT",
+      "sql_text": "INSERT INTO trade_order(order_no, user_id, sku_id, quantity, order_amount, order_status, created_at) VALUES (:orderNo, :userId, :skuId, :quantity, :orderAmount, 'CREATED', CURRENT_TIMESTAMP)",
+      "normalized_sql": "INSERT INTO trade_order(order_no, user_id, sku_id, quantity, order_amount, order_status, created_at) VALUES (:orderNo, :userId, :skuId, :quantity, :orderAmount, 'CREATED', CURRENT_TIMESTAMP)",
+      "tables_json": [
+        {
+          "id": "table_0_trade_order",
+          "tableName": "trade_order",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "result_fields_json": [],
+      "condition_fields_json": [],
+      "parameters_json": [
+        {
+          "name": "orderAmount",
+          "type": "number",
+          "required": true,
+          "defaultValue": 299.0,
+          "description": "订单金额"
+        },
+        {
+          "name": "orderNo",
+          "type": "string",
+          "required": true,
+          "defaultValue": "T202606069999",
+          "description": "订单号"
+        },
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": true,
+          "defaultValue": 1,
+          "description": "购买数量"
+        },
+        {
+          "name": "skuId",
+          "type": "string",
+          "required": true,
+          "defaultValue": "SKU10001",
+          "description": "商品 SKU 编码"
+        },
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true,
+          "defaultValue": "U10001",
+          "description": "下单用户 ID"
+        }
+      ],
+      "safety_json": {
+        "requireWhere": false,
+        "maxAffectedRows": 1
+      },
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.545183",
+      "updated_at": "2026-06-15 10:22:13.545183"
+    },
+    {
+      "id": "8932f91c-b0bf-4373-9f0f-dd67daca2aaa",
+      "source_code": "mockLockInventory",
+      "source_name": "锁定库存",
+      "tags_json": [
+        "库存",
+        "锁定",
+        "更新"
+      ],
+      "capability_type": "UPDATE",
+      "business_domain": "库存",
+      "side_effects_json": [
+        {
+          "effectType": "MODIFY_INVENTORY",
+          "target": "inventory",
+          "description": "减少可用库存，增加锁定数量"
+        }
+      ],
+      "agent_description": "按 SKU 锁定指定数量的库存，减少可用库存并增加锁定数量",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "operation": "UPDATE",
+      "sql_text": "UPDATE inventory SET stock_num = stock_num - :quantity, locked_num = locked_num + :quantity, updated_at = CURRENT_TIMESTAMP WHERE sku_id = :skuId AND stock_num >= :quantity",
+      "normalized_sql": "UPDATE inventory SET stock_num = stock_num - :quantity, locked_num = locked_num + :quantity, updated_at = CURRENT_TIMESTAMP WHERE sku_id = :skuId AND stock_num >= :quantity",
+      "tables_json": [
+        {
+          "id": "table_0_inventory",
+          "tableName": "inventory",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "result_fields_json": [],
+      "condition_fields_json": [
+        {
+          "id": "condition_0_sku_id",
+          "fieldName": "sku_id",
+          "sourceTable": "",
+          "paramName": "quantity",
+          "description": ""
+        },
+        {
+          "id": "condition_1_stock_num",
+          "fieldName": "stock_num",
+          "sourceTable": "",
+          "paramName": "skuId",
+          "description": ""
+        }
+      ],
+      "parameters_json": [
+        {
+          "name": "quantity",
+          "type": "number",
+          "required": true,
+          "defaultValue": 1,
+          "description": "锁定数量"
+        },
+        {
+          "name": "skuId",
+          "type": "string",
+          "required": true,
+          "defaultValue": "SKU10001",
+          "description": "商品 SKU 编码"
+        }
+      ],
+      "safety_json": {
+        "requireWhere": true,
+        "maxAffectedRows": 1
+      },
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.549188",
+      "updated_at": "2026-06-15 10:22:13.549188"
+    },
+    {
+      "id": "bc266fc3-b65c-4989-a416-22ec989a9c87",
+      "source_code": "mockDeletePendingOrder",
+      "source_name": "删除未支付订单",
+      "tags_json": [
+        "订单",
+        "删除",
+        "清理"
+      ],
+      "capability_type": "UPDATE",
+      "business_domain": "交易",
+      "side_effects_json": [
+        {
+          "effectType": "DELETE_ORDER",
+          "target": "trade_order",
+          "description": "删除未支付的订单记录"
+        }
+      ],
+      "agent_description": "删除状态为 CREATED（未支付）的订单记录",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "operation": "DELETE",
+      "sql_text": "DELETE FROM trade_order WHERE order_no = :orderNo AND order_status = 'CREATED'",
+      "normalized_sql": "DELETE FROM trade_order WHERE order_no = :orderNo AND order_status = 'CREATED'",
+      "tables_json": [
+        {
+          "id": "table_0_trade_order",
+          "tableName": "trade_order",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "result_fields_json": [],
+      "condition_fields_json": [
+        {
+          "id": "condition_0_order_no",
+          "fieldName": "order_no",
+          "sourceTable": "",
+          "paramName": "orderNo",
+          "description": ""
+        }
+      ],
+      "parameters_json": [
+        {
+          "name": "orderNo",
+          "type": "string",
+          "required": true,
+          "defaultValue": "T202606060002",
+          "description": "待删除订单号"
+        }
+      ],
+      "safety_json": {
+        "requireWhere": true,
+        "maxAffectedRows": 1
+      },
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.554605",
+      "updated_at": "2026-06-15 10:22:13.554605"
+    },
+    {
+      "id": "c48707d9-563a-4cd8-82c0-f07a52218629",
+      "source_code": "mockInsertOrderLog",
+      "source_name": "写入订单日志",
+      "tags_json": [
+        "订单",
+        "日志",
+        "审计"
+      ],
+      "capability_type": "CREATE",
+      "business_domain": "交易",
+      "side_effects_json": [
+        {
+          "effectType": "WRITE_LOG",
+          "target": "order_log",
+          "description": "写入订单操作日志"
+        }
+      ],
+      "agent_description": "向订单日志表写入操作记录，记录订单号、用户、操作类型和备注",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "operation": "INSERT",
+      "sql_text": "INSERT INTO order_log(order_no, user_id, action_type, remark, created_at) VALUES (:orderNo, :userId, :actionType, :remark, CURRENT_TIMESTAMP)",
+      "normalized_sql": "INSERT INTO order_log(order_no, user_id, action_type, remark, created_at) VALUES (:orderNo, :userId, :actionType, :remark, CURRENT_TIMESTAMP)",
+      "tables_json": [
+        {
+          "id": "table_0_order_log",
+          "tableName": "order_log",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "result_fields_json": [],
+      "condition_fields_json": [],
+      "parameters_json": [
+        {
+          "name": "actionType",
+          "type": "string",
+          "required": true,
+          "defaultValue": "CREATE_ORDER",
+          "description": "操作类型"
+        },
+        {
+          "name": "orderNo",
+          "type": "string",
+          "required": true,
+          "defaultValue": "T202606060001",
+          "description": "订单号"
+        },
+        {
+          "name": "remark",
+          "type": "string",
+          "required": false,
+          "defaultValue": "mock log",
+          "description": "日志备注"
+        },
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true,
+          "defaultValue": "U10001",
+          "description": "用户 ID"
+        }
+      ],
+      "safety_json": {
+        "requireWhere": false,
+        "maxAffectedRows": 1
+      },
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.559193",
+      "updated_at": "2026-06-15 10:22:13.559193"
+    },
+    {
+      "id": "e2aeb197-74aa-43d8-bc03-6ede2862dd4c",
+      "source_code": "mockQueryMemberOrders",
+      "source_name": "查询会员订单列表",
+      "tags_json": [
+        "订单",
+        "查询",
+        "会员",
+        "列表"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "交易",
+      "side_effects_json": [],
+      "agent_description": "按用户 ID 查询其所有订单，包含订单号、商品 SKU、数量、金额和状态",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "operation": "SELECT",
+      "sql_text": "SELECT order_no, user_id, sku_id, quantity, order_amount, order_status, created_at, paid_at FROM trade_order WHERE user_id = :userId",
+      "normalized_sql": "SELECT order_no, user_id, sku_id, quantity, order_amount, order_status, created_at, paid_at FROM trade_order WHERE user_id = :userId",
+      "tables_json": [
+        {
+          "id": "table_0_trade_order",
+          "tableName": "trade_order",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "result_fields_json": [
+        {
+          "id": "field_0_order_no",
+          "fieldName": "order_no",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_1_user_id",
+          "fieldName": "user_id",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_2_sku_id",
+          "fieldName": "sku_id",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_3_quantity",
+          "fieldName": "quantity",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_4_order_amount",
+          "fieldName": "order_amount",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_5_order_status",
+          "fieldName": "order_status",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_6_created_at",
+          "fieldName": "created_at",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_7_paid_at",
+          "fieldName": "paid_at",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "condition_fields_json": [
+        {
+          "id": "condition_0_user_id",
+          "fieldName": "user_id",
+          "sourceTable": "",
+          "paramName": "userId",
+          "description": ""
+        }
+      ],
+      "parameters_json": [
+        {
+          "name": "userId",
+          "type": "string",
+          "required": true,
+          "defaultValue": "U10001",
+          "description": "用户 ID"
+        }
+      ],
+      "safety_json": {
+        "requireWhere": true,
+        "maxAffectedRows": null
+      },
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.563675",
+      "updated_at": "2026-06-15 10:22:13.563675"
+    },
+    {
+      "id": "466c03e0-9c91-49f4-ac9b-68cf51f12c89",
+      "source_code": "mockQueryAllProducts",
+      "source_name": "查询所有商品",
+      "tags_json": [
+        "商品",
+        "查询",
+        "列表",
+        "SKU"
+      ],
+      "capability_type": "QUERY",
+      "business_domain": "商品",
+      "side_effects_json": [],
+      "agent_description": "查询所有商品信息，包含 SKU、名称、分类、价格和上架状态",
+      "sys_code": "mockTrade",
+      "datasource_code": "mockTradeSqlite",
+      "operation": "SELECT",
+      "sql_text": "SELECT sku_id, product_name, category, sale_price, status FROM product_sku",
+      "normalized_sql": "SELECT sku_id, product_name, category, sale_price, status FROM product_sku",
+      "tables_json": [
+        {
+          "id": "table_0_product_sku",
+          "tableName": "product_sku",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "result_fields_json": [
+        {
+          "id": "field_0_sku_id",
+          "fieldName": "sku_id",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_1_product_name",
+          "fieldName": "product_name",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_2_category",
+          "fieldName": "category",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_3_sale_price",
+          "fieldName": "sale_price",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        },
+        {
+          "id": "field_4_status",
+          "fieldName": "status",
+          "sourceTable": "",
+          "alias": "",
+          "description": ""
+        }
+      ],
+      "condition_fields_json": [],
+      "parameters_json": [],
+      "safety_json": {
+        "requireWhere": false,
+        "maxAffectedRows": null
+      },
+      "status": "ENABLED",
+      "created_by": "gdp-mock-seed",
+      "updated_by": "gdp-mock-seed",
+      "created_at": "2026-06-15 10:22:13.569863",
+      "updated_at": "2026-06-15 10:22:13.569863"
+    }
+  ],
+  "df_scene": []
+}
