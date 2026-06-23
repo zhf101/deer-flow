@@ -13,10 +13,14 @@ from .identifiers import HashValue, StepId, TaskRunId
 class RequirementLayer(StrEnum):
     """资源缺口层级，定义系统为用户寻找的资源类型。
 
-    当前仅支持 SCENE（已发布造数场景），未来扩展 SOURCE（数据源）和 INFRA（基础设施配置）。
+    SCENE：寻找已发布造数场景。
+    SOURCE：寻找可用于构建场景的 HTTP/SQL Source。
+    INFRA：寻找 Source 依赖的系统、环境、服务端点或数据源等基础配置。
     """
 
     SCENE = "SCENE"  # 寻找已发布的造数场景来满足用户需求
+    SOURCE = "SOURCE"  # 寻找可用于后续场景设计的 HTTP/SQL Source
+    INFRA = "INFRA"  # 寻找 Source 依赖的基础配置摘要
 
 
 class RequirementStatus(StrEnum):
@@ -45,10 +49,11 @@ class Requirement(BaseModel):
     requirement_id: str = Field(description="缺口唯一标识。")
     task_run_id: TaskRunId = Field(description="所属造数任务 ID。")
     step_id: StepId = Field(description="所属业务步骤 ID，标识这个缺口是为了完成哪个步骤。")
-    layer: RequirementLayer = Field(description="缺口层级，当前固定 SCENE（寻找已发布场景）。")
+    layer: RequirementLayer = Field(description="缺口层级：SCENE 表示缺已发布场景，SOURCE 表示缺 HTTP/SQL Source，INFRA 表示缺基础配置。")
     goal: str = Field(min_length=1, description="缺口要满足的目标描述，通常继承步骤的业务目标。")
     status: RequirementStatus = Field(description="缺口当前状态，决定流程走向。")
     proposal_id: str | None = Field(default=None, description="当前候选集 Proposal ID，关联到本次搜索结果。")
+    parent_requirement_id: str | None = Field(default=None, description="父级缺口 ID。SOURCE 缺口指向 SCENE 缺口，INFRA 缺口指向 SOURCE 缺口。")
     selected_scene_code: str | None = Field(default=None, description="已选定的场景编码，SATISFIED 时必有值。")
     blacklist: list[str] = Field(default_factory=list, description="已失败或被拒的场景编码黑名单，重搜时自动排除。")
     created_at: datetime = Field(description="缺口创建时间。")
@@ -70,6 +75,46 @@ class SceneCandidate(BaseModel):
     missing_inputs: list[str] = Field(default_factory=list, description="当前入参和变量栈尚不能绑定的必填字段，非空时需等用户补充后才能执行。")
     requires_confirmation: bool = Field(description="执行前是否需要用户审批，有写副作用的场景为 true。")
     contract_hash: HashValue = Field(description="候选契约快照哈希，执行前记录，未来用于检测场景契约是否发生漂移。")
+
+
+class SourceCandidate(BaseModel):
+    """已有 HTTP/SQL Source 的只读候选，用来提示用户后续可基于哪些原子能力构建场景。
+
+    业务目标：当没有完整 Scene 可执行时，继续向下发现已有 Source 资源，让用户知道
+    “没有完整场景，但已有这些接口或 SQL 能力可以复用”。本模型只表达只读发现结果，
+    不代表 Runtime 会自动保存 Source 或自动生成 Scene。
+    """
+
+    source_type: str = Field(description="Source 类型，HTTP 或 SQL。")
+    source_code: str = Field(description="Source 编码，唯一标识已有 HTTP/SQL Source。")
+    source_name: str = Field(description="Source 名称，直接展示给用户。")
+    score: float = Field(ge=0.0, le=1.0, description="Catalog 综合评分，仅用于排序候选，不作为事实依据。")
+    reasons: list[str] = Field(default_factory=list, description="命中理由列表，可直接展示给用户。")
+    missing_inputs: list[str] = Field(default_factory=list, description="当前入参和变量栈尚不能绑定的必填字段。")
+    requires_confirmation: bool = Field(description="该 Source 将来生成写操作场景时是否需要审批。")
+    sys_code: str | None = Field(default=None, description="Source 所属系统编码，用于基础配置诊断。")
+    method: str | None = Field(default=None, description="HTTP Source 请求方法，SQL Source 为空。")
+    path: str | None = Field(default=None, description="HTTP Source 相对路径，SQL Source 为空。")
+    datasource_code: str | None = Field(default=None, description="SQL Source 数据源编码，HTTP Source 为空。")
+    operation: str | None = Field(default=None, description="SQL 操作类型，HTTP Source 为空。")
+    contract_hash: HashValue = Field(description="Source 契约快照哈希，后续用于检测契约漂移。")
+
+
+class InfraCandidate(BaseModel):
+    """Source 依赖的基础配置只读诊断结果。
+
+    业务目标：告诉用户当前系统、环境、服务端点或数据源是否已经具备，
+    以及缺少哪些基础配置。该模型只返回安全摘要，不返回密码、token 或完整连接串。
+    """
+
+    resource_type: str = Field(description="待诊断资源类型，HTTP 需要服务端点，SQL 需要数据源。")
+    ready: bool = Field(description="基础配置是否已经满足 Source 后续使用需要。")
+    confidence: float = Field(ge=0.0, le=1.0, description="本次基础配置解析置信度。")
+    missing_fields: list[str] = Field(default_factory=list, description="仍缺失的基础配置字段。")
+    matched_systems: list[dict] = Field(default_factory=list, description="命中的系统候选摘要。")
+    matched_environments: list[dict] = Field(default_factory=list, description="命中的环境配置摘要。")
+    matched_service_endpoints: list[dict] = Field(default_factory=list, description="命中的 HTTP 服务端点摘要，不包含敏感凭据。")
+    matched_datasources: list[dict] = Field(default_factory=list, description="命中的数据库数据源摘要，不包含密码、token 或完整连接串。")
 
 
 class ProposalStatus(StrEnum):
@@ -112,6 +157,8 @@ class RequirementProposal(BaseModel):
     step_id: StepId = Field(description="所属业务步骤 ID。")
     requirement_id: str = Field(description="所属资源缺口 ID，标识这次搜索是为了满足哪个缺口。")
     candidates: list[SceneCandidate] = Field(default_factory=list, description="按评分倒序排列的候选场景列表。")
+    source_candidates: list[SourceCandidate] = Field(default_factory=list, description="按评分倒序排列的候选 Source 列表，仅用于只读发现展示。")
+    infra_candidates: list[InfraCandidate] = Field(default_factory=list, description="基础配置诊断结果列表，仅用于只读发现展示。")
     query_terms: list[str] = Field(default_factory=list, description="参与检索的关键词和别名，供用户理解搜索条件。")
     status: ProposalStatus = Field(description="候选集当前状态。")
     selected_scene_code: str | None = Field(default=None, description="被选定的场景编码，SELECTED 时必有值。")

@@ -3,8 +3,10 @@ import type {
   AgentRuntimeActionAttempt,
   AgentRuntimeDecisionRecord,
   AgentRuntimeEvidence,
+  AgentRuntimeInfraCandidate,
   AgentRuntimeProposal,
   AgentRuntimeSceneCandidate,
+  AgentRuntimeSourceCandidate,
   AgentRuntimeTaskRunResponse,
   AgentRuntimeTimelineResponse,
   AgentRuntimeVerdict,
@@ -20,6 +22,13 @@ export type WaitingInteraction =
   | { type: "approval"; candidate: AgentRuntimeSceneCandidate; stepId?: string }
   | { type: "candidate_selection"; proposal: AgentRuntimeProposal; stepId?: string }
   | { type: "manual_scene_code"; proposal: AgentRuntimeProposal; stepId?: string }
+  | {
+      type: "resource_discovery";
+      proposal: AgentRuntimeProposal;
+      sourceCandidates: AgentRuntimeSourceCandidate[];
+      infraCandidates: AgentRuntimeInfraCandidate[];
+      stepId?: string;
+    }
   | { type: "missing_input"; fields: string[]; stepId?: string }
   | { type: "unknown_state"; reason: string; stepId?: string }
   | { type: "generic"; message: string; stepId?: string };
@@ -71,6 +80,18 @@ function getProposalCandidates(
   return Array.isArray(proposal?.candidates) ? proposal.candidates : [];
 }
 
+function getSourceCandidates(
+  proposal: AgentRuntimeProposal | null | undefined,
+): AgentRuntimeSourceCandidate[] {
+  return Array.isArray(proposal?.source_candidates) ? proposal.source_candidates : [];
+}
+
+function getInfraCandidates(
+  proposal: AgentRuntimeProposal | null | undefined,
+): AgentRuntimeInfraCandidate[] {
+  return Array.isArray(proposal?.infra_candidates) ? proposal.infra_candidates : [];
+}
+
 function normalizeCompletionVerdictType(
   verdictType: AgentRuntimeVerdict["verdict_type"] | string,
 ): CompletionResult["verdict_type"] | null {
@@ -93,6 +114,8 @@ export function deriveWaitingInteraction(
   const latestVerdict = timeline.verdicts.at(-1);
   const latestProposal = timeline.proposals.at(-1);
   const latestCandidates = getProposalCandidates(latestProposal);
+  const latestSourceCandidates = getSourceCandidates(latestProposal);
+  const latestInfraCandidates = getInfraCandidates(latestProposal);
   const activeStepId = timeline.task_run?.active_step_id || undefined;
 
   // 1. 最新 Verdict 是 UNKNOWN_STATE
@@ -105,12 +128,26 @@ export function deriveWaitingInteraction(
     return { type: "candidate_selection", proposal: latestProposal, stepId: activeStepId };
   }
 
-  // 3. 最新 Proposal 是 PENDING 且无候选
+  // 3. 最新 Proposal 是 PENDING 且包含 Source / Infra 发现结果
+  if (
+    latestProposal?.status === "PENDING" &&
+    (latestSourceCandidates.length > 0 || latestInfraCandidates.length > 0)
+  ) {
+    return {
+      type: "resource_discovery",
+      proposal: latestProposal,
+      sourceCandidates: latestSourceCandidates,
+      infraCandidates: latestInfraCandidates,
+      stepId: activeStepId,
+    };
+  }
+
+  // 4. 最新 Proposal 是 PENDING 且无候选
   if (latestProposal?.status === "PENDING" && latestCandidates.length === 0) {
     return { type: "manual_scene_code", proposal: latestProposal, stepId: activeStepId };
   }
 
-  // 4. 最新 Proposal 是 SELECTED，候选 requires_confirmation 且无 approval record
+  // 5. 最新 Proposal 是 SELECTED，候选 requires_confirmation 且无 approval record
   if (latestProposal?.status === "SELECTED" && latestProposal.selected_scene_code) {
     const candidate = latestCandidates.find(
       (c) => c.scene_code === latestProposal.selected_scene_code,
@@ -125,7 +162,7 @@ export function deriveWaitingInteraction(
     }
   }
 
-  // 5. pending_question 包含缺少必填信息
+  // 6. pending_question 包含缺少必填信息
   if (taskRun.pending_question) {
     const missingMatch = taskRun.pending_question.match(/缺少(?:必填信息)?[：:]\s*(.+)/);
     if (missingMatch && missingMatch[1]) {
@@ -137,7 +174,7 @@ export function deriveWaitingInteraction(
     }
   }
 
-  // 6. 兜底
+  // 7. 兜底
   if (taskRun.pending_question) {
     return { type: "generic", message: taskRun.pending_question, stepId: activeStepId };
   }
@@ -204,6 +241,8 @@ export function deriveChatMessages(
   // 从 proposals 派生候选搜索
   for (const proposal of timeline.proposals) {
     const candidates = getProposalCandidates(proposal);
+    const sourceCandidates = getSourceCandidates(proposal);
+    const infraCandidates = getInfraCandidates(proposal);
     if (candidates.length > 0) {
       messages.push({
         id: `msg:proposal-found:${proposal.proposal_id}`,
@@ -211,6 +250,15 @@ export function deriveChatMessages(
         content: `找到 ${candidates.length} 个候选场景`,
         timestamp: proposal.created_at,
         detail: candidates,
+      });
+    }
+    if (sourceCandidates.length > 0 || infraCandidates.length > 0) {
+      messages.push({
+        id: `msg:resource-discovery:${proposal.proposal_id}`,
+        role: "agent",
+        content: `发现 ${sourceCandidates.length} 个 Source 线索，${infraCandidates.length} 项基础配置诊断`,
+        timestamp: proposal.created_at,
+        detail: { sourceCandidates, infraCandidates },
       });
     }
     if (proposal.status === "SELECTED" && proposal.selected_scene_code) {

@@ -16,9 +16,15 @@ import hashlib
 import json
 from typing import Any, Protocol
 
-from app.gdp.datagen.agent_catalog.models import AgentSceneCandidate, AgentSceneContract
+from app.gdp.datagen.agent_catalog.models import (
+    AgentInfraResolveResponse,
+    AgentSceneCandidate,
+    AgentSceneContract,
+    AgentSourceCandidate,
+    AgentSourceContract,
+)
 
-from ..models import SceneCandidate
+from ..models import InfraCandidate, SceneCandidate, SourceCandidate
 from ..support.errors import RuntimeDependencyError
 
 
@@ -62,6 +68,30 @@ class SceneCatalogPort(Protocol):
         """
         ...
 
+    async def search_sources(
+        self,
+        *,
+        goal: str,
+        env_code: str | None,
+        user_inputs: dict[str, Any],
+        visible_variables: list[dict[str, Any]],
+        limit: int,
+    ) -> tuple[list[SourceCandidate], list[str]]:
+        """根据用户目标搜索已有 HTTP/SQL Source 候选。"""
+        ...
+
+    async def resolve_infra(
+        self,
+        *,
+        query: str,
+        env_code: str | None,
+        sys_code: str | None,
+        datasource_code: str | None,
+        resource_type: str,
+    ) -> InfraCandidate:
+        """解析 Source 依赖的系统、环境、服务端点或数据源配置。"""
+        ...
+
 
 def _contract_hash(contract: AgentSceneContract) -> str:
     """对场景契约快照做稳定哈希，用于后续检测场景接口是否发生变更（契约漂移）。
@@ -69,6 +99,12 @@ def _contract_hash(contract: AgentSceneContract) -> str:
     业务目标：记录选择时刻的场景接口状态，若场景在执行前被修改（如新增必填参数），
     系统可通过对比哈希发现漂移，避免用旧契约执行新接口导致造数失败。
     """
+    raw = json.dumps(contract.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _source_contract_hash(contract: AgentSourceContract) -> str:
+    """对 Source 契约快照做稳定哈希，用于后续契约漂移检测。"""
     raw = json.dumps(contract.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -97,6 +133,59 @@ def _to_candidate(candidate: AgentSceneCandidate) -> SceneCandidate:
         missing_inputs=list(candidate.missingInputs),
         requires_confirmation=candidate.requiresConfirmation,
         contract_hash=_contract_hash(contract),
+    )
+
+
+def _to_source_candidate(candidate: AgentSourceCandidate) -> SourceCandidate:
+    """将 Catalog 返回的 Source 候选转换为运行时内部只读发现模型。"""
+    contract = candidate.contract
+    return SourceCandidate(
+        source_type=contract.sourceType,
+        source_code=contract.sourceCode,
+        source_name=contract.sourceName,
+        score=_clamp_score(candidate.score),
+        reasons=list(candidate.reasons),
+        missing_inputs=list(candidate.missingInputs),
+        requires_confirmation=candidate.requiresConfirmation,
+        sys_code=contract.sysCode,
+        method=contract.method,
+        path=contract.path,
+        datasource_code=contract.datasourceCode,
+        operation=contract.operation,
+        contract_hash=_source_contract_hash(contract),
+    )
+
+
+def _safe_dict_list(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """基础配置摘要安全投影，避免凭据或完整连接串进入 timeline。"""
+    blocked = {
+        "password",
+        "passwd",
+        "token",
+        "secret",
+        "credential",
+        "credentials",
+        "connectionString",
+        "jdbcUrl",
+        "url",
+    }
+    result: list[dict[str, Any]] = []
+    for item in items:
+        result.append({key: value for key, value in item.items() if key not in blocked})
+    return result
+
+
+def _to_infra_candidate(resource_type: str, response: AgentInfraResolveResponse) -> InfraCandidate:
+    """将 Catalog 基础配置解析结果转换为运行时内部诊断模型。"""
+    return InfraCandidate(
+        resource_type=resource_type.upper(),
+        ready=response.ready,
+        confidence=_clamp_score(response.confidence),
+        missing_fields=list(response.missingFields),
+        matched_systems=_safe_dict_list(list(response.matchedSystems)),
+        matched_environments=_safe_dict_list(list(response.matchedEnvironments)),
+        matched_service_endpoints=_safe_dict_list(list(response.matchedServiceEndpoints)),
+        matched_datasources=_safe_dict_list(list(response.matchedDatasources)),
     )
 
 
@@ -178,13 +267,21 @@ class AgentCatalogAdapter:
         if self._service is not None:
             return self._service
         from app.gdp.datagen.agent_catalog.service import AgentCatalogService
+        from app.gdp.datagen.config.base.repository import BaseConfigRepository
+        from app.gdp.datagen.config.httpsource.repository import HttpSourceRepository
         from app.gdp.datagen.config.scene.repository import SceneRepository
+        from app.gdp.datagen.config.sqlsource.repository import SqlSourceRepository
         from deerflow.persistence.engine import get_session_factory
 
         session_factory = get_session_factory()
         if session_factory is None:
             raise RuntimeDependencyError(503, "Catalog persistence not available")
-        self._service = AgentCatalogService(scene_repository=SceneRepository(session_factory))
+        self._service = AgentCatalogService(
+            scene_repository=SceneRepository(session_factory),
+            http_source_repository=HttpSourceRepository(session_factory),
+            sql_source_repository=SqlSourceRepository(session_factory),
+            base_repository=BaseConfigRepository(session_factory),
+        )
         return self._service
 
     async def search(
@@ -233,3 +330,59 @@ class AgentCatalogAdapter:
                 raise mapped from exc
             raise
         return _explicit_candidate(contract, user_inputs)
+
+    async def search_sources(
+        self,
+        *,
+        goal: str,
+        env_code: str | None,
+        user_inputs: dict[str, Any],
+        visible_variables: list[dict[str, Any]],
+        limit: int,
+    ) -> tuple[list[SourceCandidate], list[str]]:
+        from app.gdp.datagen.agent_catalog.models import AgentSourceSearchRequest
+
+        try:
+            response = await self._get_service().search_source_contracts(
+                AgentSourceSearchRequest(
+                    goal=goal,
+                    envCode=env_code,
+                    userInputs=user_inputs,
+                    visibleVariables=visible_variables,
+                    limit=limit,
+                )
+            )
+        except Exception as exc:
+            mapped = _to_runtime_dependency_error(exc)
+            if mapped is not None:
+                raise mapped from exc
+            raise
+        return [_to_source_candidate(item) for item in response.candidates], list(response.queryTerms)
+
+    async def resolve_infra(
+        self,
+        *,
+        query: str,
+        env_code: str | None,
+        sys_code: str | None,
+        datasource_code: str | None,
+        resource_type: str,
+    ) -> InfraCandidate:
+        from app.gdp.datagen.agent_catalog.models import AgentInfraResolveRequest
+
+        try:
+            response = await self._get_service().resolve_infra_basis(
+                AgentInfraResolveRequest(
+                    query=query,
+                    envCode=env_code or "DEV",
+                    sysCode=sys_code,
+                    datasourceCode=datasource_code,
+                    resourceType=resource_type,
+                )
+            )
+        except Exception as exc:
+            mapped = _to_runtime_dependency_error(exc)
+            if mapped is not None:
+                raise mapped from exc
+            raise
+        return _to_infra_candidate(resource_type, response)

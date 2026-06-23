@@ -20,6 +20,7 @@ from ..models import (
     PlanStep,
     ProposalStatus,
     Requirement,
+    RequirementLayer,
     RequirementProposal,
     RequirementStatus,
     SceneCandidate,
@@ -104,7 +105,7 @@ async def _handle_supply_input(
         {"scene_code": scene_code, "inputs": inputs},
     )
 
-    requirement = _get_waiting_requirement(task_run, store)
+    requirement = _get_waiting_scene_requirement(task_run, store)
     proposal = store.get_latest_proposal(
         task_run.task_run_id,
         step_id=requirement.step_id,
@@ -288,7 +289,8 @@ async def _handle_supply_scene_code(
     proposal = await resolve_explicit_scene(requirement, scene_code, inputs, _get_scene_catalog())
     resolved = proposal.candidates[0]
     store.save_proposal(proposal)
-    requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
+    if requirement.status == RequirementStatus.PENDING:
+        requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
     requirement, proposal = apply_selection(requirement, proposal, scene_code, SelectionSource.USER)
     requirement = transition_requirement(requirement, RequirementStatus.SATISFIED)
     store.save_requirement(requirement)
@@ -673,6 +675,17 @@ def _get_waiting_requirement(task_run: TaskRun, store: Store) -> Requirement:
     if requirement is None:
         raise RuntimeConflictError("当前 TaskRun 没有可恢复的 Requirement")
     return requirement
+
+
+def _get_waiting_scene_requirement(task_run: TaskRun, store: Store) -> Requirement:
+    requirements = [
+        item
+        for item in store.list_requirements(task_run.task_run_id)
+        if item.step_id == task_run.active_step_id and item.layer == RequirementLayer.SCENE
+    ]
+    if not requirements:
+        raise RuntimeConflictError("当前 TaskRun 没有可恢复的 Scene Requirement")
+    return max(requirements, key=lambda item: item.created_at)
 
 
 def _get_waiting_proposal(task_run: TaskRun, store: Store, requirement_id: str) -> RequirementProposal:

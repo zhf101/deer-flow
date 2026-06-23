@@ -75,6 +75,21 @@ def _variable_view(variable: Variable) -> dict[str, Any]:
     }
 
 
+def _safe_summary_list(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """基础配置摘要安全过滤，防止敏感字段从账本进入用户 timeline。"""
+    blocked = {
+        "password",
+        "passwd",
+        "token",
+        "secret",
+        "credential",
+        "credentials",
+        "connectionString",
+        "jdbcUrl",
+    }
+    return [{key: value for key, value in item.items() if key not in blocked} for item in items]
+
+
 def _proposal_view(proposal: RequirementProposal) -> dict[str, Any]:
     """候选集投影——只向用户展示决策所需信息，不暴露敏感入参原值。
 
@@ -103,5 +118,35 @@ def _proposal_view(proposal: RequirementProposal) -> dict[str, Any]:
                 "requires_confirmation": c.requires_confirmation,
             }
             for c in proposal.candidates
+        ],
+        "source_candidates": [
+            {
+                "source_type": c.source_type,
+                "source_code": c.source_code,
+                "source_name": c.source_name,
+                "score": c.score,
+                "reasons": list(c.reasons),
+                "missing_inputs": list(c.missing_inputs),
+                "requires_confirmation": c.requires_confirmation,
+                "sys_code": c.sys_code,
+                "method": c.method,
+                "path": c.path,
+                "datasource_code": c.datasource_code,
+                "operation": c.operation,
+            }
+            for c in proposal.source_candidates
+        ],
+        "infra_candidates": [
+            {
+                "resource_type": c.resource_type,
+                "ready": c.ready,
+                "confidence": c.confidence,
+                "missing_fields": list(c.missing_fields),
+                "matched_systems": _safe_summary_list(c.matched_systems),
+                "matched_environments": _safe_summary_list(c.matched_environments),
+                "matched_service_endpoints": _safe_summary_list(c.matched_service_endpoints),
+                "matched_datasources": _safe_summary_list(c.matched_datasources),
+            }
+            for c in proposal.infra_candidates
         ],
     }

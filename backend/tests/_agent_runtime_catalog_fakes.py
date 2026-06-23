@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.gdp.agent_runtime.models import SceneCandidate
+from app.gdp.agent_runtime.models import InfraCandidate, SceneCandidate, SourceCandidate
 
 # 与第一阶段 _REQUIRED_INPUTS_BY_SCENE 等价的契约缺参定义，保证回归行为不变。
 _REQUIRED_INPUTS_BY_SCENE: dict[str, tuple[str, ...]] = {
@@ -39,11 +39,17 @@ class FakeSceneCatalog:
         self,
         *,
         candidates: list[SceneCandidate] | None = None,
+        source_candidates: list[SourceCandidate] | None = None,
+        infra_candidates: list[InfraCandidate] | None = None,
         query_terms: list[str] | None = None,
+        source_query_terms: list[str] | None = None,
         contract_missing: bool = False,
     ) -> None:
         self._candidates = candidates or []
+        self._source_candidates = source_candidates or []
+        self._infra_candidates = infra_candidates or []
         self._query_terms = query_terms or ["订单"]
+        self._source_query_terms = source_query_terms or ["订单", "source"]
         self._contract_missing = contract_missing
 
     async def search(
@@ -77,6 +83,30 @@ class FakeSceneCatalog:
             contract_hash="fake-hash",
         )
 
+    async def search_sources(
+        self,
+        *,
+        goal: str,
+        env_code: str | None,
+        user_inputs: dict[str, Any],
+        visible_variables: list[dict[str, Any]],
+        limit: int,
+    ) -> tuple[list[SourceCandidate], list[str]]:
+        return list(self._source_candidates), list(self._source_query_terms)
+
+    async def resolve_infra(
+        self,
+        *,
+        query: str,
+        env_code: str | None,
+        sys_code: str | None,
+        datasource_code: str | None,
+        resource_type: str,
+    ) -> InfraCandidate:
+        if self._infra_candidates:
+            return self._infra_candidates.pop(0)
+        return make_infra_candidate(resource_type=resource_type)
+
 
 def make_candidate(
     scene_code: str,
@@ -95,4 +125,55 @@ def make_candidate(
         missing_inputs=missing_inputs or [],
         requires_confirmation=requires_confirmation,
         contract_hash=f"hash-{scene_code}",
+    )
+
+
+def make_source_candidate(
+    source_code: str,
+    *,
+    source_type: str = "HTTP",
+    source_name: str | None = None,
+    score: float = 0.85,
+    missing_inputs: list[str] | None = None,
+    requires_confirmation: bool = True,
+    sys_code: str | None = "TRADE",
+    method: str | None = "POST",
+    path: str | None = "/api/orders",
+    datasource_code: str | None = None,
+    operation: str | None = None,
+) -> SourceCandidate:
+    """构造 Source 发现候选。"""
+    return SourceCandidate(
+        source_type=source_type,
+        source_code=source_code,
+        source_name=source_name or source_code,
+        score=score,
+        reasons=[f"命中 Source {source_code}"],
+        missing_inputs=missing_inputs or [],
+        requires_confirmation=requires_confirmation,
+        sys_code=sys_code,
+        method=method if source_type == "HTTP" else None,
+        path=path if source_type == "HTTP" else None,
+        datasource_code=datasource_code if source_type == "SQL" else None,
+        operation=operation if source_type == "SQL" else None,
+        contract_hash=f"hash-source-{source_code}",
+    )
+
+
+def make_infra_candidate(
+    *,
+    resource_type: str = "HTTP",
+    ready: bool = True,
+    missing_fields: list[str] | None = None,
+) -> InfraCandidate:
+    """构造 Infra 只读诊断结果。"""
+    return InfraCandidate(
+        resource_type=resource_type,
+        ready=ready,
+        confidence=0.9 if ready else 0.4,
+        missing_fields=missing_fields or [],
+        matched_systems=[{"sysCode": "TRADE", "sysName": "交易系统"}],
+        matched_environments=[{"envCode": "SIT1", "envName": "测试环境"}],
+        matched_service_endpoints=[{"envCode": "SIT1", "sysCode": "TRADE", "baseUrl": "http://trade.example"}],
+        matched_datasources=[],
     )

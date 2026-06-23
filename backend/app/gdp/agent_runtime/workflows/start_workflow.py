@@ -49,6 +49,7 @@ from .decision_records import (
 from .scene_catalog import create_scene_requirement, resolve_explicit_scene, search_scenes
 from .selection_gate import select_and_maybe_execute, suspend_for_selection_decision, suspend_for_user
 from .selection_policy import decide_selection
+from .source_infra_discovery import discover_source_and_infra_after_scene_miss
 
 logger = logging.getLogger(__name__)
 
@@ -247,9 +248,23 @@ async def _run_search(
     )
 
     if outcome.kind == "NO_CANDIDATE":
-        # 搜索无结果：暂停等用户补充场景编码或调整造数目标，缺口保持 PENDING 表示"还没有候选"。
+        # 搜索无结果：先保留原 Scene 缺口事实，再尝试只读向下发现 Source / Infra。
         store.save_requirement(requirement)  # 仍 PENDING，不转 RESOLVING
-        return suspend_for_user(task_run, step, outcome.question, SuspendReason.NEED_SCENE_SELECTION, store)
+        discovery_question = await discover_source_and_infra_after_scene_miss(
+            task_run,
+            step,
+            requirement,
+            inputs,
+            store,
+            catalog,
+        )
+        return suspend_for_user(
+            task_run,
+            step,
+            discovery_question or outcome.question,
+            SuspendReason.NEED_SCENE_SELECTION,
+            store,
+        )
 
     # 有候选时转入 RESOLVING，语义是"已有候选，正在选定中"。
     requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)

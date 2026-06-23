@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 
 import {
+  deriveChatMessages,
   deriveCompletionResult,
   deriveWaitingInteraction,
 } from "@/gdp/datagen/agent/agent-runtime-view-model";
@@ -69,6 +70,8 @@ test("deriveWaitingInteraction treats malformed null candidates as empty candida
         query_terms: [],
         created_at: "2026-06-12T00:00:00Z",
         candidates: null,
+        source_candidates: null,
+        infra_candidates: null,
       },
     ],
   } as unknown as AgentRuntimeTimelineResponse;
@@ -76,6 +79,103 @@ test("deriveWaitingInteraction treats malformed null candidates as empty candida
   const interaction = deriveWaitingInteraction(makeTaskRun("请选择场景"), timeline);
 
   expect(interaction).toEqual({ type: "manual_scene_code", proposal: timeline.proposals[0], stepId: undefined });
+});
+
+test("deriveWaitingInteraction shows resource discovery before manual scene fallback", () => {
+  const timeline = {
+    ...emptyTimeline,
+    proposals: [
+      {
+        proposal_id: "prop-source",
+        task_run_id: "tr-1",
+        step_id: "step-1",
+        requirement_id: "req-source",
+        status: "PENDING",
+        selected_scene_code: null,
+        selection_source: null,
+        query_terms: ["订单"],
+        created_at: "2026-06-12T00:00:00Z",
+        candidates: [],
+        source_candidates: [
+          {
+            source_type: "HTTP",
+            source_code: "createOrderApi",
+            source_name: "创建订单接口",
+            score: 0.8,
+            reasons: ["命中订单"],
+            missing_inputs: [],
+            requires_confirmation: true,
+            sys_code: "TRADE",
+            method: "POST",
+            path: "/api/orders",
+            datasource_code: null,
+            operation: null,
+          },
+        ],
+        infra_candidates: [
+          {
+            resource_type: "HTTP",
+            ready: false,
+            confidence: 0.4,
+            missing_fields: ["serviceEndpoint"],
+            matched_systems: [],
+            matched_environments: [],
+            matched_service_endpoints: [],
+            matched_datasources: [],
+          },
+        ],
+      },
+    ],
+  } as AgentRuntimeTimelineResponse;
+
+  const interaction = deriveWaitingInteraction(makeTaskRun("没有完整场景"), timeline);
+
+  expect(interaction?.type).toBe("resource_discovery");
+  if (interaction?.type === "resource_discovery") {
+    expect(interaction.sourceCandidates[0]!.source_code).toBe("createOrderApi");
+    expect(interaction.infraCandidates[0]!.missing_fields).toEqual(["serviceEndpoint"]);
+  }
+});
+
+test("deriveChatMessages includes resource discovery summary", () => {
+  const timeline = {
+    ...emptyTimeline,
+    proposals: [
+      {
+        proposal_id: "prop-source",
+        task_run_id: "tr-1",
+        step_id: "step-1",
+        requirement_id: "req-source",
+        status: "PENDING",
+        selected_scene_code: null,
+        selection_source: null,
+        query_terms: [],
+        created_at: "2026-06-12T00:00:00Z",
+        candidates: [],
+        source_candidates: [
+          {
+            source_type: "SQL",
+            source_code: "queryOrderSql",
+            source_name: "查询订单 SQL",
+            score: 0.7,
+            reasons: [],
+            missing_inputs: [],
+            requires_confirmation: false,
+            sys_code: "TRADE",
+            method: null,
+            path: null,
+            datasource_code: "orderDb",
+            operation: "SELECT",
+          },
+        ],
+        infra_candidates: [],
+      },
+    ],
+  } as AgentRuntimeTimelineResponse;
+
+  const messages = deriveChatMessages(makeTaskRun("等待处理"), timeline);
+
+  expect(messages.some((message) => message.content.includes("发现 1 个 Source 线索"))).toBe(true);
 });
 
 test("deriveCompletionResult rejects unknown verdict types", () => {

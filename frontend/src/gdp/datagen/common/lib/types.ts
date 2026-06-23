@@ -830,10 +830,11 @@ export interface AgentRuntimeRequirement {
   requirement_id: string;
   task_run_id: string;
   step_id: string;
-  layer: "SCENE";
+  layer: "SCENE" | "SOURCE" | "INFRA";
   goal: string;
   status: "PENDING" | "RESOLVING" | "SATISFIED" | "FAILED";
   proposal_id?: string | null;
+  parent_requirement_id?: string | null;
   selected_scene_code?: string | null;
   blacklist: string[];
   created_at: string;
@@ -849,6 +850,32 @@ export interface AgentRuntimeSceneCandidate {
   requires_confirmation: boolean;
 }
 
+export interface AgentRuntimeSourceCandidate {
+  source_type: "HTTP" | "SQL" | string;
+  source_code: string;
+  source_name: string;
+  score: number;
+  reasons: string[];
+  missing_inputs: string[];
+  requires_confirmation: boolean;
+  sys_code?: string | null;
+  method?: string | null;
+  path?: string | null;
+  datasource_code?: string | null;
+  operation?: string | null;
+}
+
+export interface AgentRuntimeInfraCandidate {
+  resource_type: "HTTP" | "SQL" | string;
+  ready: boolean;
+  confidence: number;
+  missing_fields: string[];
+  matched_systems: Record<string, unknown>[];
+  matched_environments: Record<string, unknown>[];
+  matched_service_endpoints: Record<string, unknown>[];
+  matched_datasources: Record<string, unknown>[];
+}
+
 export interface AgentRuntimeProposal {
   proposal_id: string;
   task_run_id: string;
@@ -860,6 +887,8 @@ export interface AgentRuntimeProposal {
   query_terms: string[];
   created_at: string;
   candidates: AgentRuntimeSceneCandidate[];
+  source_candidates: AgentRuntimeSourceCandidate[];
+  infra_candidates: AgentRuntimeInfraCandidate[];
 }
 
 export interface AgentRuntimeApprovalRecord {

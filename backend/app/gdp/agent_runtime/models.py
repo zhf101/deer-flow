@@ -39,6 +39,7 @@ from .domain.identifiers import (
     VerdictId,
 )
 from .domain.requirement import (
+    InfraCandidate,
     ProposalStatus,
     Requirement,
     RequirementLayer,
@@ -47,6 +48,7 @@ from .domain.requirement import (
     SceneCandidate,
     SceneSelectionSuggestion,
     SelectionSource,
+    SourceCandidate,
 )
 from .domain.safety import LMProposal, reject_lm_proposal
 from .domain.step import PlanStep, StepStatus
@@ -73,6 +75,7 @@ __all__ = [
     "EvidenceId",
     "FactPredicate",
     "HashValue",
+    "InfraCandidate",
     "LMProposal",
     "Observation",
     "PlanStep",
@@ -85,6 +88,7 @@ __all__ = [
     "SceneCandidate",
     "SceneSelectionSuggestion",
     "SelectionSource",
+    "SourceCandidate",
     "StepEdge",
     "StepId",
     "StepStatus",

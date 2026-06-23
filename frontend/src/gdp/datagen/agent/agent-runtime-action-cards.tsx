@@ -15,7 +15,12 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-import type { AgentRuntimeSceneCandidate, AgentRuntimeProposal } from "../common/lib/types";
+import type {
+  AgentRuntimeInfraCandidate,
+  AgentRuntimeSceneCandidate,
+  AgentRuntimeProposal,
+  AgentRuntimeSourceCandidate,
+} from "../common/lib/types";
 import type { WaitingInteraction } from "./agent-runtime-view-model";
 
 // ── 候选卡片 ────────────────────────────────────────────────────────────
@@ -272,6 +277,64 @@ export function GenericWaitingCard({ message }: { message: string }) {
   );
 }
 
+// ── Source / Infra 发现卡 ───────────────────────────────────────────────
+
+function ResourceDiscoveryCard({
+  sourceCandidates,
+  infraCandidates,
+}: {
+  sourceCandidates: AgentRuntimeSourceCandidate[];
+  infraCandidates: AgentRuntimeInfraCandidate[];
+}) {
+  const missingFields = Array.from(new Set(infraCandidates.flatMap((item) => item.missing_fields)));
+  return (
+    <div className="space-y-3 rounded-lg border border-violet-200 bg-violet-50/60 p-4">
+      <div className="flex items-center gap-2 text-sm font-medium text-violet-800">
+        <AlertTriangleIcon className="size-4" />
+        未找到完整场景，发现下层资源线索
+      </div>
+      {sourceCandidates.length > 0 ? (
+        <div className="space-y-2">
+          {sourceCandidates.map((candidate) => (
+            <div key={`${candidate.source_type}:${candidate.source_code}`} className="rounded-md border bg-background p-3">
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <Badge variant="outline">{candidate.source_type}</Badge>
+                <span className="font-medium">{candidate.source_name}</span>
+                <span className="font-mono text-xs text-muted-foreground">{candidate.source_code}</span>
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {candidate.source_type === "SQL"
+                  ? `数据源 ${candidate.datasource_code ?? "-"} · ${candidate.operation ?? "-"}`
+                  : `${candidate.method ?? "-"} ${candidate.path ?? "-"}`}
+              </div>
+              {candidate.reasons.length > 0 ? (
+                <div className="mt-1 text-xs text-muted-foreground">{candidate.reasons.join("；")}</div>
+              ) : null}
+              {candidate.missing_inputs.length > 0 ? (
+                <div className="mt-1 text-xs text-amber-700">缺少：{candidate.missing_inputs.join("，")}</div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-violet-800">没有发现可复用的 HTTP/SQL Source。</p>
+      )}
+      {infraCandidates.length > 0 ? (
+        <div className="rounded-md border bg-background p-3 text-xs text-muted-foreground">
+          <div className="mb-1 font-medium text-foreground">基础配置诊断</div>
+          <div>
+            {infraCandidates.filter((item) => item.ready).length}/{infraCandidates.length} 项 ready
+            {missingFields.length > 0 ? `，仍缺：${missingFields.join("，")}` : "，未发现阻塞项"}
+          </div>
+        </div>
+      ) : null}
+      <p className="text-xs text-violet-800">
+        当前仅做只读发现。请先在场景管理中基于这些 Source 创建并发布组合场景，再回到任务补充 scene_code。
+      </p>
+    </div>
+  );
+}
+
 // ── 动作卡统一入口 ──────────────────────────────────────────────────────
 
 export function ActionCard({
@@ -307,6 +370,13 @@ export function ActionCard({
         );
       case "manual_scene_code":
         return <ManualSceneCard busy={busy} onSubmit={onSupplySceneCode} />;
+      case "resource_discovery":
+        return (
+          <ResourceDiscoveryCard
+            sourceCandidates={interaction.sourceCandidates}
+            infraCandidates={interaction.infraCandidates}
+          />
+        );
       case "missing_input":
         return <MissingInputCard fields={interaction.fields} busy={busy} onSubmit={onSupplyInput} />;
       case "unknown_state":

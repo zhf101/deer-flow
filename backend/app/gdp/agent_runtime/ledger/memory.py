@@ -188,6 +188,10 @@ class MemoryLedger:
             raise EntityNotFoundError("Requirement", requirement_id)
         return self._requirements[requirement_id]
 
+    def list_requirements(self, task_run_id: str) -> list[Requirement]:
+        """返回任务内全部资源缺口，供父子缺口恢复和时间线投影使用。"""
+        return [item for item in self._requirements.values() if item.task_run_id == task_run_id]
+
     def get_active_requirement(self, task_run_id: str, *, step_id: str | None = None) -> Requirement | None:
         """返回该任务当前步骤最近创建的缺口记录，用于编排引擎判断下一步应填补哪个缺口。"""
         reqs = [r for r in self._requirements.values() if r.task_run_id == task_run_id]
