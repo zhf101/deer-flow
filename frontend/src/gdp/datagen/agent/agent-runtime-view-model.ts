@@ -1,10 +1,10 @@
 import type {
   AgentRuntimeAction,
   AgentRuntimeActionAttempt,
-  AgentRuntimeDecisionRecord,
   AgentRuntimeEvidence,
   AgentRuntimeInfraCandidate,
   AgentRuntimeProposal,
+  AgentRuntimeRequirement,
   AgentRuntimeSceneCandidate,
   AgentRuntimeSourceCandidate,
   AgentRuntimeTaskRunResponse,
@@ -20,8 +20,16 @@ import type {
 
 export type WaitingInteraction =
   | { type: "approval"; candidate: AgentRuntimeSceneCandidate; stepId?: string }
-  | { type: "candidate_selection"; proposal: AgentRuntimeProposal; stepId?: string }
-  | { type: "manual_scene_code"; proposal: AgentRuntimeProposal; stepId?: string }
+  | {
+      type: "candidate_selection";
+      proposal: AgentRuntimeProposal;
+      stepId?: string;
+    }
+  | {
+      type: "manual_scene_code";
+      proposal: AgentRuntimeProposal;
+      stepId?: string;
+    }
   | {
       type: "resource_discovery";
       proposal: AgentRuntimeProposal;
@@ -65,6 +73,14 @@ export interface CompletionResult {
   finished_at: string;
 }
 
+// ── 资源缺口树 ──────────────────────────────────────────────────────────
+
+export interface ResourceGapTreeNode {
+  requirement: AgentRuntimeRequirement;
+  proposal?: AgentRuntimeProposal;
+  children: ResourceGapTreeNode[];
+}
+
 // ── 派生函数 ────────────────────────────────────────────────────────────
 
 function normalizeMissingInputField(field: string): string {
@@ -83,19 +99,27 @@ function getProposalCandidates(
 function getSourceCandidates(
   proposal: AgentRuntimeProposal | null | undefined,
 ): AgentRuntimeSourceCandidate[] {
-  return Array.isArray(proposal?.source_candidates) ? proposal.source_candidates : [];
+  return Array.isArray(proposal?.source_candidates)
+    ? proposal.source_candidates
+    : [];
 }
 
 function getInfraCandidates(
   proposal: AgentRuntimeProposal | null | undefined,
 ): AgentRuntimeInfraCandidate[] {
-  return Array.isArray(proposal?.infra_candidates) ? proposal.infra_candidates : [];
+  return Array.isArray(proposal?.infra_candidates)
+    ? proposal.infra_candidates
+    : [];
 }
 
 function normalizeCompletionVerdictType(
   verdictType: AgentRuntimeVerdict["verdict_type"] | string,
 ): CompletionResult["verdict_type"] | null {
-  if (verdictType === "DONE" || verdictType === "FAILED" || verdictType === "UNKNOWN_STATE") {
+  if (
+    verdictType === "DONE" ||
+    verdictType === "FAILED" ||
+    verdictType === "UNKNOWN_STATE"
+  ) {
     return verdictType;
   }
   if (verdictType === "NEED_USER") {
@@ -104,28 +128,96 @@ function normalizeCompletionVerdictType(
   return null;
 }
 
+function proposalForRequirement(
+  requirement: AgentRuntimeRequirement,
+  proposalsById: Map<string, AgentRuntimeProposal>,
+  proposalsByRequirement: Map<string, AgentRuntimeProposal>,
+): AgentRuntimeProposal | undefined {
+  if (requirement.proposal_id) {
+    return (
+      proposalsById.get(requirement.proposal_id) ??
+      proposalsByRequirement.get(requirement.requirement_id)
+    );
+  }
+  return proposalsByRequirement.get(requirement.requirement_id);
+}
+
+export function deriveResourceGapTree(
+  timeline: AgentRuntimeTimelineResponse | null,
+): ResourceGapTreeNode[] {
+  if (!timeline) return [];
+
+  const proposalsById = new Map(
+    timeline.proposals.map((proposal) => [proposal.proposal_id, proposal]),
+  );
+  const proposalsByRequirement = new Map(
+    timeline.proposals.map((proposal) => [proposal.requirement_id, proposal]),
+  );
+  const nodesById = new Map<string, ResourceGapTreeNode>();
+
+  for (const requirement of timeline.requirements) {
+    nodesById.set(requirement.requirement_id, {
+      requirement,
+      proposal: proposalForRequirement(
+        requirement,
+        proposalsById,
+        proposalsByRequirement,
+      ),
+      children: [],
+    });
+  }
+
+  const roots: ResourceGapTreeNode[] = [];
+  for (const node of nodesById.values()) {
+    const parentId = node.requirement.parent_requirement_id;
+    const parent = parentId ? nodesById.get(parentId) : undefined;
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  const sortTree = (nodes: ResourceGapTreeNode[]) => {
+    nodes.sort((a, b) =>
+      a.requirement.created_at.localeCompare(b.requirement.created_at),
+    );
+    for (const node of nodes) sortTree(node.children);
+  };
+  sortTree(roots);
+
+  return roots;
+}
 /** 从 taskRun + timeline 派生当前等待交互 */
 export function deriveWaitingInteraction(
   taskRun: AgentRuntimeTaskRunResponse | null,
   timeline: AgentRuntimeTimelineResponse | null,
 ): WaitingInteraction | null {
-  if (!taskRun || taskRun.status !== "WAITING_USER" || !timeline) return null;
+  if (taskRun?.status !== "WAITING_USER" || !timeline) return null;
 
   const latestVerdict = timeline.verdicts.at(-1);
   const latestProposal = timeline.proposals.at(-1);
   const latestCandidates = getProposalCandidates(latestProposal);
   const latestSourceCandidates = getSourceCandidates(latestProposal);
   const latestInfraCandidates = getInfraCandidates(latestProposal);
-  const activeStepId = timeline.task_run?.active_step_id || undefined;
+  const activeStepId = timeline.task_run?.active_step_id ?? undefined;
 
   // 1. 最新 Verdict 是 UNKNOWN_STATE
   if (latestVerdict?.verdict_type === "UNKNOWN_STATE") {
-    return { type: "unknown_state", reason: latestVerdict.reason, stepId: activeStepId };
+    return {
+      type: "unknown_state",
+      reason: latestVerdict.reason,
+      stepId: activeStepId,
+    };
   }
 
   // 2. 最新 Proposal 是 PENDING 且有候选
   if (latestProposal?.status === "PENDING" && latestCandidates.length > 0) {
-    return { type: "candidate_selection", proposal: latestProposal, stepId: activeStepId };
+    return {
+      type: "candidate_selection",
+      proposal: latestProposal,
+      stepId: activeStepId,
+    };
   }
 
   // 3. 最新 Proposal 是 PENDING 且包含 Source / Infra 发现结果
@@ -144,11 +236,18 @@ export function deriveWaitingInteraction(
 
   // 4. 最新 Proposal 是 PENDING 且无候选
   if (latestProposal?.status === "PENDING" && latestCandidates.length === 0) {
-    return { type: "manual_scene_code", proposal: latestProposal, stepId: activeStepId };
+    return {
+      type: "manual_scene_code",
+      proposal: latestProposal,
+      stepId: activeStepId,
+    };
   }
 
   // 5. 最新 Proposal 是 SELECTED，候选 requires_confirmation 且无 approval record
-  if (latestProposal?.status === "SELECTED" && latestProposal.selected_scene_code) {
+  if (
+    latestProposal?.status === "SELECTED" &&
+    latestProposal.selected_scene_code
+  ) {
     const candidate = latestCandidates.find(
       (c) => c.scene_code === latestProposal.selected_scene_code,
     );
@@ -164,8 +263,10 @@ export function deriveWaitingInteraction(
 
   // 6. pending_question 包含缺少必填信息
   if (taskRun.pending_question) {
-    const missingMatch = taskRun.pending_question.match(/缺少(?:必填信息)?[：:]\s*(.+)/);
-    if (missingMatch && missingMatch[1]) {
+    const missingMatch = /缺少(?:必填信息)?[：:]\s*(.+)/.exec(
+      taskRun.pending_question,
+    );
+    if (missingMatch?.[1]) {
       const fields = missingMatch[1]
         .split(/[,，、]/)
         .map((s) => normalizeMissingInputField(s))
@@ -176,7 +277,11 @@ export function deriveWaitingInteraction(
 
   // 7. 兜底
   if (taskRun.pending_question) {
-    return { type: "generic", message: taskRun.pending_question, stepId: activeStepId };
+    return {
+      type: "generic",
+      message: taskRun.pending_question,
+      stepId: activeStepId,
+    };
   }
 
   return null;
@@ -362,14 +467,14 @@ export function deriveChatMessages(
   return messages;
 }
 
-
 /** 从 taskRun + timeline 派生完成结果，仅在终态时有值 */
 export function deriveCompletionResult(
   taskRun: AgentRuntimeTaskRunResponse | null,
   timeline: AgentRuntimeTimelineResponse | null,
 ): CompletionResult | null {
   if (!taskRun || !timeline) return null;
-  if (taskRun.status !== "COMPLETED" && taskRun.status !== "FAILED") return null;
+  if (taskRun.status !== "COMPLETED" && taskRun.status !== "FAILED")
+    return null;
 
   const verdict = timeline.verdicts.at(-1);
   if (!verdict) return null;
@@ -385,13 +490,14 @@ export function deriveCompletionResult(
     reason: verdict.reason,
     scene_code: action?.scene_code ?? "",
     response_preview: attempt?.response_preview ?? {},
-    facts: evidence?.facts.map((f) => ({
-      subject: f.subject,
-      passed: f.passed,
-      expected: f.expected,
-      actual: f.actual,
-      detail: f.detail,
-    })) ?? [],
+    facts:
+      evidence?.facts.map((f) => ({
+        subject: f.subject,
+        passed: f.passed,
+        expected: f.expected,
+        actual: f.actual,
+        detail: f.detail,
+      })) ?? [],
     missing_facts: evidence?.missing_facts ?? [],
     finished_at: taskRun.finished_at ?? taskRun.updated_at,
   };
@@ -459,13 +565,13 @@ export function deriveAuditSteps(
 ): AuditStep[] {
   if (!timeline) return [];
   const activeStepId = timeline.task_run?.active_step_id;
-  
+
   return timeline.steps.map((step) => {
-    const incomingEdges = (timeline.step_edges || [])
+    const incomingEdges = (timeline.step_edges ?? [])
       .filter((e) => e.to_step_id === step.step_id)
       .map((e) => ({
         fromStepId: e.from_step_id,
-        variableIds: e.variable_ids || [],
+        variableIds: e.variable_ids ?? [],
       }));
 
     return {
@@ -495,8 +601,12 @@ export function deriveAuditExecutions(
 
   return timeline.actions.map((action) => {
     const step = timeline.steps.find((s) => s.step_id === action.step_id);
-    const attempts = timeline.attempts.filter((a) => a.action_id === action.action_id);
-    const evidence = timeline.evidences.find((e) => e.action_id === action.action_id);
+    const attempts = timeline.attempts.filter(
+      (a) => a.action_id === action.action_id,
+    );
+    const evidence = timeline.evidences.find(
+      (e) => e.action_id === action.action_id,
+    );
     const verdict = step ? verdictByStep.get(step.step_id) : undefined;
 
     return {

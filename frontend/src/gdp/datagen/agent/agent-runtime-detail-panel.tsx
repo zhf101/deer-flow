@@ -5,14 +5,18 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-import type { AgentRuntimeTaskRunResponse } from "../common/lib/types";
+import type {
+  AgentRuntimeTaskRunResponse,
+  AgentRuntimeVariable,
+} from "../common/lib/types";
+
 import { AgentRuntimeAuditPanel } from "./agent-runtime-audit-panel";
 import type {
   AuditDecision,
   AuditExecution,
   AuditStep,
+  ResourceGapTreeNode,
 } from "./agent-runtime-view-model";
-import type { AgentRuntimeVariable } from "../common/lib/types";
 
 function statusTone(status?: string) {
   switch (status) {
@@ -40,7 +44,11 @@ function formatTime(value?: string | null) {
   if (!value) return "";
   const d = new Date(value);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  return d.toLocaleTimeString("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 // ── 详情面板主组件 ──────────────────────────────────────────────────────
@@ -51,6 +59,7 @@ export function AgentRuntimeDetailPanel({
   steps,
   executions,
   variables,
+  resourceGapTrees,
   open,
   onClose,
 }: {
@@ -59,16 +68,22 @@ export function AgentRuntimeDetailPanel({
   steps: AuditStep[];
   executions: AuditExecution[];
   variables: AgentRuntimeVariable[];
+  resourceGapTrees: ResourceGapTreeNode[];
   open: boolean;
   onClose: () => void;
 }) {
   if (!open) return null;
 
   return (
-    <aside className="flex min-h-0 w-[440px] flex-col border-l bg-muted/10">
+    <aside className="bg-muted/10 flex min-h-0 w-[440px] flex-col border-l">
       <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
         <h2 className="text-sm font-semibold">运行审计</h2>
-        <Button variant="ghost" size="icon" className="size-7" onClick={onClose}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-7"
+          onClick={onClose}
+        >
           <XIcon className="size-4" />
         </Button>
       </div>
@@ -76,17 +91,20 @@ export function AgentRuntimeDetailPanel({
       {/* TaskRun 摘要 */}
       {taskRun ? (
         <div className="shrink-0 border-b p-3">
-          <section className="space-y-1 rounded-lg border bg-background p-3 text-xs">
+          <section className="bg-background space-y-1 rounded-lg border p-3 text-xs">
             <div className="flex items-center gap-2">
-              <span className="font-mono text-[11px] text-muted-foreground">
+              <span className="text-muted-foreground font-mono text-[11px]">
                 {taskRun.task_run_id.slice(0, 12)}
               </span>
-              <Badge variant="outline" className={cn("text-[10px]", statusTone(taskRun.status))}>
+              <Badge
+                variant="outline"
+                className={cn("text-[10px]", statusTone(taskRun.status))}
+              >
                 {taskRun.status}
               </Badge>
             </div>
             <p className="font-medium">{taskRun.user_goal}</p>
-            <div className="flex items-center gap-2 text-muted-foreground">
+            <div className="text-muted-foreground flex items-center gap-2">
               <span>{taskRun.env_code ?? "-"}</span>
               <span className="text-border">·</span>
               <span>{formatTime(taskRun.created_at)}</span>
@@ -109,6 +127,7 @@ export function AgentRuntimeDetailPanel({
         steps={steps}
         executions={executions}
         variables={variables}
+        resourceGapTrees={resourceGapTrees}
       />
     </aside>
   );

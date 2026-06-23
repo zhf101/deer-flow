@@ -40,6 +40,7 @@ import type {
   EnvironmentResponse,
   SceneSummary,
 } from "../common/lib/types";
+
 import { AgentRuntimeChat } from "./agent-runtime-chat";
 import { AgentRuntimeDetailPanel } from "./agent-runtime-detail-panel";
 import {
@@ -56,6 +57,7 @@ import {
   deriveAuditSteps,
   deriveChatMessages,
   deriveCompletionResult,
+  deriveResourceGapTree,
   deriveWaitingInteraction,
 } from "./agent-runtime-view-model";
 
@@ -105,14 +107,21 @@ export function AgentRuntimePage() {
   const [userGoal, setUserGoal] = useState(DEFAULT_PRESET.userGoal);
   const [envCode, setEnvCode] = useState("");
   const [inputsText, setInputsText] = useState(jsonText(DEFAULT_PRESET.inputs));
-  const [selectedSceneCode, setSelectedSceneCode] = useState<string | null>(DEFAULT_PRESET.sceneCode);
-  const [selectedPresetId, setSelectedPresetId] = useState<AgentRuntimePresetId | null>(DEFAULT_PRESET.id);
+  const [selectedSceneCode, setSelectedSceneCode] = useState<string | null>(
+    DEFAULT_PRESET.sceneCode,
+  );
+  const [selectedPresetId, setSelectedPresetId] =
+    useState<AgentRuntimePresetId | null>(DEFAULT_PRESET.id);
 
   // 数据状态
   const [environments, setEnvironments] = useState<EnvironmentResponse[]>([]);
   const [scenes, setScenes] = useState<SceneSummary[]>([]);
-  const [taskRun, setTaskRun] = useState<AgentRuntimeTaskRunResponse | null>(null);
-  const [timeline, setTimeline] = useState<AgentRuntimeTimelineResponse | null>(null);
+  const [taskRun, setTaskRun] = useState<AgentRuntimeTaskRunResponse | null>(
+    null,
+  );
+  const [timeline, setTimeline] = useState<AgentRuntimeTimelineResponse | null>(
+    null,
+  );
 
   // UI 状态
   const [busy, setBusy] = useState(false);
@@ -125,12 +134,31 @@ export function AgentRuntimePage() {
   taskRunRef.current = taskRun;
 
   // 派生数据
-  const messages = useMemo(() => deriveChatMessages(taskRun, timeline), [taskRun, timeline]);
-  const interaction = useMemo(() => deriveWaitingInteraction(taskRun, timeline), [taskRun, timeline]);
-  const auditDecisions = useMemo(() => deriveAuditDecisions(timeline), [timeline]);
+  const messages = useMemo(
+    () => deriveChatMessages(taskRun, timeline),
+    [taskRun, timeline],
+  );
+  const interaction = useMemo(
+    () => deriveWaitingInteraction(taskRun, timeline),
+    [taskRun, timeline],
+  );
+  const auditDecisions = useMemo(
+    () => deriveAuditDecisions(timeline),
+    [timeline],
+  );
   const auditSteps = useMemo(() => deriveAuditSteps(timeline), [timeline]);
-  const auditExecutions = useMemo(() => deriveAuditExecutions(timeline), [timeline]);
-  const completionResult = useMemo(() => deriveCompletionResult(taskRun, timeline), [taskRun, timeline]);
+  const auditExecutions = useMemo(
+    () => deriveAuditExecutions(timeline),
+    [timeline],
+  );
+  const resourceGapTrees = useMemo(
+    () => deriveResourceGapTree(timeline),
+    [timeline],
+  );
+  const completionResult = useMemo(
+    () => deriveCompletionResult(taskRun, timeline),
+    [taskRun, timeline],
+  );
   const canCancel = taskRun ? !TERMINAL_STATUSES.has(taskRun.status) : false;
 
   // 任务到达终态时自动展开详情面板
@@ -138,7 +166,7 @@ export function AgentRuntimePage() {
     if (taskRun && TERMINAL_STATUSES.has(taskRun.status) && !detailOpen) {
       setDetailOpen(true);
     }
-  }, [taskRun?.status]);
+  }, [detailOpen, taskRun]);
 
   // 加载环境和场景
   useEffect(() => {
@@ -146,7 +174,9 @@ export function AgentRuntimePage() {
       .then((items) => {
         const enabled = items.filter((item) => item.status === "ENABLED");
         setEnvironments(enabled);
-        setEnvCode((current) => (current.length > 0 ? current : (enabled[0]?.envCode ?? "")));
+        setEnvCode((current) =>
+          current.length > 0 ? current : (enabled[0]?.envCode ?? ""),
+        );
       })
       .catch((error) => {
         toast.error(error instanceof Error ? error.message : "加载环境失败");
@@ -218,22 +248,33 @@ export function AgentRuntimePage() {
   useEffect(() => {
     const shouldPoll = taskRun?.status === "RUNNING";
     if (shouldPoll && taskRun.task_run_id) {
-      pollRef.current = setInterval(async () => {
-        const current = taskRunRef.current;
-        if (!current || TERMINAL_STATUSES.has(current.status) || current.status !== "RUNNING") {
-          if (pollRef.current) clearInterval(pollRef.current);
-          return;
-        }
-        try {
-          const nextTaskRun = await getAgentRuntimeTaskRun(current.task_run_id);
-          await loadTimeline(current.task_run_id);
-          setTaskRun(nextTaskRun);
-          if (TERMINAL_STATUSES.has(nextTaskRun.status) || nextTaskRun.status !== "RUNNING") {
+      pollRef.current = setInterval(() => {
+        void (async () => {
+          const current = taskRunRef.current;
+          if (
+            !current ||
+            TERMINAL_STATUSES.has(current.status) ||
+            current.status !== "RUNNING"
+          ) {
             if (pollRef.current) clearInterval(pollRef.current);
+            return;
           }
-        } catch {
-          // 轮询失败不 toast
-        }
+          try {
+            const nextTaskRun = await getAgentRuntimeTaskRun(
+              current.task_run_id,
+            );
+            await loadTimeline(current.task_run_id);
+            setTaskRun(nextTaskRun);
+            if (
+              TERMINAL_STATUSES.has(nextTaskRun.status) ||
+              nextTaskRun.status !== "RUNNING"
+            ) {
+              if (pollRef.current) clearInterval(pollRef.current);
+            }
+          } catch {
+            // 轮询失败不 toast
+          }
+        })();
       }, POLL_INTERVAL_MS);
     }
     return () => {
@@ -307,7 +348,9 @@ export function AgentRuntimePage() {
       try {
         inputs = parseJsonObject(inputsText);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "输入不是合法 JSON");
+        toast.error(
+          error instanceof Error ? error.message : "输入不是合法 JSON",
+        );
         return;
       }
 
@@ -369,7 +412,9 @@ export function AgentRuntimePage() {
       try {
         inputs = parseJsonObject(inputsText);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "输入不是合法 JSON");
+        toast.error(
+          error instanceof Error ? error.message : "输入不是合法 JSON",
+        );
         return;
       }
 
@@ -385,7 +430,9 @@ export function AgentRuntimePage() {
         setTaskRun(replied);
         await loadTimeline(replied.task_run_id);
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : "补录 scene_code 失败");
+        toast.error(
+          error instanceof Error ? error.message : "补录 scene_code 失败",
+        );
       } finally {
         setBusy(false);
       }
@@ -453,25 +500,39 @@ export function AgentRuntimePage() {
   const hasTaskRun = !!taskRun;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="bg-background flex h-full min-h-0 flex-col">
       {/* 顶部轻量栏 */}
       <header className="flex shrink-0 items-center justify-between border-b px-4 py-3">
         <div className="flex items-center gap-3">
-          <ShieldCheckIcon className="size-5 text-primary" />
+          <ShieldCheckIcon className="text-primary size-5" />
           <h1 className="text-base font-semibold tracking-tight">GDP Agent</h1>
-          <Badge variant="outline" className={cn("gap-1 rounded-md text-xs", statusTone(taskRun?.status))}>
-            {taskRun?.status === "RUNNING" ? <Loader2Icon className="size-3 animate-spin" /> : null}
+          <Badge
+            variant="outline"
+            className={cn(
+              "gap-1 rounded-md text-xs",
+              statusTone(taskRun?.status),
+            )}
+          >
+            {taskRun?.status === "RUNNING" ? (
+              <Loader2Icon className="size-3 animate-spin" />
+            ) : null}
             {taskRun?.status ?? "IDLE"}
           </Badge>
           {hasTaskRun ? (
-            <span className="text-xs text-muted-foreground font-mono">{taskRun.task_run_id.slice(0, 8)}</span>
+            <span className="text-muted-foreground font-mono text-xs">
+              {taskRun.task_run_id.slice(0, 8)}
+            </span>
           ) : null}
         </div>
         <div className="flex items-center gap-2">
           {hasTaskRun ? (
             <>
               {/* 环境选择（运行时禁用） */}
-              <Select value={envCode} onValueChange={setEnvCode} disabled={hasTaskRun}>
+              <Select
+                value={envCode}
+                onValueChange={setEnvCode}
+                disabled={hasTaskRun}
+              >
                 <SelectTrigger className="h-8 w-[140px] text-xs">
                   <SelectValue />
                 </SelectTrigger>
@@ -485,7 +546,12 @@ export function AgentRuntimePage() {
               </Select>
 
               {canCancel ? (
-                <Button variant="outline" size="sm" onClick={handleCancel} disabled={busy}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCancel}
+                  disabled={busy}
+                >
                   <BanIcon className="mr-1 size-3.5" />
                   取消
                 </Button>
@@ -497,7 +563,12 @@ export function AgentRuntimePage() {
                 onClick={() => void refresh()}
                 disabled={refreshing}
               >
-                <RefreshCwIcon className={cn("mr-1 size-3.5", refreshing ? "animate-spin" : "")} />
+                <RefreshCwIcon
+                  className={cn(
+                    "mr-1 size-3.5",
+                    refreshing ? "animate-spin" : "",
+                  )}
+                />
                 刷新
               </Button>
             </>
@@ -529,7 +600,9 @@ export function AgentRuntimePage() {
             className="size-8"
             onClick={() => setDetailOpen((prev) => !prev)}
           >
-            <PanelRightIcon className={cn("size-4", detailOpen ? "text-primary" : "")} />
+            <PanelRightIcon
+              className={cn("size-4", detailOpen ? "text-primary" : "")}
+            />
           </Button>
         </div>
       </header>
@@ -570,6 +643,7 @@ export function AgentRuntimePage() {
           steps={auditSteps}
           executions={auditExecutions}
           variables={timeline?.variables ?? []}
+          resourceGapTrees={resourceGapTrees}
           open={detailOpen}
           onClose={() => setDetailOpen(false)}
         />
