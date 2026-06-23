@@ -9,7 +9,7 @@ from typing import Final
 from deerflow.config.app_config import logging_level_from_config
 
 GDP_AGENT_LOG_FILE: Final = "gdpagents.log"
-GDP_AGENT_LOGGER_NAMES: Final = ("app.gdp.agent_runtime", "app.gdp.agent")
+GDP_AGENT_LOGGER_NAMES: Final = ("app.gdp.agent_runtime",)
 _HANDLER_MARKER: Final = "_gdp_agent_log_file"
 _LOG_FORMAT: Final = "%(asctime)s - %(gdp_logger_name)s - %(gdp_level_name)s - %(message)s"
 _DATE_FORMAT: Final = "%Y-%m-%d %H:%M:%S"
@@ -28,8 +28,6 @@ _LOGGER_TEXT: Final = {
     "app.gdp.agent_runtime.runner": "GDP Agent 运行时主流程",
     "app.gdp.agent_runtime.execution": "GDP Agent 运行时执行器",
     "app.gdp.agent_runtime.adapters.scene": "GDP Agent 场景适配器",
-    "app.gdp.agent": "GDP Agent",
-    "app.gdp.agent.graph": "GDP Agent 图执行器",
 }
 
 
@@ -72,9 +70,6 @@ def _describe_logger_name(logger_name: str) -> str:
     if logger_name.startswith("app.gdp.agent_runtime."):
         suffix = logger_name.removeprefix("app.gdp.agent_runtime.")
         return f"GDP Agent 运行时/{suffix}"
-    if logger_name.startswith("app.gdp.agent."):
-        suffix = logger_name.removeprefix("app.gdp.agent.")
-        return f"GDP Agent/{suffix}"
     return logger_name
 
 

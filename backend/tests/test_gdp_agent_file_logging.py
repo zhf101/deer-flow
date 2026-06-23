@@ -40,7 +40,7 @@ def _file_handlers(logger_name: str, log_path: Path) -> list[logging.FileHandler
     ]
 
 
-def test_configure_gdp_agent_file_logging_writes_runtime_and_legacy_logs(
+def test_configure_gdp_agent_file_logging_writes_runtime_logs(
     tmp_path: Path,
     restore_gdp_agent_loggers: None,
 ) -> None:
@@ -55,7 +55,6 @@ def test_configure_gdp_agent_file_logging_writes_runtime_and_legacy_logs(
         assert len(_file_handlers(logger_name, resolved_log_path)) == 1
 
     logging.getLogger("app.gdp.agent_runtime.runner").debug("runtime log probe")
-    logging.getLogger("app.gdp.agent.graph").info("legacy log probe")
     for logger_name in GDP_AGENT_LOGGER_NAMES:
         for handler in _file_handlers(logger_name, resolved_log_path):
             handler.flush()
@@ -64,6 +63,3 @@ def test_configure_gdp_agent_file_logging_writes_runtime_and_legacy_logs(
     assert "GDP Agent 运行时主流程" in content
     assert "调试" in content
     assert "runtime log probe" in content
-    assert "GDP Agent 图执行器" in content
-    assert "信息" in content
-    assert "legacy log probe" in content
