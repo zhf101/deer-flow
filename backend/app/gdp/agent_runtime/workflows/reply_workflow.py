@@ -133,7 +133,7 @@ async def _reconcile_unknown_state_success(
     task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
 
     # 跳过"执行目标=缺口已选定场景"校验：核查场景与原写场景不同，但证据仍判定原步骤。
-    return await execute_scene(
+    task_run = await execute_scene(
         task_run,
         step,
         requirement,
@@ -144,6 +144,16 @@ async def _reconcile_unknown_state_success(
         idempotency_gate,
         complete_task_run=not _is_multistep_task(task_run),
         skip_requirement_match=True,
+    )
+    if not _is_multistep_task(task_run):
+        return task_run
+    # 多步任务：核查步骤判定 DONE 后继续推进后续 step（单步任务已在 execute_scene 内收口）。
+    return await continue_multistep(
+        task_run,
+        verify_inputs,
+        store,
+        _get_scene_catalog(),
+        idempotency_gate,
     )
 
 

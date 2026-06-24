@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from _agent_runtime_catalog_fakes import FakeSceneCatalog
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
@@ -16,8 +17,6 @@ from app.gdp.agent_runtime.models import LMProposal, TaskRunStatus
 from app.gdp.agent_runtime.runner import run_task
 from app.gdp.agent_runtime.store import Store
 from app.gdp.agent_runtime.transitions import IllegalTransition, transition_task_run
-
-from _agent_runtime_catalog_fakes import FakeSceneCatalog
 
 
 @pytest.mark.anyio
