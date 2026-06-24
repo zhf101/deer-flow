@@ -43,6 +43,7 @@ from ..support.log_text import (
     describe_optional,
 )
 from ..variables import extract_scene_output_variables
+from .context_items import import_context_items
 from .decision_records import (
     build_scene_search_decision,
     build_scene_selection_decision,
@@ -61,6 +62,7 @@ class StartTaskRunRequestLike(Protocol):
 
     scene_code: str | None
     inputs: dict[str, Any]
+    context_item_ids: list[str]
 
 
 async def run_start_workflow(
@@ -90,13 +92,14 @@ async def run_start_workflow(
     store.save_payload(
         task_run.task_run_id,
         pending_start_ref(task_run.task_run_id),
-        {"scene_code": scene_code, "inputs": request.inputs},
+        {"scene_code": scene_code, "inputs": request.inputs, "context_item_ids": list(getattr(request, "context_item_ids", []))},
     )
 
     try:
         # 根据是否指定场景编码走不同路径：快速通道或智能搜索。
         if scene_code:
             step = create_single_step(task_run)
+            _import_requested_context(task_run, request, store)
             requirement = create_scene_requirement(task_run, step)
             logger.info(
                 "GDP Agent 运行时计划步骤已创建：任务ID=%s，步骤ID=%s，缺口ID=%s，任务目标=%s",
@@ -119,9 +122,11 @@ async def run_start_workflow(
         specs = build_plan(task_run.user_goal, request.inputs)
         if len(specs) > 1:
             create_plan_steps(task_run, specs, store)
+            _import_requested_context(task_run, request, store)
             return await _run_multistep(task_run, request.inputs, store, catalog, idempotency_gate, config_writeback)
 
         step = create_single_step(task_run)
+        _import_requested_context(task_run, request, store)
         requirement = create_scene_requirement(task_run, step)
         logger.info(
             "GDP Agent 运行时计划步骤已创建：任务ID=%s，步骤ID=%s，缺口ID=%s，任务目标=%s",
@@ -506,6 +511,15 @@ def _is_approved_request(inputs: dict[str, Any]) -> bool:
     """检查启动请求是否已携带用户审批。"""
 
     return inputs.get("approved") is True
+
+
+def _import_requested_context(task_run: TaskRun, request: StartTaskRunRequestLike, store: Store) -> None:
+    """导入用户显式选择的历史上下文变量。"""
+
+    context_item_ids = list(getattr(request, "context_item_ids", []))
+    if not context_item_ids:
+        return
+    import_context_items(task_run, context_item_ids, store)
 
 
 def _has_attempts(store: Store, task_run_id: str) -> bool:

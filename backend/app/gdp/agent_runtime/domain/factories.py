@@ -51,6 +51,9 @@ def create_task_run(
     env_code: str | None = None,
     user_id: str = "anonymous",
     thread_id: str | None = None,
+    recovery_source_task_run_id: str | None = None,
+    recovery_selected_step_id: str | None = None,
+    recovery_failed_step_id: str | None = None,
 ) -> TaskRun:
     """为用户的造数目标创建根账本。
 
@@ -67,6 +70,9 @@ def create_task_run(
         user_goal=user_goal,
         env_code=env_code,
         status=TaskRunStatus.CREATED,
+        recovery_source_task_run_id=recovery_source_task_run_id,
+        recovery_selected_step_id=recovery_selected_step_id,
+        recovery_failed_step_id=recovery_failed_step_id,
         created_at=now,
         updated_at=now,
     )

@@ -13,11 +13,17 @@ from ..support.log_text import describe_content, describe_optional
 from ..workflows.reply_commands import parse_runtime_command
 from .dependencies import _get_service, _mutation_lock, _principal_from_request, _to_http_error
 from .schemas import (
+    ContextItemResponse,
     CreateTaskRunRequest,
     ReplyTaskRunRequest,
+    RollbackPlanRequest,
+    RollbackPlanResponse,
+    RollbackReplayRequest,
+    RollbackReplayResponse,
     RuntimePayloadResponse,
     StartTaskRunRequest,
     TaskRunResponse,
+    to_context_item_response,
     to_response,
 )
 
@@ -62,12 +68,36 @@ async def create_task_run(request: Request, body: CreateTaskRunRequest) -> TaskR
             task_run = await _get_service().create_task_run(
                 user_goal=body.user_goal,
                 env_code=body.env_code,
+                thread_id=body.thread_id,
                 principal=_principal_from_request(request),
             )
         except RuntimeServiceError as exc:
             raise _to_http_error(exc) from exc
         logger.info("GDP Agent 运行时接口已创建任务：任务ID=%s，状态=%s", task_run.task_run_id, task_run.status)
         return to_response(task_run)
+
+
+@router.get("/context-items", response_model=list[ContextItemResponse])
+async def list_context_items(
+    request: Request,
+    thread_id: str | None = Query(default=None, alias="threadId", description="按线程 ID 过滤。"),
+    env_code: str | None = Query(default=None, alias="envCode", description="按环境编码过滤。"),
+    semantic_type: str | None = Query(default=None, alias="semanticType", description="按语义类型过滤。"),
+    limit: int = Query(default=20, ge=1, le=200, description="返回数量。"),
+) -> list[ContextItemResponse]:
+    """查询可显式复用的安全上下文项，只返回展示摘要和来源追踪。"""
+
+    try:
+        items = await _get_service().list_context_items(
+            thread_id=thread_id,
+            env_code=env_code,
+            semantic_type=semantic_type,
+            limit=limit,
+            principal=_principal_from_request(request),
+        )
+    except RuntimeServiceError as exc:
+        raise _to_http_error(exc) from exc
+    return [to_context_item_response(item) for item in items]
 
 
 @router.post("/task-runs/{task_run_id}/start", response_model=TaskRunResponse)
@@ -121,6 +151,57 @@ async def reply_task_run(task_run_id: str, request: Request, body: ReplyTaskRunR
             raise _to_http_error(exc) from exc
         logger.info("GDP Agent 运行时接口已处理任务回复：任务ID=%s，状态=%s", task_run_id, task_run.status)
         return to_response(task_run)
+
+
+@router.post("/task-runs/{task_run_id}/rollback-plan", response_model=RollbackPlanResponse)
+async def build_task_run_rollback_plan(
+    task_run_id: str,
+    request: Request,
+    body: RollbackPlanRequest,
+) -> RollbackPlanResponse:
+    """为失败任务生成用户驱动回退计划；只做影响分析，不自动重放。"""
+
+    try:
+        plan = await _get_service().build_rollback_plan(
+            task_run_id,
+            failed_step_id=body.failed_step_id,
+            principal=_principal_from_request(request),
+        )
+    except RuntimeServiceError as exc:
+        raise _to_http_error(exc) from exc
+    return RollbackPlanResponse.model_validate(plan.model_dump(mode="json"))
+
+
+@router.post("/task-runs/{task_run_id}/rollback-replay", response_model=RollbackReplayResponse)
+async def replay_task_run_from_rollback_plan(
+    task_run_id: str,
+    request: Request,
+    body: RollbackReplayRequest,
+) -> RollbackReplayResponse:
+    """按用户选择的回退点创建替代任务重放；来源失败任务保持终态。"""
+
+    async with _mutation_lock():
+        try:
+            result = await _get_service().rollback_replay(
+                task_run_id,
+                rollback_step_id=body.rollback_step_id,
+                failed_step_id=body.failed_step_id,
+                inputs=body.inputs,
+                scene_code=body.scene_code,
+                principal=_principal_from_request(request),
+            )
+        except RuntimeServiceError as exc:
+            raise _to_http_error(exc) from exc
+        return RollbackReplayResponse(
+            source_task_run_id=result.source_task_run_id,
+            replacement_task_run=to_response(result.replacement_task_run),
+            selected_rollback_step_id=result.selected_rollback_step_id,
+            failed_step_id=result.failed_step_id,
+            tainted_variable_ids=result.tainted_variable_ids,
+            affected_step_ids=result.affected_step_ids,
+            carried_input_names=result.carried_input_names,
+            replay_mode=result.replay_mode,
+        )
 
 
 @router.get("/task-runs/{task_run_id}", response_model=TaskRunResponse)

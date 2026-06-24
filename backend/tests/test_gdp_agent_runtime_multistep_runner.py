@@ -133,6 +133,35 @@ async def test_multistep_runner_stops_after_middle_step_failure(monkeypatch: pyt
 
 
 @pytest.mark.anyio
+async def test_multistep_runner_taints_consumed_variable_after_downstream_failure(monkeypatch: pytest.MonkeyPatch):
+    """Step2 消费 Step1 变量后失败时，产出的上游变量会被标记污染，阻止后续自动复用。"""
+    calls: list[str] = []
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        calls.append(scene_code)
+        if scene_code == "create_order":
+            return {"status": "SUCCESS", "finalOutput": {"order_id": "ORDER-1"}, "errors": []}
+        return {"status": "FAILED", "errors": [{"message": "支付失败"}]}
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+
+    store = Store()
+    task_run = create_task_run("创建订单并支付", env_code="SIT1")
+    store.save_task_run(task_run)
+
+    result = await run_task(task_run, _Request({"buyer_id": "U1"}), store, catalog=_GoalCatalog())
+
+    timeline = store.get_timeline(task_run.task_run_id)
+    order_variable = next(variable for variable in timeline["variables"] if variable["name"] == "order_id")
+    failed_verdict = timeline["verdicts"][-1]
+    assert result.status == TaskRunStatus.FAILED
+    assert order_variable["tainted"] is True
+    assert order_variable["consumed_by"] == [timeline["steps"][1]["step_id"]]
+    assert failed_verdict["tainted_variable_ids"] == [order_variable["variable_id"]]
+    assert calls == ["create_order", "pay_order"]
+
+
+@pytest.mark.anyio
 async def test_multistep_runner_waits_on_unknown_state_and_blocks_following_steps(monkeypatch: pytest.MonkeyPatch):
     """Step2 结果未知时，TaskRun 等用户确认，Step3 不能继续执行。"""
     calls: list[str] = []

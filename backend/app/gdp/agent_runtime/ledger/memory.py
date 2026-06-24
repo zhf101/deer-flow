@@ -14,6 +14,7 @@ from typing import Any
 from ..models import (
     Action,
     ActionAttempt,
+    ContextItem,
     DecisionRecord,
     Evidence,
     Observation,
@@ -62,6 +63,7 @@ class MemoryLedger:
         self._requirements: dict[str, Requirement] = {}
         self._proposals: dict[str, RequirementProposal] = {}
         self._decisions: dict[str, DecisionRecord] = {}
+        self._context_items: dict[str, ContextItem] = {}
         self._approval_records: list[dict[str, Any]] = []
         self._payloads: dict[str, dict[str, Any]] = {}
 
@@ -95,6 +97,7 @@ class MemoryLedger:
             "requirements": deepcopy(self._requirements),
             "proposals": deepcopy(self._proposals),
             "decisions": deepcopy(self._decisions),
+            "context_items": deepcopy(self._context_items),
             "approval_records": deepcopy(self._approval_records),
             "payloads": deepcopy(self._payloads),
         }
@@ -117,6 +120,7 @@ class MemoryLedger:
         self._requirements = deepcopy(snapshot["requirements"])
         self._proposals = deepcopy(snapshot["proposals"])
         self._decisions = deepcopy(snapshot["decisions"])
+        self._context_items = deepcopy(snapshot.get("context_items", {}))
         self._approval_records = deepcopy(snapshot["approval_records"])
         self._payloads = deepcopy(snapshot["payloads"])
 
@@ -234,6 +238,39 @@ class MemoryLedger:
         """返回该任务的全部决策审计记录，按时间正序，用户可在详情页追溯每次决策。"""
         decisions = [item for item in self._decisions.values() if item.task_run_id == task_run_id]
         return sorted(decisions, key=lambda item: item.created_at)
+
+    def save_context_item(self, context_item: ContextItem) -> None:
+        """保存可复用上下文项，供后续任务显式选择导入。"""
+        self._context_items[context_item.context_item_id] = context_item
+
+    def get_context_item(self, context_item_id: str) -> ContextItem:
+        """读取上下文项。"""
+        if context_item_id not in self._context_items:
+            raise EntityNotFoundError("ContextItem", context_item_id)
+        return self._context_items[context_item_id]
+
+    def list_context_items(
+        self,
+        *,
+        source_task_run_id: str | None = None,
+        user_id: str | None = None,
+        thread_id: str | None = None,
+        env_code: str | None = None,
+        semantic_type: str | None = None,
+    ) -> list[ContextItem]:
+        """按来源、用户、线程、环境和语义类型查询上下文项。"""
+        items = list(self._context_items.values())
+        if source_task_run_id is not None:
+            items = [item for item in items if item.source_task_run_id == source_task_run_id]
+        if user_id is not None:
+            items = [item for item in items if item.user_id == user_id]
+        if thread_id is not None:
+            items = [item for item in items if item.thread_id == thread_id]
+        if env_code is not None:
+            items = [item for item in items if item.env_code == env_code]
+        if semantic_type is not None:
+            items = [item for item in items if item.semantic_type == semantic_type]
+        return sorted(items, key=lambda item: item.created_at, reverse=True)
 
     def save_approval_record(self, record: dict[str, Any]) -> None:
         """保存用户审批记录，记录用户对某个场景的批准事实，同一场景不再重复询问。"""

@@ -44,6 +44,7 @@ from ..support.log_text import (
     describe_variables,
 )
 from .decision_records import build_contract_drift_decision
+from .rollback_impact import mark_consumed_variables_tainted
 from .selection_policy import blacklist_scene, ensure_requirement_matches_scene
 
 logger = logging.getLogger(__name__)
@@ -82,6 +83,7 @@ async def execute_scene(
     evidence = _build_and_record_evidence(task_run, step, action, observation, attempt, store)
     verdict = _judge_and_record_verdict(task_run, evidence, action, store)
     task_run, step, action = _apply_and_record_verdict(task_run, step, action, verdict, store, complete_task_run)
+    mark_consumed_variables_tainted(task_run=task_run, failed_step=step, verdict=verdict, store=store)
     _record_failed_scene_blacklist(requirement, scene_code, verdict, store)
 
     logger.info(

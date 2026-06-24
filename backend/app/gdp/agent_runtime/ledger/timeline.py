@@ -7,6 +7,7 @@ from typing import Any
 from ..models import (
     Action,
     ActionAttempt,
+    DecisionOption,
     DecisionRecord,
     Evidence,
     Observation,
@@ -54,7 +55,7 @@ def build_timeline(
         "variables": [_variable_view(v) for v in variables],
         "requirements": [r.model_dump(mode="json") for r in requirements],
         "proposals": [_proposal_view(p) for p in proposals],
-        "decisions": [d.model_dump(mode="json") for d in decisions],
+        "decisions": [_decision_view(d) for d in decisions],
         "approval_records": approval_records,
     }
 
@@ -75,19 +76,42 @@ def _variable_view(variable: Variable) -> dict[str, Any]:
     }
 
 
+_SENSITIVE_TIMELINE_KEYS = {
+    "password",
+    "passwd",
+    "token",
+    "secret",
+    "credential",
+    "credentials",
+    "connectionstring",
+    "jdbcurl",
+    "payload",
+    "body",
+    "input_ref",
+    "value_ref",
+}
+
+
+def _is_sensitive_key(key: str) -> bool:
+    return key.lower() in _SENSITIVE_TIMELINE_KEYS
+
+
+def _safe_mapping(item: dict[str, Any]) -> dict[str, Any]:
+    """递归过滤 timeline 展示对象中的敏感键。"""
+    return {key: _safe_value(value) for key, value in item.items() if not _is_sensitive_key(key)}
+
+
+def _safe_value(value: Any) -> Any:
+    if isinstance(value, dict):
+        return _safe_mapping(value)
+    if isinstance(value, list):
+        return [_safe_value(item) for item in value]
+    return value
+
+
 def _safe_summary_list(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """基础配置摘要安全过滤，防止敏感字段从账本进入用户 timeline。"""
-    blocked = {
-        "password",
-        "passwd",
-        "token",
-        "secret",
-        "credential",
-        "credentials",
-        "connectionString",
-        "jdbcUrl",
-    }
-    return [{key: value for key, value in item.items() if key not in blocked} for item in items]
+    return [_safe_mapping(item) for item in items]
 
 
 def _proposal_view(proposal: RequirementProposal) -> dict[str, Any]:
@@ -149,4 +173,42 @@ def _proposal_view(proposal: RequirementProposal) -> dict[str, Any]:
             }
             for c in proposal.infra_candidates
         ],
+    }
+
+
+def _decision_view(decision: DecisionRecord) -> dict[str, Any]:
+    """决策审计投影——保留可解释信息，隐藏完整 payload 引用和敏感元数据。"""
+    return {
+        "decision_id": decision.decision_id,
+        "task_run_id": decision.task_run_id,
+        "step_id": decision.step_id,
+        "requirement_id": decision.requirement_id,
+        "proposal_id": decision.proposal_id,
+        "action_id": decision.action_id,
+        "scene_run_id": decision.scene_run_id,
+        "decision_kind": decision.decision_kind.value,
+        "decision_source": decision.decision_source.value,
+        "status": decision.status.value,
+        "target_type": decision.target_type,
+        "target_id": decision.target_id,
+        "options": [_decision_option_view(item) for item in decision.options],
+        "selected_option": _decision_option_view(decision.selected_option) if decision.selected_option else None,
+        "selected_reasons": list(decision.selected_reasons),
+        "rejected_reasons": [item.model_dump(mode="json") for item in decision.rejected_reasons],
+        "criteria": list(decision.criteria),
+        "evidence_refs": list(decision.evidence_refs),
+        "model_info": _safe_value(decision.model_info) if decision.model_info else None,
+        "summary": decision.summary,
+        "created_at": decision.created_at.isoformat(),
+    }
+
+
+def _decision_option_view(option: DecisionOption) -> dict[str, Any]:
+    return {
+        "option_id": option.option_id,
+        "option_type": option.option_type,
+        "label": option.label,
+        "score": option.score,
+        "reasons": list(option.reasons),
+        "metadata": _safe_mapping(option.metadata),
     }

@@ -184,6 +184,37 @@ def _recipes() -> list[PlanRecipe]:
                     is_final_assertion_step=True,
                 ),
             ],
+        ),
+        PlanRecipe(
+            recipe_id="pay-existing-order-and-query",
+            goal_patterns=["支付已有订单", "支付历史订单"],
+            steps=[
+                PlanStepSpec(
+                    step_no=1,
+                    goal="支付已有订单",
+                    scene_hint="支付订单",
+                    input_bindings=[
+                        StepInputBinding(input_name="order_id", source="VARIABLE", source_name="order_id"),
+                    ],
+                    output_bindings=[
+                        SceneOutputBinding(
+                            output_path="finalOutput.pay_status",
+                            variable_name="pay_status",
+                            semantic_type="PAY_STATUS",
+                        )
+                    ],
+                ),
+                PlanStepSpec(
+                    step_no=2,
+                    goal="查询订单状态",
+                    scene_hint="查询订单状态",
+                    input_bindings=[
+                        StepInputBinding(input_name="order_id", source="VARIABLE", source_name="order_id"),
+                    ],
+                    depends_on_step_nos=[1],
+                    is_final_assertion_step=True,
+                ),
+            ],
         )
     ]
 

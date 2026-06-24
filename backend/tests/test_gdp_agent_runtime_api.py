@@ -28,6 +28,21 @@ class FailingRuntimeRepository:
         raise RuntimeError("db down")
 
 
+class _RollbackCatalog:
+    async def search(self, **kwargs):
+        goal = str(kwargs["goal"])
+        if "创建" in goal:
+            scene_code = "create_order"
+        elif "支付" in goal:
+            scene_code = "pay_order"
+        else:
+            scene_code = "query_order"
+        return ([make_candidate(scene_code, scene_name=goal)], [goal])
+
+    async def get_contract(self, *, scene_code: str, user_inputs: dict[str, object]):
+        return make_candidate(scene_code)
+
+
 @pytest.mark.anyio
 async def test_api_reply_confirm_unknown_state_stops_without_replay(monkeypatch: pytest.MonkeyPatch):
     """确认未知结果后不重放写请求，也不能停在 RUNNING。"""
@@ -841,3 +856,163 @@ async def test_api_start_returns_503_when_catalog_persistence_missing(monkeypatc
         assert retry.status_code == 200, retry.text
         assert retry.json()["status"] == "WAITING_USER"
         assert retry.json()["suspend_reason"] == SuspendReason.MISSING_INPUT
+
+
+@pytest.mark.anyio
+async def test_api_builds_rollback_plan_without_replaying_actions(monkeypatch: pytest.MonkeyPatch):
+    """失败任务可生成回退计划，但不会自动重放任何动作。"""
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        if scene_code == "create_order":
+            return {"status": "SUCCESS", "finalOutput": {"order_id": "ORDER-1"}, "errors": []}
+        return {"status": "FAILED", "errors": [{"message": "支付失败"}]}
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    app = _make_app(monkeypatch, catalog=_RollbackCatalog())  # type: ignore[arg-type]
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create = await client.post(
+            "/api/v1/datagen/agent-runtime/task-runs",
+            json={"user_goal": "创建订单并支付", "env_code": "SIT1"},
+        )
+        task_run_id = create.json()["task_run_id"]
+        start = await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/start",
+            json={"inputs": {"buyer_id": "U1"}},
+        )
+        assert start.status_code == 200, start.text
+        assert start.json()["status"] == "FAILED"
+
+        before = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
+        plan = await client.post(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/rollback-plan", json={})
+        after = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
+
+    assert plan.status_code == 200, plan.text
+    body = plan.json()
+    order_variable = next(item for item in before.json()["variables"] if item["name"] == "order_id")
+    assert body["task_run_id"] == task_run_id
+    assert body["tainted_variable_ids"] == [order_variable["variable_id"]]
+    assert body["can_auto_replay"] is False
+    assert "不会自动重放" in " ".join(body["safety_warnings"])
+    assert len(after.json()["actions"]) == len(before.json()["actions"])
+    assert len(after.json()["attempts"]) == len(before.json()["attempts"])
+
+
+@pytest.mark.anyio
+async def test_api_rollback_plan_rejects_task_without_tainted_variables(monkeypatch: pytest.MonkeyPatch):
+    """没有污染变量证据的任务不能生成回退计划。"""
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        return {"status": "SUCCESS", "finalOutput": {"order_id": "ORDER-1", "pay_status": "PAID"}, "errors": []}
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    app = _make_app(monkeypatch)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create = await client.post(
+            "/api/v1/datagen/agent-runtime/task-runs",
+            json={"user_goal": "造一笔已支付订单", "env_code": "SIT1"},
+        )
+        task_run_id = create.json()["task_run_id"]
+        start = await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/start",
+            json={"scene_code": "create_paid_order", "inputs": {"buyer_id": "U1"}},
+        )
+        assert start.status_code == 200, start.text
+        assert start.json()["status"] == "COMPLETED"
+
+        plan = await client.post(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/rollback-plan", json={})
+
+    assert plan.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_api_rollback_replay_creates_replacement_task_run(monkeypatch: pytest.MonkeyPatch):
+    """用户选择回退点后创建替代任务重放，原失败账本保持不可变。"""
+
+    create_order_inputs: list[dict] = []
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        if scene_code == "create_order":
+            create_order_inputs.append(inputs)
+            return {"status": "SUCCESS", "finalOutput": {"order_id": f"ORDER-{inputs['buyer_id']}"}, "errors": []}
+        if scene_code == "pay_order":
+            return {"status": "FAILED", "errors": [{"message": "支付失败"}]}
+        return {"status": "SUCCESS", "finalOutput": {"pay_status": "PAID"}, "errors": []}
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    app = _make_app(monkeypatch, catalog=_RollbackCatalog())  # type: ignore[arg-type]
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create = await client.post(
+            "/api/v1/datagen/agent-runtime/task-runs",
+            json={"user_goal": "创建订单并支付", "env_code": "SIT1"},
+        )
+        source_task_run_id = create.json()["task_run_id"]
+        start = await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{source_task_run_id}/start",
+            json={"inputs": {"buyer_id": "U1"}},
+        )
+        assert start.status_code == 200, start.text
+        assert start.json()["status"] == "FAILED"
+
+        before = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{source_task_run_id}/timeline")
+        plan = await client.post(f"/api/v1/datagen/agent-runtime/task-runs/{source_task_run_id}/rollback-plan", json={})
+        rollback_step_id = plan.json()["rollback_candidate_step_ids"][0]
+
+        replay = await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{source_task_run_id}/rollback-replay",
+            json={"rollback_step_id": rollback_step_id, "inputs": {"buyer_id": "U2"}},
+        )
+
+        after = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{source_task_run_id}/timeline")
+        source_after = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{source_task_run_id}")
+
+    assert replay.status_code == 200, replay.text
+    body = replay.json()
+    replacement = body["replacement_task_run"]
+    assert body["source_task_run_id"] == source_task_run_id
+    assert body["selected_rollback_step_id"] == rollback_step_id
+    assert body["replay_mode"] == "REPLACEMENT_TASK_RUN"
+    assert body["carried_input_names"] == ["buyer_id"]
+    assert replacement["task_run_id"] != source_task_run_id
+    assert replacement["recovery_source_task_run_id"] == source_task_run_id
+    assert replacement["recovery_selected_step_id"] == rollback_step_id
+    assert replacement["recovery_failed_step_id"] == body["failed_step_id"]
+    assert source_after.json()["status"] == "FAILED"
+    assert len(after.json()["actions"]) == len(before.json()["actions"])
+    assert len(after.json()["attempts"]) == len(before.json()["attempts"])
+    assert create_order_inputs == [{"buyer_id": "U1"}, {"buyer_id": "U2"}]
+
+
+@pytest.mark.anyio
+async def test_api_rollback_replay_rejects_invalid_rollback_step(monkeypatch: pytest.MonkeyPatch):
+    """回退重放只能选择 rollback-plan 给出的候选步骤。"""
+
+    async def fake_call_scene(scene_code: str, env_code: str, inputs: dict):
+        if scene_code == "create_order":
+            return {"status": "SUCCESS", "finalOutput": {"order_id": "ORDER-1"}, "errors": []}
+        return {"status": "FAILED", "errors": [{"message": "支付失败"}]}
+
+    monkeypatch.setattr("app.gdp.agent_runtime.adapters.scene.call_scene", fake_call_scene)
+    app = _make_app(monkeypatch, catalog=_RollbackCatalog())  # type: ignore[arg-type]
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        create = await client.post(
+            "/api/v1/datagen/agent-runtime/task-runs",
+            json={"user_goal": "创建订单并支付", "env_code": "SIT1"},
+        )
+        source_task_run_id = create.json()["task_run_id"]
+        await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{source_task_run_id}/start",
+            json={"inputs": {"buyer_id": "U1"}},
+        )
+
+        replay = await client.post(
+            f"/api/v1/datagen/agent-runtime/task-runs/{source_task_run_id}/rollback-replay",
+            json={"rollback_step_id": "step-not-in-plan"},
+        )
+        task_runs = await client.get("/api/v1/datagen/agent-runtime/task-runs")
+
+    assert replay.status_code == 409
+    assert [item["task_run_id"] for item in task_runs.json()] == [source_task_run_id]

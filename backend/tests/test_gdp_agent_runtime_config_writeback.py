@@ -203,7 +203,11 @@ async def test_source_and_ready_infra_writeback_publishes_scene_then_executes(mo
     assert writeback_decision["status"] == "DECIDED"
     assert writeback_decision["target_type"] == "scene"
     assert writeback_decision["target_id"] == "auto_scene_create_paid_order"
-    assert writeback_decision["input_ref"] is None
+    assert "input_ref" not in writeback_decision
+    assert writeback_decision["options"][0]["option_id"] == "createOrderApi"
+    assert writeback_decision["options"][0]["metadata"]["source_type"] == "HTTP"
+    assert "password" not in str(writeback_decision)
+    assert "payload://" not in str(writeback_decision)
     assert "自动创建并发布 Scene" in writeback_decision["summary"]
     assert "WAITING_APPROVAL" not in str(timeline)
 
@@ -247,7 +251,7 @@ async def test_writeback_failure_waits_user_without_action_or_attempt(monkeypatc
     assert timeline["attempts"] == []
     assert writeback_decision["status"] == "FAILED"
     assert writeback_decision["target_id"] is None
-    assert writeback_decision["input_ref"] is None
+    assert "input_ref" not in writeback_decision
 
 
 @pytest.mark.anyio

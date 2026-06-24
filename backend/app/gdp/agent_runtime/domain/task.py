@@ -97,6 +97,9 @@ class TaskRun(BaseModel):
     pending_question: str | None = Field(default=None, description="等待用户回复时展示的问题文案，如'请选择造数场景'或'请输入卡号'。")
     final_verdict_id: VerdictId | None = Field(default=None, description="终态时的最终判定 ID，COMPLETED 时必有，用户可通过它查看造数是否真正成功。")
     failure_reason: str | None = Field(default=None, description="任务失败时的可读原因描述，帮助用户理解为什么造数没有成功。")
+    recovery_source_task_run_id: TaskRunId | None = Field(default=None, description="替代任务重放的来源任务 ID。普通任务为空。")
+    recovery_selected_step_id: StepId | None = Field(default=None, description="用户选择的回退候选步骤 ID。普通任务为空。")
+    recovery_failed_step_id: StepId | None = Field(default=None, description="触发回退重放的失败步骤 ID。普通任务为空。")
     created_at: datetime = Field(description="任务创建时间，即用户提交造数目标的时刻。")
     updated_at: datetime = Field(description="任务最近一次状态变更时间，用于前端刷新和超时判断。")
     finished_at: datetime | None = Field(default=None, description="任务到达终态（完成/失败/取消）的时间，用于计算造数耗时。")
@@ -115,4 +118,3 @@ class TaskRun(BaseModel):
         if self.status == TaskRunStatus.COMPLETED and not self.final_verdict_id:
             raise ValueError("COMPLETED TaskRun 必须有 final_verdict_id。")
         return self
-

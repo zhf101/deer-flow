@@ -76,9 +76,16 @@ async def test_confirm_success_with_verify_scene_promotes_to_completed(monkeypat
         {"actual_outcome": "SUCCEEDED", "verify_scene_code": "verify_order"},
     )
     result = await handle_reply(store.get_task_run(waiting.task_run_id), command, store)
+    timeline = store.get_timeline(result.task_run_id)
 
     assert result.status == TaskRunStatus.COMPLETED
     assert result.final_verdict_id is not None
+    assert [action["scene_code"] for action in timeline["actions"]] == ["create_paid_order", "verify_order"]
+    assert [action["status"] for action in timeline["actions"]] == ["UNKNOWN_STATE", "SUCCEEDED"]
+    assert [attempt["status"] for attempt in timeline["attempts"]] == ["UNKNOWN_STATE", "SUCCEEDED"]
+    assert timeline["verdicts"][0]["verdict_type"] == "UNKNOWN_STATE"
+    assert timeline["verdicts"][-1]["verdict_type"] == "DONE"
+    assert all("input_ref" not in decision for decision in timeline["decisions"])
 
 
 @pytest.mark.anyio

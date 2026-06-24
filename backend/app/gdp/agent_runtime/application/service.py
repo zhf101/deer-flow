@@ -9,13 +9,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 from ..domain.transitions import IllegalTransition, transition_task_run
 from ..ledger.memory import EntityNotFoundError
 from ..ledger.memory import MemoryLedger as Store
 from ..ledger.protocols import RuntimeLedgerRepository
-from ..models import DecisionRecord, TaskRun, TaskRunStatus
+from ..models import ContextItem, DecisionRecord, TaskRun, TaskRunStatus
 from ..ports.idempotency import IdempotencyGate
 from ..runner import run_task
 from ..support.errors import (
@@ -24,8 +25,11 @@ from ..support.errors import (
     RuntimeNotFoundError,
     RuntimePersistenceError,
 )
+from ..workflows.context_items import extract_context_items, filter_reusable_context_items
 from ..workflows.reply_commands import RuntimeCommand
 from ..workflows.reply_workflow import handle_reply
+from ..workflows.rollback_plan import RollbackPlan, build_rollback_plan
+from ..workflows.rollback_replay import PreparedRollbackReplay, prepare_replacement_replay
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +100,14 @@ class RuntimeService:
             task_runs = [item for item in task_runs if item.user_id == effective_user_id]
         return task_runs[offset : offset + limit]
 
-    async def create_task_run(self, *, user_goal: str, env_code: str | None, principal: RuntimePrincipal) -> TaskRun:
+    async def create_task_run(
+        self,
+        *,
+        user_goal: str,
+        env_code: str | None,
+        principal: RuntimePrincipal,
+        thread_id: str | None = None,
+    ) -> TaskRun:
         """用户创建一个新的造数目标。
 
         业务目标：用户描述想要造什么数据，系统记录目标并生成任务。
@@ -110,6 +121,7 @@ class RuntimeService:
             user_goal=user_goal,
             env_code=env_code,
             user_id=principal.user_id or "anonymous",
+            thread_id=thread_id,
         )
         snapshot = self._store.snapshot()
         self._store.save_task_run(task_run)
@@ -131,6 +143,7 @@ class RuntimeService:
 
         snapshot = store.snapshot()
         task_run = await run_task(task_run, request, store, idempotency_gate=self._idempotency_gate())
+        self._extract_context_items_if_completed(task_run, store)
         await self._persist_task_run_or_rollback(task_run.task_run_id, snapshot)
         return task_run
 
@@ -169,6 +182,7 @@ class RuntimeService:
 
         snapshot = store.snapshot()
         task_run = await handle_reply(task_run, command, store, self._idempotency_gate())
+        self._extract_context_items_if_completed(task_run, store)
         await self._persist_task_run_or_rollback(task_run.task_run_id, snapshot)
         return task_run
 
@@ -191,6 +205,80 @@ class RuntimeService:
         store = await self._load_store_for_task_run(task_run_id)
         self._get_visible_task_run(store, task_run_id, principal)
         return store.get_timeline(task_run_id)
+
+    async def list_context_items(
+        self,
+        *,
+        thread_id: str | None,
+        env_code: str | None,
+        semantic_type: str | None,
+        limit: int,
+        principal: RuntimePrincipal,
+    ) -> list[ContextItem]:
+        """用户查询当前可显式复用的安全上下文项。"""
+
+        items = self._store.list_context_items(thread_id=thread_id, env_code=env_code, semantic_type=semantic_type)
+        visible_user_id = principal.user_id if principal.user_id is not None else None
+        items = filter_reusable_context_items(
+            items,
+            user_id=visible_user_id,
+            thread_id=thread_id,
+            env_code=env_code,
+            semantic_type=semantic_type,
+        )
+        return items[:limit]
+
+    async def build_rollback_plan(
+        self,
+        task_run_id: str,
+        *,
+        failed_step_id: str | None,
+        principal: RuntimePrincipal,
+    ) -> RollbackPlan:
+        """用户查看失败任务的回退影响计划；只读分析，不重放动作。"""
+
+        store = await self._load_store_for_task_run(task_run_id)
+        task_run = self._get_visible_task_run(store, task_run_id, principal)
+        return build_rollback_plan(task_run, store, failed_step_id)
+
+    async def rollback_replay(
+        self,
+        task_run_id: str,
+        *,
+        rollback_step_id: str,
+        failed_step_id: str | None,
+        inputs: dict[str, Any],
+        scene_code: str | None,
+        principal: RuntimePrincipal,
+    ) -> PreparedRollbackReplay:
+        """用户选择回退点后创建替代任务，并走现有启动链路重放。"""
+
+        store = await self._load_store_for_task_run(task_run_id)
+        source_task_run = self._get_visible_task_run(store, task_run_id, principal)
+        snapshot = store.snapshot()
+        prepared = prepare_replacement_replay(
+            source_task_run=source_task_run,
+            source_store=store,
+            rollback_step_id=rollback_step_id,
+            failed_step_id=failed_step_id,
+            inputs=inputs,
+            scene_code=scene_code,
+        )
+        request = SimpleNamespace(scene_code=prepared.scene_code, inputs=prepared.replay_inputs)
+        try:
+            replacement = await run_task(
+                prepared.replacement_task_run,
+                request,
+                store,
+                idempotency_gate=self._idempotency_gate(),
+            )
+            self._extract_context_items_if_completed(replacement, store)
+        except Exception:
+            store.restore(snapshot)
+            raise
+        prepared = prepared.model_copy(update={"replacement_task_run": replacement})
+        await self._persist_task_run_or_rollback(replacement.task_run_id, snapshot)
+        return prepared
 
     async def list_decisions(self, task_run_id: str, principal: RuntimePrincipal) -> list[DecisionRecord]:
         """用户查看造数任务的关键决策记录。
@@ -299,3 +387,9 @@ class RuntimeService:
         if self._repository is None:
             return None
         return getattr(self._repository, "claim_idempotency_key", None)
+
+    def _extract_context_items_if_completed(self, task_run: TaskRun, store: Store) -> None:
+        """任务成功完成后抽取可复用上下文项。"""
+        if task_run.status != TaskRunStatus.COMPLETED:
+            return
+        extract_context_items(task_run, store)

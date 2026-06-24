@@ -91,9 +91,14 @@ async def test_select_scene_blocks_on_contract_drift(monkeypatch: pytest.MonkeyP
     assert drifted.status == TaskRunStatus.WAITING_USER
     assert drifted.suspend_reason == SuspendReason.CONTRACT_DRIFT
     timeline = store.get_timeline(drifted.task_run_id)
-    assert any(d["decision_kind"] == "CONTRACT_DRIFT" for d in timeline["decisions"])
+    drift_decision = next(d for d in timeline["decisions"] if d["decision_kind"] == "CONTRACT_DRIFT")
+    assert drift_decision["status"] == "WAITING_USER"
+    assert drift_decision["target_id"] == "scene_a"
     # 决策只记录哈希，不含敏感载荷。
-    assert "hash-DRIFTED" in str(timeline["decisions"])
+    assert "hash-selected" in str(drift_decision)
+    assert "hash-DRIFTED" in str(drift_decision)
+    assert "input_ref" not in drift_decision
+    assert "payload://" not in str(drift_decision)
 
 
 @pytest.mark.anyio
