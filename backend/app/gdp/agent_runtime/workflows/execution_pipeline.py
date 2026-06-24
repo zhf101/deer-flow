@@ -9,8 +9,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..adapters.catalog import SceneCatalogPort
 from ..domain.factories import create_input_variables, make_scene_action
-from ..domain.transitions import transition_action, transition_step
+from ..domain.transitions import transition_action, transition_step, transition_task_run
 from ..execution import run_action
 from ..models import (
     Action,
@@ -23,13 +24,16 @@ from ..models import (
     Requirement,
     SceneCandidate,
     StepStatus,
+    SuspendReason,
     TaskRun,
+    TaskRunStatus,
     Variable,
     Verdict,
     VerdictType,
 )
 from ..ports.idempotency import IdempotencyGate
 from ..store import Store
+from ..support.contract_hash import compare_contract_hash
 from ..support.log_text import (
     describe_bool,
     describe_code,
@@ -39,6 +43,7 @@ from ..support.log_text import (
     describe_optional,
     describe_variables,
 )
+from .decision_records import build_contract_drift_decision
 from .selection_policy import blacklist_scene, ensure_requirement_matches_scene
 
 logger = logging.getLogger(__name__)
@@ -54,10 +59,25 @@ async def execute_scene(
     store: Store,
     idempotency_gate: IdempotencyGate | None = None,
     complete_task_run: bool = True,
+    catalog: SceneCatalogPort | None = None,
+    skip_requirement_match: bool = False,
 ) -> TaskRun:
-    """执行已选定场景并收口任务状态。"""
+    """执行已选定场景并收口任务状态。
 
-    action, step = _plan_scene_execution(task_run, step, requirement, scene_code, inputs, candidate, store)
+    执行前若提供 catalog 且候选带契约快照哈希，会重新解析契约并比对哈希；
+    检测到契约漂移则阻断执行、挂起等用户确认（不发起任何写请求）。
+
+    skip_requirement_match=True 用于 UNKNOWN_STATE 对账的只读核查：核查场景的
+    scene_code 与缺口已选定的写场景不同，跳过"执行目标须等于选定场景"的一致性校验。
+    """
+
+    drift_suspended = await _guard_contract_drift(task_run, step, requirement, scene_code, candidate, store, catalog)
+    if drift_suspended is not None:
+        return drift_suspended
+
+    action, step = _plan_scene_execution(
+        task_run, step, requirement, scene_code, inputs, candidate, store, skip_requirement_match=skip_requirement_match
+    )
     action, attempt, observation = await _run_and_record_attempt(task_run, action, store, idempotency_gate)
     evidence = _build_and_record_evidence(task_run, step, action, observation, attempt, store)
     verdict = _judge_and_record_verdict(task_run, evidence, action, store)
@@ -81,6 +101,67 @@ async def execute_scene(
     return task_run
 
 
+async def _guard_contract_drift(
+    task_run: TaskRun,
+    step: PlanStep,
+    requirement: Requirement,
+    scene_code: str,
+    candidate: SceneCandidate,
+    store: Store,
+    catalog: SceneCatalogPort | None,
+) -> TaskRun | None:
+    """执行前契约重验门：检测到漂移则挂起等用户确认，返回挂起后的 TaskRun；无漂移返回 None。
+
+    仅在提供 catalog 且候选带契约快照哈希时生效；任一缺失则跳过（向后兼容）。
+    重新解析契约会多一次 Catalog 调用，因此只在 stored_hash 非空时触发。
+    """
+
+    if catalog is None or not candidate.contract_hash:
+        return None
+
+    try:
+        fresh = await catalog.get_contract(scene_code=scene_code, user_inputs={})
+    except Exception:
+        # 重验解析失败不阻断主流程（如 Catalog 临时不可用），交由后续执行/收口路径处理。
+        return None
+
+    check = compare_contract_hash(candidate.contract_hash, fresh.contract_hash)
+    if not check.drifted:
+        return None
+
+    proposal = store.get_proposal(requirement.proposal_id) if requirement.proposal_id else None
+    if proposal is not None:
+        store.save_decision(
+            build_contract_drift_decision(
+                task_run,
+                requirement,
+                proposal,
+                scene_code,
+                stored_hash=check.stored_hash,
+                fresh_hash=check.fresh_hash,
+                input_ref=None,
+            )
+        )
+
+    task_run.pending_question = (
+        f"场景 {scene_code} 的契约在选定后发生了变化（契约漂移）。"
+        f"选定时快照哈希={check.stored_hash}，执行前重新解析哈希={check.fresh_hash}。"
+        "请确认是否按新契约继续执行（回复 ACCEPT_CONTRACT_DRIFT）。"
+    )
+    task_run.suspend_reason = SuspendReason.CONTRACT_DRIFT
+    task_run = transition_task_run(task_run, TaskRunStatus.WAITING_USER)
+    store.save_step(step)
+    store.save_task_run(task_run)
+    logger.info(
+        "GDP Agent 运行时执行前检测到契约漂移，已阻断执行：任务ID=%s，场景编码=%s，选定哈希=%s，执行前哈希=%s",
+        task_run.task_run_id,
+        scene_code,
+        describe_optional(check.stored_hash),
+        describe_optional(check.fresh_hash),
+    )
+    return task_run
+
+
 def collect_preflight_missing(task_run: TaskRun, candidate: SceneCandidate) -> list[str]:
     """执行前检查缺失信息，避免在入参不全时盲目发起场景调用。"""
 
@@ -100,10 +181,12 @@ def _plan_scene_execution(
     inputs: dict[str, Any],
     candidate: SceneCandidate,
     store: Store,
+    skip_requirement_match: bool = False,
 ) -> tuple[Action, PlanStep]:
     """记录执行计划，准备输入变量。"""
 
-    ensure_requirement_matches_scene(requirement, scene_code)
+    if not skip_requirement_match:
+        ensure_requirement_matches_scene(requirement, scene_code)
     action = make_scene_action(step, scene_code, inputs, approval_required=candidate.requires_confirmation)
     logger.info(
         "GDP Agent 运行时执行动作已计划：任务ID=%s，步骤ID=%s，动作ID=%s，动作类型=%s，场景编码=%s，输入摘要=%s，是否需要审批=%s",

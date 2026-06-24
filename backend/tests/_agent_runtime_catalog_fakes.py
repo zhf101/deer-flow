@@ -80,7 +80,9 @@ class FakeSceneCatalog:
             reasons=["显式指定 scene_code，按契约解析"],
             missing_inputs=_missing_for(scene_code, user_inputs),
             requires_confirmation=scene_code in _SIDE_EFFECT_SCENES,
-            contract_hash="fake-hash",
+            # 与 make_candidate 同源：真实 catalog 保证「同场景→同契约哈希」，
+            # search 与 get_contract 必须对同一 scene_code 产出一致哈希，否则执行前重验会误报漂移。
+            contract_hash=f"hash-{scene_code}",
         )
 
     async def search_sources(

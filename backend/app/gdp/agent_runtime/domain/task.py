@@ -37,6 +37,7 @@ class SuspendReason(StrEnum):
     NEED_SCENE_SELECTION = "NEED_SCENE_SELECTION"  # 系统找到了多个可用的造数场景，需要用户从中选择一个
     UNKNOWN_STATE_CONFIRMATION = "UNKNOWN_STATE_CONFIRMATION"  # 场景执行后状态不确定（如网络超时），需要用户确认实际结果
     NEED_EVIDENCE = "NEED_EVIDENCE"                # 系统无法自动收集足够的证据来判定造数是否成功，需要用户提供额外信息
+    CONTRACT_DRIFT = "CONTRACT_DRIFT"             # 执行前重验发现场景契约相对选定快照已变化，需用户确认是否按新契约执行
 
 
 class ReplyType(StrEnum):
@@ -54,6 +55,7 @@ class ReplyType(StrEnum):
     CONFIRM_UNKNOWN_STATE = "CONFIRM_UNKNOWN_STATE"  # 用户确认实际结果：告知系统上次不确定执行的真实状态（对应 UNKNOWN_STATE_CONFIRMATION）
     SELECT_SCENE = "SELECT_SCENE"           # 用户从候选列表中选择：在系统推荐的多个造数场景中选定一个（对应 NEED_SCENE_SELECTION）
     SUPPLY_SCENE_CODE = "SUPPLY_SCENE_CODE" # 用户直接指定场景编码：不依赖系统推荐，用户自行输入已知的场景编码（对应 NEED_SCENE_SELECTION 的快捷路径）
+    ACCEPT_CONTRACT_DRIFT = "ACCEPT_CONTRACT_DRIFT"  # 用户接受新契约：确认按执行前重验得到的新场景契约继续执行（对应 CONTRACT_DRIFT）
 
 
 class StepEdge(BaseModel):

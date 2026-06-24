@@ -36,6 +36,7 @@ from ..support.errors import RuntimeConflictError, RuntimeValidationError
 from .decision_records import build_approval_requirement_decision, build_user_scene_selection_decision
 from .execution_pipeline import collect_preflight_missing, execute_scene
 from .reply_commands import (
+    AcceptContractDriftCommand,
     ApproveCommand,
     ConfirmUnknownStateCommand,
     RuntimeCommand,
@@ -66,14 +67,31 @@ async def _handle_confirm_unknown_state(
     task_run: TaskRun,
     command: RuntimeCommand,
     store: Store,
-    _idempotency_gate: IdempotencyGate | None,
+    idempotency_gate: IdempotencyGate | None,
 ) -> TaskRun:
-    """用户确认执行结果未知后停止任务，避免系统盲目重放写请求。"""
+    """用户确认 UNKNOWN_STATE 实际结果后的双路径对账。
+
+    - actual_outcome=FAILED（或缺省）：维持失败收口，避免重放写请求。
+    - actual_outcome=SUCCEEDED：用户须指定只读核查场景 verify_scene_code，
+      系统执行该 QUERY 场景取证据 judge——证据证明成功才推进，绝不靠用户断言写 DONE。
+    - actual_outcome=UNCERTAIN：维持 WAITING_USER 等更多信息。
+    """
 
     latest_verdict_type = _latest_verdict_type(task_run.task_run_id, store)
     if latest_verdict_type != "UNKNOWN_STATE":
         raise RuntimeConflictError("当前 TaskRun 不是执行结果未知状态，不能确认 UNKNOWN_STATE")
 
+    actual_outcome = _unknown_state_outcome(command.payload)
+
+    if actual_outcome == "SUCCEEDED":
+        return await _reconcile_unknown_state_success(task_run, command, store, idempotency_gate)
+
+    if actual_outcome == "UNCERTAIN":
+        # 用户仍无法确认，保持挂起等待更多信息，不改终态。
+        store.save_task_run(task_run)
+        return task_run
+
+    # FAILED（含缺省）：维持现有失败收口。
     task_run.pending_question = None
     task_run.suspend_reason = None
     task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
@@ -81,6 +99,52 @@ async def _handle_confirm_unknown_state(
     task_run = transition_task_run(task_run, TaskRunStatus.FAILED)
     store.save_task_run(task_run)
     return task_run
+
+
+async def _reconcile_unknown_state_success(
+    task_run: TaskRun,
+    command: RuntimeCommand,
+    store: Store,
+    idempotency_gate: IdempotencyGate | None,
+) -> TaskRun:
+    """用户确认实际成功：执行用户指定的只读核查场景，用证据判定是否真的完成。"""
+
+    verify_scene_code = _strip_optional(command.payload.get("verify_scene_code"))
+    if verify_scene_code is None:
+        raise RuntimeValidationError(
+            "确认实际成功必须提供 verify_scene_code（只读核查场景），系统据其取证判定，不接受无证据的成功断言"
+        )
+
+    requirement = _get_waiting_requirement(task_run, store)
+    step = store.get_step(requirement.step_id)
+    verify_inputs = _merge_reply_inputs(task_run, command.payload, store)
+
+    # 解析核查场景契约并写入账本（独立于原写场景缺口的已选定场景）。
+    verify_proposal = await resolve_explicit_scene(requirement, verify_scene_code, verify_inputs, _get_scene_catalog())
+    verify_candidate = next(
+        (item for item in verify_proposal.candidates if item.scene_code == verify_scene_code),
+        None,
+    )
+    if verify_candidate is None:
+        raise RuntimeValidationError("核查场景契约解析失败")
+
+    task_run.pending_question = None
+    task_run.suspend_reason = None
+    task_run = transition_task_run(task_run, TaskRunStatus.RUNNING)
+
+    # 跳过"执行目标=缺口已选定场景"校验：核查场景与原写场景不同，但证据仍判定原步骤。
+    return await execute_scene(
+        task_run,
+        step,
+        requirement,
+        verify_scene_code,
+        verify_inputs,
+        verify_candidate,
+        store,
+        idempotency_gate,
+        complete_task_run=not _is_multistep_task(task_run),
+        skip_requirement_match=True,
+    )
 
 
 async def _handle_supply_input(
@@ -267,6 +331,7 @@ async def _handle_select_scene(
         store,
         idempotency_gate,
         extra_input_names=_supplied_input_names(command.payload),
+        verify_drift=True,
     )
 
 
@@ -408,6 +473,43 @@ async def _handle_approve_scene(
         store,
         idempotency_gate,
         extra_input_names=_supplied_input_names(command.payload),
+        verify_drift=True,
+    )
+
+
+async def _handle_accept_contract_drift(
+    task_run: TaskRun,
+    command: RuntimeCommand,
+    store: Store,
+    idempotency_gate: IdempotencyGate | None,
+) -> TaskRun:
+    """用户接受执行前重验发现的新契约后，按新契约继续执行。
+
+    刷新候选契约（写回新哈希）后直接执行，不再重验漂移——用户已确认接受新契约。
+    """
+
+    if task_run.suspend_reason != SuspendReason.CONTRACT_DRIFT:
+        raise RuntimeConflictError("当前任务不在契约漂移待确认状态")
+
+    requirement = _get_waiting_requirement(task_run, store)
+    proposal = _get_latest_selected_proposal(task_run, store, requirement.requirement_id)
+    scene_code = proposal.selected_scene_code
+    if scene_code is None:
+        raise RuntimeConflictError("当前没有已选定的漂移场景")
+
+    inputs = _merge_reply_inputs(task_run, command.payload, store)
+    candidate = await _refresh_candidate_contract(proposal, scene_code, inputs, store)
+
+    return await _execute_selected_scene(
+        task_run,
+        requirement,
+        scene_code,
+        inputs,
+        candidate,
+        store,
+        idempotency_gate,
+        extra_input_names=_supplied_input_names(command.payload),
+        verify_drift=False,
     )
 
 
@@ -483,8 +585,14 @@ async def _execute_selected_scene(
     idempotency_gate: IdempotencyGate | None,
     *,
     extra_input_names: set[str] | list[str] | tuple[str, ...] = (),
+    verify_drift: bool = False,
 ) -> TaskRun:
-    """执行当前选定场景；多步骤完成当前步骤后继续推进后续步骤。"""
+    """执行当前选定场景；多步骤完成当前步骤后继续推进后续步骤。
+
+    verify_drift=True 时（select_scene / approve 恢复路径，候选快照来自更早的请求），
+    执行前重新解析契约并比对哈希，检测漂移则阻断等用户确认。
+    supply_scene_code / supply_input 路径在同一请求内刚解析过契约，无需重验。
+    """
 
     step = store.get_step(requirement.step_id)
     execution_inputs = request_inputs
@@ -509,6 +617,7 @@ async def _execute_selected_scene(
         store,
         idempotency_gate,
         complete_task_run=complete_task_run,
+        catalog=_get_scene_catalog() if verify_drift else None,
     )
     if not _is_multistep_task(task_run):
         return task_run
@@ -637,6 +746,22 @@ def _is_blank(value: Any) -> bool:
     if value is None:
         return True
     return isinstance(value, str) and value.strip() == ""
+
+
+def _unknown_state_outcome(payload: dict[str, Any]) -> str:
+    """解析用户对 UNKNOWN_STATE 的实际结果判断。
+
+    缺省为 FAILED：保持历史"确认即失败收口"语义，向后兼容旧客户端。
+    取值：SUCCEEDED / FAILED / UNCERTAIN。
+    """
+
+    raw = payload.get("actual_outcome")
+    if not isinstance(raw, str):
+        return "FAILED"
+    normalized = raw.strip().upper()
+    if normalized in {"SUCCEEDED", "FAILED", "UNCERTAIN"}:
+        return normalized
+    raise RuntimeValidationError("payload.actual_outcome 取值必须是 SUCCEEDED / FAILED / UNCERTAIN 之一")
 
 
 def _format_unknown_state_confirmation(payload: dict[str, Any]) -> str:
@@ -785,4 +910,5 @@ _REPLY_HANDLERS: dict[type[RuntimeCommand], ReplyHandler] = {
     SelectSceneCommand: _handle_select_scene,
     SupplySceneCodeCommand: _handle_supply_scene_code,
     ApproveCommand: _handle_approve_scene,
+    AcceptContractDriftCommand: _handle_accept_contract_drift,
 }

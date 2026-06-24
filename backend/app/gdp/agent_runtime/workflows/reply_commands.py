@@ -55,6 +55,11 @@ class SupplySceneCodeCommand(RuntimeCommand):
     """零候选时手动补充 scene_code。"""
 
 
+@dataclass(frozen=True)
+class AcceptContractDriftCommand(RuntimeCommand):
+    """接受执行前重验得到的新场景契约，按新契约继续执行。"""
+
+
 def parse_runtime_command(reply_type: ReplyType | str, payload: Mapping[str, Any] | None) -> RuntimeCommand:
     """将用户在前端的回复转化为编排引擎可执行的内部命令。
 
@@ -76,5 +81,6 @@ def parse_runtime_command(reply_type: ReplyType | str, payload: Mapping[str, Any
         ReplyType.CONFIRM_UNKNOWN_STATE: ConfirmUnknownStateCommand,
         ReplyType.SELECT_SCENE: SelectSceneCommand,
         ReplyType.SUPPLY_SCENE_CODE: SupplySceneCodeCommand,
+        ReplyType.ACCEPT_CONTRACT_DRIFT: AcceptContractDriftCommand,
     }
     return command_map[normalized](command_payload)

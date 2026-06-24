@@ -1,7 +1,7 @@
 # GDP Agent Runtime — MVP 实施路线
 
-> 版本：2026-06-23 · 基于现役代码状态
-> 当前阶段：🚩 **MVP0–MVP3 已完成，MVP4-A 只读 Source/Infra 下探已进入收敛验收**
+> 版本：2026-06-24 · 基于现役代码状态
+> 当前阶段：🚩 **MVP0–MVP3 已完成，MVP4-A 只读下探已完成，MVP4-B 配置写入主链路已实现待验收**
 
 ---
 
@@ -12,8 +12,8 @@ MVP0 █████████████████████████
 MVP1 ████████████████████████████████████ 已完成
 MVP2 ████████████████████████████████████ 已完成
 MVP3 ████████████████████████████████████ 已完成
-MVP4 ████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░ MVP4-A 收敛验收中，配置写入未启动
-MVP5 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 规划中
+MVP4 ████████████████████████████░░░░░░░░ MVP4-A 已完成，MVP4-B 配置写入主链路已实现待验收
+MVP5 ████████████████████████████████░░░░ 契约漂移 + UNKNOWN_STATE 对账主链路已实现待验收
 MVP6 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 远期
 MVP7 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 远期
 ```
@@ -107,21 +107,21 @@ MVP7 ░░░░░░░░░░░░░░░░░░░░░░░░░
 
 ---
 
-## 三、下一阶段：MVP4 — SCENE→SOURCE→INFRA 下探
+## 三、当前阶段：MVP4 — SCENE→SOURCE→INFRA 下探 + 配置写回
 
-**优先级**：中高 · 当前先收敛 MVP4-A 只读发现，不进入配置写入
+**优先级**：中高 · MVP4-A 只读下探已完成；MVP4-B 配置写回主链路已实现，进入验收收口
 
-**目标**：缺完整 Scene 时先只读下探 HTTP/SQL Source 和基础配置线索，结构化记录父子缺口并在前端展示缺口树；子缺口完成后回弹父缺口和无需人工确认的配置写入留到后续 MVP4-B。
+**目标**：缺完整 Scene 时先只读下探 HTTP/SQL Source 和基础配置线索，结构化记录父子缺口并在前端展示缺口树；确定性前置校验通过后免人工确认自动创建并发布组合 Scene，回弹父缺口并继续执行。
 
 ### 范围
 
 | 包括 | 不包括 |
 |---|---|
 | 扩展 `RequirementLayer`：SCENE / SOURCE / INFRA | 人工审批策略（ASK_ALWAYS/DELEGATED/FULL） |
-| Requirement 父子关系（子缺口→父缺口回弹） | 自动生成 Scene（只搜索现有 Source） |
+| Requirement 父子关系（子缺口→父缺口回弹） | 从零自由设计 Scene 业务逻辑 |
 | SourceCandidate / InfraCandidate | 自由 LLM 规划 |
-| 只读搜索 + WAITING_USER 展示 | |
-| MVP4-B 配置写入决策：写入不需要人工确认，但必须有确定性校验、权限/环境边界和审计 | |
+| 只读搜索 + WAITING_USER 展示 | 写入 Source / Infra 配置（仅写入组合 Scene） |
+| MVP4-B 配置写入：基于现有 Source **确定性组合**生成并发布 Scene，免人工确认，但必须有确定性校验和审计 | |
 
 ### 建议拆分
 
@@ -136,19 +136,43 @@ MVP7 ░░░░░░░░░░░░░░░░░░░░░░░░░
    - 当前收敛点：前端按 `parent_requirement_id` 展示 SCENE -> SOURCE -> INFRA 缺口树
    - 不写任何配置
 
-3. **Step 3：无需人工确认的配置写入（未启动，后续 MVP4-B）**
-   - 系统校验通过后写入 Source/Infra/Scene 配置，不再把“人工确认”作为默认门禁
-   - 写入前必须完成确定性契约校验、权限/环境边界检查和审计记录
-   - 写入后回弹父 Requirement
-   - 重新 resolve 父缺口
+3. **Step 3：免人工确认的配置写入（主链路已实现，验收收口中）**
+   - 已实现 `adapters/config_writeback.py:DatagenConfigWritebackAdapter`，经类型化 datagen service 合约创建并发布组合 Scene，不裸写表
+   - 写入前完成确定性前置校验（见下方「确定性校验门」），不以人工确认作为门禁
+   - 写入成功后回弹父 SCENE 缺口：`start_workflow.py` 取 `writeback_result.target_code` 作为新 scene_code，`resolve_explicit_scene` 重新执行
+   - 无论成功/失败都通过 `build_config_writeback_decision` 落决策审计
+   - 写回失败为降级（拼接失败原因回到「手动补 scene_code」路径），非硬阻断
+
+### 确定性校验门（MVP4-B 免人工确认的前置）
+
+写回只在以下条件**全部确定性满足**时发起（`source_infra_discovery.py:_can_writeback` + `config_writeback.py:_precheck`）：
+
+- Source 候选非空
+- Infra 候选数 ≥ Source 候选数（每个 Source 的基础配置依赖都已诊断）
+- 所有 Infra 候选 `ready=True` 且无 `missing_fields`
+- 发布前 `validate_scene_publish(scene)` 通过
+
+任一条件不满足 → 返回 `SKIPPED`，不发起业务配置写入，保持只读下探挂起路径。
+
+> **副作用边界**：写回成功会在 datagen 场景库创建并发布一个 `agent_scene_{hash}` 真实组合 Scene（`tags` 含 `agent-runtime`/`auto-writeback`），并自动续跑执行。此为预期副作用，验收时需确认其可在场景管理中追溯。
 
 ### 验收标准
 
+**MVP4-A 只读下探（已完成）**
+
 - 「没有完整的已支付订单 Scene，但有创建订单 HTTP Source + 支付 HTTP Source」→ 只读下探→记录 SOURCE/INFRA 子缺口→WAITING_USER 展示
 - 缺口树在前端可展示，并能看到每层 proposal / Source / Infra 摘要
-- 不发生 Source、Infra 或 Scene 配置写入
+- Infra 未就绪时不发生 Source、Infra 或 Scene 配置写入
 - 不引入 Capability Graph
 - 不引入自由 LLM 规划
+
+**MVP4-B 配置写回（主链路已实现，验收收口）**
+
+- Source 候选齐备 + Infra 全部 ready 无缺字段 → 免人工确认创建并发布组合 Scene → COMPLETED（`test_source_and_ready_infra_writeback_publishes_scene_then_executes`）
+- 任一确定性校验门不满足 → `SKIPPED`，不发起写入，保留只读挂起路径
+- 写回成功后回弹父 SCENE 缺口并以新 scene_code 续跑执行
+- 写回成功/失败均落 `CONFIG_WRITEBACK` 决策审计，可在 timeline 追溯
+- 写回失败降级回「手动补 scene_code」，不硬阻断任务
 
 ### 前置条件
 
@@ -160,26 +184,33 @@ MVP7 ░░░░░░░░░░░░░░░░░░░░░░░░░
 
 ---
 
-## 四、后续规划（MVP5–MVP7）
+## 四、后续规划（MVP6–MVP7）
 
-### MVP5：契约漂移 + UNKNOWN_STATE 对账
+### MVP5：契约漂移 + UNKNOWN_STATE 对账（主链路已实现，验收收口中）
 
-**优先级**：中 · 在 MVP4 后启动
+**状态**：2026-06-24 主链路实现完成，130 passed / 0 fail。Trellis 任务 `06-24-mvp5-contract-drift`。
 
-**目标**：
-- 执行前/恢复前校验 Scene 合约 hash
-- UNKNOWN_STATE 人工确认成功后可继续推进（非只失败收口）
-- 契约漂移告警
+**已实现**：
+- **契约漂移检测**：`execute_scene` 顶部 `_guard_contract_drift`，仅在 select_scene / approve 恢复路径（候选快照来自更早请求、有时间间隔）触发执行前重验；hash 不一致 → WAITING_USER(CONTRACT_DRIFT) 阻断，落 `CONTRACT_DRIFT` 决策审计。用户回 `ACCEPT_CONTRACT_DRIFT` 接受新契约续跑。
+- **UNKNOWN_STATE 对账双路径**：`CONFIRM_UNKNOWN_STATE` payload 新增 `actual_outcome`（SUCCEEDED/FAILED/UNCERTAIN，缺省 FAILED 向后兼容）。
+  - FAILED → 失败收口（现有行为不回归）。
+  - SUCCEEDED → 用户必须指定只读核查场景 `verify_scene_code`，系统执行该 QUERY 场景取证据 judge，**证据证明成功才推进 DONE**，绝不靠用户断言写状态（守住核心不变量）。
+  - UNCERTAIN → 维持 WAITING_USER。
 
-**关键设计点**：
-- 已有地基：`SceneCandidate.contract_hash`、plan step spec payload
-- 新增 `CONTRACT_DRIFT` verdict / suspend_reason
-- UNKNOWN_STATE 双路径：成功→继续、失败→收口
+**关键设计决策**：
+- contract_hash 抽取为 `support/contract_hash.py` 公共函数，catalog 委托复用，红线单测锁 `catalog hash == guard hash` 防全场景误报。
+- 漂移在执行前 gate 拦截、不经 judge，因此**不新增 `VerdictType.CONTRACT_DRIFT`**，只新增 `SuspendReason.CONTRACT_DRIFT` + `DecisionKind.CONTRACT_DRIFT` + `ReplyType.ACCEPT_CONTRACT_DRIFT`。
+- 漂移只在 select_scene/approve 触发（其余路径同请求内刚解析契约，漂移结构上不可能），消除每次执行多一次 Catalog 调用的成本。
+- R1 核查证据来源 = **用户指定核查场景**（现有契约模型无"写场景→核查场景"链接，自动搜索接近一个新 MVP，留后续）。
 
 **验收标准**：
-- 超时后用户确认「实际成功」→ 可继续后续只读验证或终态
-- 恢复前合约漂移 → WAITING_USER 告警
-- 超时后不会普通补参重放
+- [x] select_scene/approve 恢复时契约 hash 漂移 → WAITING_USER(CONTRACT_DRIFT) 阻断，不发写请求
+- [x] 用户 ACCEPT_CONTRACT_DRIFT → 以新契约续跑终态
+- [x] hash 一致 → 正常执行（无行为变化）
+- [x] CONFIRM_UNKNOWN_STATE actual_outcome=FAILED/缺省 → 失败收口不回归
+- [x] actual_outcome=SUCCEEDED + 核查证据证明成功 → COMPLETED 带 final_verdict_id
+- [x] SUCCEEDED 但无 verify_scene_code 或核查证据不达标 → 不推进（不靠用户断言写 DONE）
+- [ ] timeline 投影确认 CONTRACT_DRIFT 决策与对账核查 Action 可审计、脱敏（收口项）
 
 ### MVP6：回退与变量污染
 
@@ -221,7 +252,7 @@ MVP7 ░░░░░░░░░░░░░░░░░░░░░░░░░
 - [ ] 补充变量列表中 provenance 到步骤的可读映射
 - [ ] 增加前端测试覆盖 WAITING_USER 交互派生
 
-### Step C：MVP4-A 收敛验收（当前）
+### Step C：MVP4-A 收敛验收（已完成）
 
 - [x] 写 PRD / design / implement
 - [x] 明确 Requirement 父子关系和回弹规则边界
@@ -230,11 +261,23 @@ MVP7 ░░░░░░░░░░░░░░░░░░░░░░░░░
 - [x] 跑通前后端 MVP4-A 相关回归集
 - [x] 明确 MVP4-B 配置写入不需要人工确认；后续设计只保留确定性校验、权限/环境边界和审计要求
 
+### Step D：MVP4-B 配置写回验收收口（当前）
+
+- [x] 实现 `DatagenConfigWritebackAdapter` 经类型化 service 合约创建并发布组合 Scene
+- [x] 确定性校验门（`_can_writeback` + `_precheck`）+ 发布前 `validate_scene_publish`
+- [x] 写回成功回弹父缺口并续跑（`start_workflow.py`）
+- [x] 写回决策审计落账（`CONFIG_WRITEBACK`）
+- [x] 跑通 `test_gdp_agent_runtime_config_writeback.py`（9 passed）
+- [ ] 确认 timeline 能审计到写回决策的脱敏投影
+- [ ] 在文档/前端明确 `agent_scene_{hash}` 自动 Scene 的副作用可追溯
+
 ---
 
 ## 六、测试基线
 
-**现役测试**：**107 passed + 1 known-fail**
+**现役测试**：agent_runtime 全量 `uv run pytest tests/ -k gdp_agent_runtime` → **130 passed / 0 fail**
+
+> 2026-06-24：MVP5 新增 11 项测试（2 hash 红线 + 4 契约漂移 + 5 UNKNOWN_STATE 对账），基线从 119 升至 130。
 
 最低回归集（改 runtime 必须跑）：
 
@@ -247,6 +290,10 @@ uv run pytest tests/test_gdp_agent_runtime_multistep_reply.py -q
 uv run pytest tests/test_gdp_agent_runtime_repository.py -q
 uv run pytest tests/test_gdp_agent_runtime_verdict.py -q
 uv run pytest tests/test_gdp_agent_runtime_execution.py -q
+uv run pytest tests/test_gdp_agent_runtime_source_infra_discovery.py -q
+uv run pytest tests/test_gdp_agent_runtime_config_writeback.py -q
+uv run pytest tests/test_gdp_agent_runtime_contract_drift.py -q
+uv run pytest tests/test_gdp_agent_runtime_unknown_state_reconcile.py -q
 uv run pytest tests/test_gdp_datagen_api_method_contract.py -q
 uv run pytest tests/test_gdp_datagen_pydantic_docs.py -q
 ```

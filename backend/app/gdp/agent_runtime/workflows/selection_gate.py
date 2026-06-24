@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..adapters.catalog import SceneCatalogPort
 from ..domain.transitions import transition_requirement, transition_task_run
 from ..ledger.refs import pending_start_ref
 from ..models import (
@@ -44,6 +45,7 @@ async def select_and_maybe_execute(
     store: Store,
     idempotency_gate: IdempotencyGate | None,
     complete_task_run: bool = True,
+    catalog: SceneCatalogPort | None = None,
 ) -> TaskRun:
     """选定场景后的三重门——校验入参齐全 → 审批有副作用的场景 → 执行。"""
 
@@ -118,6 +120,7 @@ async def select_and_maybe_execute(
         store,
         idempotency_gate,
         complete_task_run=complete_task_run,
+        catalog=catalog,
     )
 
 

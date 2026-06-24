@@ -230,3 +230,28 @@ async def test_resolve_explicit_scene_synthesizes_single_candidate():
     assert proposal.candidates[0].scene_code == "create_paid_order"
     assert proposal.candidates[0].missing_inputs == ["buyer_id"]
     assert requirement.status == RequirementStatus.PENDING  # 编排不动状态机
+
+
+def test_catalog_hash_equals_guard_hash():
+    """红线：catalog 适配器与执行前重验 gate 必须复算出相同 hash。
+
+    若 catalog._contract_hash 与 support.contract_hash.contract_hash 不一致，
+    执行前重验会对所有未变化的场景误报漂移。此测试锁定两者同源。
+    """
+    from app.gdp.agent_runtime.adapters.catalog import _contract_hash
+    from app.gdp.agent_runtime.support.contract_hash import contract_hash
+
+    contract = _make_contract(required_inputs=["buyer_id", "amount"], has_side_effects=True)
+    assert _contract_hash(contract) == contract_hash(contract)
+
+
+def test_contract_hash_is_stable_and_drift_sensitive():
+    """同一契约复算稳定；契约变化（新增必填参数）哈希必变。"""
+    from app.gdp.agent_runtime.support.contract_hash import contract_hash
+
+    base = _make_contract(required_inputs=["buyer_id"])
+    same = _make_contract(required_inputs=["buyer_id"])
+    drifted = _make_contract(required_inputs=["buyer_id", "amount"])
+
+    assert contract_hash(base) == contract_hash(same)
+    assert contract_hash(base) != contract_hash(drifted)

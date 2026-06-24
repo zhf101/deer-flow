@@ -410,14 +410,16 @@ async def test_runtime_mvp_api_create_start_query_timeline(monkeypatch: pytest.M
 
         timeline = await client.get(f"/api/v1/datagen/agent-runtime/task-runs/{task_run_id}/timeline")
         assert timeline.status_code == 200
-        assert timeline.json()["verdicts"][0]["verdict_type"] == "DONE"
+        timeline_body = timeline.json()
+        assert timeline_body["verdicts"][0]["verdict_type"] == "DONE"
+        # 结构化断言目标与入参预览，避免依赖会被 sort_keys + 截断丢弃的日志子串。
+        assert any(req["goal"] == "造一笔已支付订单" for req in timeline_body["requirements"])
+        assert any(action["input_preview"] == {"buyer_id": "U1"} for action in timeline_body["actions"])
 
     messages = "\n".join(record.getMessage() for record in caplog.records)
     assert "用户目标=造一笔已支付订单" in messages
     assert '用户输入请求报文={"buyer_id": "U1"}' in messages
     assert "时间线内容=" in messages
-    assert '"goal": "造一笔已支付订单"' in messages
-    assert '"input_preview": {"buyer_id": "U1"}' in messages
 
 
 def test_runtime_mvp_does_not_import_old_gdp_agent_core():

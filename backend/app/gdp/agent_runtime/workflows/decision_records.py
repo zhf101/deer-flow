@@ -250,6 +250,51 @@ def build_config_writeback_decision(
     )
 
 
+def build_contract_drift_decision(
+    task_run: TaskRun,
+    requirement: Requirement,
+    proposal: RequirementProposal,
+    scene_code: str,
+    *,
+    stored_hash: str | None,
+    fresh_hash: str,
+    input_ref: str | None,
+) -> DecisionRecord:
+    """记录执行前重验发现的场景契约漂移及其阻断处置。
+
+    业务目标：让用户和运维追溯"为什么执行前停下来"——选定时刻的契约快照
+    与执行前重新解析的契约不一致，系统阻断执行等用户确认是否按新契约执行。
+    安全：只记录哈希值（非敏感），不暴露契约原始载荷。
+    """
+    return DecisionRecord(
+        decision_id=_gen_id(),
+        task_run_id=task_run.task_run_id,
+        step_id=requirement.step_id,
+        requirement_id=requirement.requirement_id,
+        proposal_id=proposal.proposal_id,
+        action_id=None,
+        scene_run_id=None,
+        decision_kind=DecisionKind.CONTRACT_DRIFT,
+        decision_source=DecisionSource.RULE,
+        status=DecisionStatus.WAITING_USER,
+        target_type="scene",
+        target_id=scene_code,
+        input_ref=input_ref,
+        options=[],
+        selected_option=None,
+        selected_reasons=[
+            f"场景 {scene_code} 契约相对选定快照已变化。",
+            f"选定时哈希={stored_hash or '无'}，执行前哈希={fresh_hash}。",
+        ],
+        rejected_reasons=[],
+        criteria=["执行前重新解析契约", "重算哈希与选定快照比对", "不一致则阻断执行等用户确认"],
+        evidence_refs=[requirement.requirement_id, proposal.proposal_id],
+        model_info=None,
+        summary=f"场景 {scene_code} 契约漂移，已阻断执行等待用户确认。",
+        created_at=_now(),
+    )
+
+
 def _candidate_option(candidate: SceneCandidate) -> DecisionOption:
     return DecisionOption(
         option_id=candidate.scene_code,

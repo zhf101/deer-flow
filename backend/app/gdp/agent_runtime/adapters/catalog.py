@@ -12,8 +12,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from typing import Any, Protocol
 
 from app.gdp.datagen.agent_catalog.models import (
@@ -25,6 +23,7 @@ from app.gdp.datagen.agent_catalog.models import (
 )
 
 from ..models import InfraCandidate, SceneCandidate, SourceCandidate
+from ..support.contract_hash import contract_hash
 from ..support.errors import RuntimeDependencyError
 
 
@@ -98,15 +97,15 @@ def _contract_hash(contract: AgentSceneContract) -> str:
 
     业务目标：记录选择时刻的场景接口状态，若场景在执行前被修改（如新增必填参数），
     系统可通过对比哈希发现漂移，避免用旧契约执行新接口导致造数失败。
+
+    实现委托 support.contract_hash.contract_hash，确保与执行前重验 gate 同源复算。
     """
-    raw = json.dumps(contract.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return contract_hash(contract)
 
 
 def _source_contract_hash(contract: AgentSourceContract) -> str:
     """对 Source 契约快照做稳定哈希，用于后续契约漂移检测。"""
-    raw = json.dumps(contract.model_dump(mode="json"), sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+    return contract_hash(contract)
 
 
 def _clamp_score(score: float) -> float:

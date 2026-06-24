@@ -18,12 +18,14 @@ class DecisionKind(StrEnum):
     SCENE_SELECTION：场景选择决策——记录系统/用户选了哪个候选、为什么。
     APPROVAL_REQUIREMENT：审批要求决策——记录为什么需要用户审批或审批结果。
     CONFIG_WRITEBACK：配置写回决策——记录自动写入 datagen 配置的结果。
+    CONTRACT_DRIFT：契约漂移决策——记录执行前重验发现的场景契约漂移及处置。
     """
 
     SCENE_SEARCH = "SCENE_SEARCH"
     SCENE_SELECTION = "SCENE_SELECTION"
     APPROVAL_REQUIREMENT = "APPROVAL_REQUIREMENT"
     CONFIG_WRITEBACK = "CONFIG_WRITEBACK"
+    CONTRACT_DRIFT = "CONTRACT_DRIFT"
 
 
 class DecisionSource(StrEnum):
