@@ -141,6 +141,36 @@ function proposalForRequirement(
   }
   return proposalsByRequirement.get(requirement.requirement_id);
 }
+function collectResourceDiscovery(
+  timeline: AgentRuntimeTimelineResponse,
+  activeStepId: string | undefined,
+): {
+  proposal: AgentRuntimeProposal;
+  sourceCandidates: AgentRuntimeSourceCandidate[];
+  infraCandidates: AgentRuntimeInfraCandidate[];
+} | null {
+  const pendingResourceProposals = timeline.proposals.filter((proposal) => {
+    if (proposal.status !== "PENDING") return false;
+    if (activeStepId && proposal.step_id !== activeStepId) return false;
+    return getSourceCandidates(proposal).length > 0 || getInfraCandidates(proposal).length > 0;
+  });
+
+  if (pendingResourceProposals.length === 0) return null;
+
+  const latestProposal = [...pendingResourceProposals].sort((a, b) =>
+    a.created_at.localeCompare(b.created_at),
+  )[pendingResourceProposals.length - 1]!;
+
+  return {
+    proposal: latestProposal,
+    sourceCandidates: pendingResourceProposals.flatMap((proposal) =>
+      getSourceCandidates(proposal),
+    ),
+    infraCandidates: pendingResourceProposals.flatMap((proposal) =>
+      getInfraCandidates(proposal),
+    ),
+  };
+}
 
 export function deriveResourceGapTree(
   timeline: AgentRuntimeTimelineResponse | null,
@@ -198,9 +228,8 @@ export function deriveWaitingInteraction(
   const latestVerdict = timeline.verdicts.at(-1);
   const latestProposal = timeline.proposals.at(-1);
   const latestCandidates = getProposalCandidates(latestProposal);
-  const latestSourceCandidates = getSourceCandidates(latestProposal);
-  const latestInfraCandidates = getInfraCandidates(latestProposal);
   const activeStepId = timeline.task_run?.active_step_id ?? undefined;
+  const resourceDiscovery = collectResourceDiscovery(timeline, activeStepId);
 
   // 1. 最新 Verdict 是 UNKNOWN_STATE
   if (latestVerdict?.verdict_type === "UNKNOWN_STATE") {
@@ -221,15 +250,12 @@ export function deriveWaitingInteraction(
   }
 
   // 3. 最新 Proposal 是 PENDING 且包含 Source / Infra 发现结果
-  if (
-    latestProposal?.status === "PENDING" &&
-    (latestSourceCandidates.length > 0 || latestInfraCandidates.length > 0)
-  ) {
+  if (resourceDiscovery) {
     return {
       type: "resource_discovery",
-      proposal: latestProposal,
-      sourceCandidates: latestSourceCandidates,
-      infraCandidates: latestInfraCandidates,
+      proposal: resourceDiscovery.proposal,
+      sourceCandidates: resourceDiscovery.sourceCandidates,
+      infraCandidates: resourceDiscovery.infraCandidates,
       stepId: activeStepId,
     };
   }
@@ -358,10 +384,14 @@ export function deriveChatMessages(
       });
     }
     if (sourceCandidates.length > 0 || infraCandidates.length > 0) {
+      const content =
+        sourceCandidates.length > 0
+          ? `发现 ${sourceCandidates.length} 个 Source 线索，${infraCandidates.length} 项基础配置诊断`
+          : `完成 ${infraCandidates.length} 项基础配置诊断`;
       messages.push({
         id: `msg:resource-discovery:${proposal.proposal_id}`,
         role: "agent",
-        content: `发现 ${sourceCandidates.length} 个 Source 线索，${infraCandidates.length} 项基础配置诊断`,
+        content,
         timestamp: proposal.created_at,
         detail: { sourceCandidates, infraCandidates },
       });

@@ -7,10 +7,12 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
 from ..adapters.catalog import SceneCatalogPort
+from ..domain.config_writeback import ConfigWritebackResult, ConfigWritebackStatus
 from ..domain.transitions import transition_requirement
 from ..models import (
     InfraCandidate,
@@ -23,8 +25,18 @@ from ..models import (
     SourceCandidate,
     TaskRun,
 )
+from ..ports.config_writeback import ConfigWritebackPort
 from ..store import Store
 from ..support.errors import RuntimeServiceError
+from .decision_records import build_config_writeback_decision
+
+
+@dataclass
+class SourceInfraDiscoveryResult:
+    """Scene 零候选后 Source/Infra 发现和可选写回结果。"""
+
+    question: str
+    writeback_result: ConfigWritebackResult | None = None
 
 
 def _now() -> datetime:
@@ -124,6 +136,31 @@ def _build_question(source_candidates: list[SourceCandidate], infra_candidates: 
     return "没有找到匹配的 Scene，也没有发现可复用的 HTTP/SQL Source。请先补充 Source 或手动指定 scene_code。"
 
 
+def _build_writeback_failed_question(base_question: str, result: ConfigWritebackResult) -> str:
+    reason = result.reason or result.message
+    issues = "；".join(result.validation_issues)
+    suffix = f"自动发布组合 Scene 未完成：{reason}"
+    if issues:
+        suffix += f"。校验问题：{issues}"
+    return f"{base_question}\n{suffix}"
+
+
+def _can_writeback(source_candidates: list[SourceCandidate], infra_candidates: list[InfraCandidate]) -> bool:
+    if not source_candidates or len(infra_candidates) < len(source_candidates):
+        return False
+    return all(item.ready and not item.missing_fields for item in infra_candidates)
+
+
+def _normalize_writeback_result(raw: Any) -> ConfigWritebackResult:
+    if isinstance(raw, ConfigWritebackResult):
+        return raw
+    if hasattr(raw, "model_dump"):
+        return ConfigWritebackResult.model_validate(raw.model_dump(mode="json"))
+    if isinstance(raw, dict):
+        return ConfigWritebackResult.model_validate(raw)
+    return ConfigWritebackResult.model_validate(vars(raw))
+
+
 async def discover_source_and_infra_after_scene_miss(
     task_run: TaskRun,
     step: PlanStep,
@@ -131,9 +168,10 @@ async def discover_source_and_infra_after_scene_miss(
     inputs: dict[str, Any],
     store: Store,
     catalog: SceneCatalogPort,
+    config_writeback: ConfigWritebackPort | None = None,
     *,
     limit: int = 5,
-) -> str | None:
+) -> SourceInfraDiscoveryResult | None:
     """Scene 零候选后尝试只读发现 Source / Infra，并返回面向用户的提示。
 
     如果 Catalog 不支持 Source / Infra 发现，或下游依赖不可用，返回 None，
@@ -205,4 +243,34 @@ async def discover_source_and_infra_after_scene_miss(
         store.save_requirement(infra_requirement)
         store.save_proposal(infra_proposal)
 
-    return _build_question(source_candidates, infra_candidates)
+    question = _build_question(source_candidates, infra_candidates)
+    writeback_result: ConfigWritebackResult | None = None
+    if config_writeback is not None and _can_writeback(source_candidates, infra_candidates):
+        try:
+            writeback_result = _normalize_writeback_result(
+                await config_writeback.create_and_publish_scene_from_sources(
+                    task_run=task_run,
+                    scene_requirement=scene_requirement,
+                    source_requirement=source_requirement,
+                    proposal=source_proposal,
+                    source_candidates=source_candidates,
+                    infra_candidates=infra_candidates,
+                    inputs=inputs,
+                )
+            )
+        except RuntimeServiceError:
+            writeback_result = None
+        if writeback_result is not None:
+            store.save_decision(
+                build_config_writeback_decision(
+                    task_run,
+                    scene_requirement,
+                    source_proposal,
+                    writeback_result,
+                    input_ref=None,
+                )
+            )
+            if writeback_result.status != ConfigWritebackStatus.SUCCESS:
+                question = _build_writeback_failed_question(question, writeback_result)
+
+    return SourceInfraDiscoveryResult(question=question, writeback_result=writeback_result)

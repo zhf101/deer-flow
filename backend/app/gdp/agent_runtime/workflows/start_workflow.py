@@ -12,6 +12,7 @@ from typing import Any, Protocol
 
 from ..adapters.catalog import SceneCatalogPort
 from ..bindings import resolve_step_inputs
+from ..domain.config_writeback import ConfigWritebackStatus
 from ..domain.factories import create_single_step
 from ..domain.transitions import transition_requirement, transition_step, transition_task_run
 from ..ledger.refs import pending_start_ref
@@ -30,6 +31,7 @@ from ..models import (
     Verdict,
 )
 from ..planner import PlanStepSpec, build_plan, create_plan_steps, plan_step_spec_ref
+from ..ports.config_writeback import ConfigWritebackPort
 from ..ports.idempotency import IdempotencyGate
 from ..store import EntityNotFoundError, Store
 from ..support.errors import RuntimeConflictError, RuntimeServiceError
@@ -67,6 +69,7 @@ async def run_start_workflow(
     store: Store,
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None = None,
+    config_writeback: ConfigWritebackPort | None = None,
 ) -> TaskRun:
     """主循环入口：让用户的造数需求被完整处理。"""
 
@@ -116,7 +119,7 @@ async def run_start_workflow(
         specs = build_plan(task_run.user_goal, request.inputs)
         if len(specs) > 1:
             create_plan_steps(task_run, specs, store)
-            return await _run_multistep(task_run, request.inputs, store, catalog, idempotency_gate)
+            return await _run_multistep(task_run, request.inputs, store, catalog, idempotency_gate, config_writeback)
 
         step = create_single_step(task_run)
         requirement = create_scene_requirement(task_run, step)
@@ -127,7 +130,16 @@ async def run_start_workflow(
             requirement.requirement_id,
             step.goal,
         )
-        return await _run_search(task_run, step, requirement, request.inputs, store, catalog, idempotency_gate)
+        return await _run_search(
+            task_run,
+            step,
+            requirement,
+            request.inputs,
+            store,
+            catalog,
+            idempotency_gate,
+            config_writeback,
+        )
     except RuntimeServiceError:
         # Catalog 服务失败且尚未发起任何写请求时，恢复账本快照避免任务卡在 RUNNING 状态。
         if not _has_attempts(store, task_run.task_run_id):
@@ -206,6 +218,7 @@ async def _run_search(
     store: Store,
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
+    config_writeback: ConfigWritebackPort | None,
     complete_task_run: bool = True,
 ) -> TaskRun:
     """用户未指定场景时的智能搜索——调场景目录搜索、规则选择、必要时暂停等用户。"""
@@ -250,18 +263,38 @@ async def _run_search(
     if outcome.kind == "NO_CANDIDATE":
         # 搜索无结果：先保留原 Scene 缺口事实，再尝试只读向下发现 Source / Infra。
         store.save_requirement(requirement)  # 仍 PENDING，不转 RESOLVING
-        discovery_question = await discover_source_and_infra_after_scene_miss(
+        discovery = await discover_source_and_infra_after_scene_miss(
             task_run,
             step,
             requirement,
             inputs,
             store,
             catalog,
+            config_writeback,
         )
+        if _writeback_succeeded(discovery):
+            scene_code = discovery.writeback_result.target_code
+            proposal = await resolve_explicit_scene(requirement, scene_code, inputs, catalog)
+            store.save_proposal(proposal)
+            requirement = transition_requirement(requirement, RequirementStatus.RESOLVING)
+            store.save_requirement(requirement)
+            return await select_and_maybe_execute(
+                task_run,
+                step,
+                requirement,
+                proposal,
+                scene_code,
+                inputs,
+                SelectionSource.AUTO,
+                _is_approved_request(inputs),
+                store,
+                idempotency_gate,
+                complete_task_run=complete_task_run,
+            )
         return suspend_for_user(
             task_run,
             step,
-            discovery_question or outcome.question,
+            discovery.question if discovery else outcome.question,
             SuspendReason.NEED_SCENE_SELECTION,
             store,
         )
@@ -296,6 +329,7 @@ async def _run_multistep(
     store: Store,
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
+    config_writeback: ConfigWritebackPort | None,
 ) -> TaskRun:
     """按 active_step_id 串行推进多步骤计划。"""
 
@@ -305,6 +339,7 @@ async def _run_multistep(
         store,
         catalog,
         idempotency_gate,
+        config_writeback,
         run_active_step=True,
     )
 
@@ -315,6 +350,7 @@ async def continue_multistep(
     store: Store,
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
+    config_writeback: ConfigWritebackPort | None = None,
     *,
     run_active_step: bool = False,
 ) -> TaskRun:
@@ -325,7 +361,16 @@ async def continue_multistep(
         step = _get_active_step(task_run, store)
         spec = _get_step_spec(task_run, step, store)
         if should_run_active_step:
-            task_run = await _run_plan_step(task_run, step, spec, request_inputs, store, catalog, idempotency_gate)
+            task_run = await _run_plan_step(
+                task_run,
+                step,
+                spec,
+                request_inputs,
+                store,
+                catalog,
+                idempotency_gate,
+                config_writeback,
+            )
             if task_run.status != TaskRunStatus.RUNNING:
                 return task_run
 
@@ -370,6 +415,7 @@ async def _run_plan_step(
     store: Store,
     catalog: SceneCatalogPort,
     idempotency_gate: IdempotencyGate | None,
+    config_writeback: ConfigWritebackPort | None,
 ) -> TaskRun:
     """推进当前 PlanStep：绑定输入、搜索场景、选择并执行。"""
 
@@ -400,6 +446,7 @@ async def _run_plan_step(
         store,
         catalog,
         idempotency_gate,
+        config_writeback,
         complete_task_run=False,
     )
 
@@ -445,6 +492,14 @@ def _first_observation_id(evidence: Evidence) -> str:
     for fact in evidence.facts:
         return fact.source_observation_id
     raise ValueError("步骤缺少可追溯观察。")
+
+
+def _writeback_succeeded(discovery: object | None) -> bool:
+    """判断 Source/Infra 发现是否已经成功发布可执行 Scene。"""
+    if discovery is None:
+        return False
+    result = getattr(discovery, "writeback_result", None)
+    return result is not None and result.status == ConfigWritebackStatus.SUCCESS and bool(result.target_code)
 
 
 def _is_approved_request(inputs: dict[str, Any]) -> bool:

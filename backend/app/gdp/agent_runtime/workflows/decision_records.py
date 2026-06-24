@@ -11,6 +11,8 @@ import uuid
 from datetime import UTC, datetime
 
 from ..models import (
+    ConfigWritebackResult,
+    ConfigWritebackStatus,
     DecisionKind,
     DecisionOption,
     DecisionRecord,
@@ -20,6 +22,7 @@ from ..models import (
     Requirement,
     RequirementProposal,
     SceneCandidate,
+    SourceCandidate,
     TaskRun,
 )
 from .selection_policy import AUTO_SELECT_THRESHOLD, SelectionOutcome
@@ -203,6 +206,50 @@ def build_approval_requirement_decision(
     )
 
 
+def build_config_writeback_decision(
+    task_run: TaskRun,
+    requirement: Requirement,
+    proposal: RequirementProposal,
+    result: ConfigWritebackResult,
+    *,
+    input_ref: str | None,
+) -> DecisionRecord:
+    """记录 Runtime 自动写入 datagen 配置的结果。
+
+    业务目标：让用户和运维能追溯新 Scene 是由哪个任务、哪个父缺口、
+    哪些 Source 候选触发生成，以及写入是否成功。
+    """
+    status = DecisionStatus.DECIDED if result.status == ConfigWritebackStatus.SUCCESS else DecisionStatus.FAILED
+    return DecisionRecord(
+        decision_id=_gen_id(),
+        task_run_id=task_run.task_run_id,
+        step_id=requirement.step_id,
+        requirement_id=requirement.requirement_id,
+        proposal_id=proposal.proposal_id,
+        action_id=None,
+        scene_run_id=None,
+        decision_kind=DecisionKind.CONFIG_WRITEBACK,
+        decision_source=DecisionSource.RULE,
+        status=status,
+        target_type="scene" if result.target_kind == "SCENE" else result.target_kind.lower(),
+        target_id=result.target_code,
+        input_ref=input_ref,
+        options=[_source_option(item) for item in proposal.source_candidates],
+        selected_option=None,
+        selected_reasons=[result.message],
+        rejected_reasons=[],
+        criteria=["Source 候选非空", "基础配置无阻塞缺口", "SceneDefinition 发布校验通过", "通过 datagen service 写入"],
+        evidence_refs=[
+            value
+            for value in [result.parent_requirement_id, result.source_requirement_id, result.proposal_id]
+            if value
+        ],
+        model_info=None,
+        summary=result.message if result.status == ConfigWritebackStatus.SUCCESS else result.reason or result.message,
+        created_at=_now(),
+    )
+
+
 def _candidate_option(candidate: SceneCandidate) -> DecisionOption:
     return DecisionOption(
         option_id=candidate.scene_code,
@@ -214,6 +261,26 @@ def _candidate_option(candidate: SceneCandidate) -> DecisionOption:
             "missing_inputs": list(candidate.missing_inputs),
             "requires_confirmation": candidate.requires_confirmation,
             "contract_hash": candidate.contract_hash,
+        },
+    )
+
+
+def _source_option(candidate: SourceCandidate) -> DecisionOption:
+    return DecisionOption(
+        option_id=candidate.source_code,
+        option_type=f"{candidate.source_type.lower()}_source",
+        label=candidate.source_name,
+        score=candidate.score,
+        reasons=list(candidate.reasons),
+        metadata={
+            "source_type": candidate.source_type,
+            "missing_inputs": list(candidate.missing_inputs),
+            "requires_confirmation": candidate.requires_confirmation,
+            "sys_code": candidate.sys_code,
+            "method": candidate.method,
+            "path": candidate.path,
+            "datasource_code": candidate.datasource_code,
+            "operation": candidate.operation,
         },
     )
 

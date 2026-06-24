@@ -153,6 +153,95 @@ test("deriveWaitingInteraction shows resource discovery before manual scene fall
     ]);
   }
 });
+test("deriveWaitingInteraction aggregates Source and Infra split across proposals", () => {
+  const timeline = {
+    ...emptyTimeline,
+    proposals: [
+      {
+        proposal_id: "prop-scene",
+        task_run_id: "tr-1",
+        step_id: "step-1",
+        requirement_id: "req-scene",
+        status: "PENDING",
+        selected_scene_code: null,
+        selection_source: null,
+        query_terms: ["上传文件"],
+        created_at: "2026-06-12T00:00:00Z",
+        candidates: [],
+        source_candidates: [],
+        infra_candidates: [],
+      },
+      {
+        proposal_id: "prop-source",
+        task_run_id: "tr-1",
+        step_id: "step-1",
+        requirement_id: "req-source",
+        status: "PENDING",
+        selected_scene_code: null,
+        selection_source: null,
+        query_terms: ["上传文件"],
+        created_at: "2026-06-12T00:00:01Z",
+        candidates: [],
+        source_candidates: [
+          {
+            source_type: "HTTP",
+            source_code: "httpUploadFile",
+            source_name: "上传文件",
+            score: 0.8,
+            reasons: ["命中上传文件"],
+            missing_inputs: ["file"],
+            requires_confirmation: true,
+            sys_code: "SYS_HTTP_TEST",
+            method: "POST",
+            path: "/api/v1/files/upload",
+            datasource_code: null,
+            operation: null,
+          },
+        ],
+        infra_candidates: [],
+      },
+      {
+        proposal_id: "prop-infra",
+        task_run_id: "tr-1",
+        step_id: "step-1",
+        requirement_id: "req-infra",
+        status: "PENDING",
+        selected_scene_code: null,
+        selection_source: null,
+        query_terms: [],
+        created_at: "2026-06-12T00:00:02Z",
+        candidates: [],
+        source_candidates: [],
+        infra_candidates: [
+          {
+            resource_type: "HTTP",
+            ready: true,
+            confidence: 0.8,
+            missing_fields: [],
+            matched_systems: [],
+            matched_environments: [],
+            matched_service_endpoints: [],
+            matched_datasources: [],
+          },
+        ],
+      },
+    ],
+  } as AgentRuntimeTimelineResponse;
+
+  const interaction = deriveWaitingInteraction(
+    makeTaskRun("没有完整场景"),
+    timeline,
+  );
+
+  expect(interaction?.type).toBe("resource_discovery");
+  if (interaction?.type === "resource_discovery") {
+    expect(interaction.proposal.proposal_id).toBe("prop-infra");
+    expect(interaction.sourceCandidates.map((item) => item.source_code)).toEqual([
+      "httpUploadFile",
+    ]);
+    expect(interaction.infraCandidates).toHaveLength(1);
+  }
+});
 
 test("deriveChatMessages includes resource discovery summary", () => {
   const timeline = {

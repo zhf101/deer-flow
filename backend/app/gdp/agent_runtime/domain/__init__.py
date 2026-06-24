@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from .action import Action, ActionAttempt, ActionStatus, ActionType, AttemptStatus
+from .config_writeback import ConfigWritebackResult, ConfigWritebackStatus
 from .decision import (
     DecisionKind,
     DecisionOption,
@@ -57,6 +58,8 @@ __all__ = [
     "ActionType",
     "AttemptId",
     "AttemptStatus",
+    "ConfigWritebackResult",
+    "ConfigWritebackStatus",
     "DecisionKind",
     "DecisionOption",
     "DecisionRecord",

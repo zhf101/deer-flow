@@ -17,11 +17,13 @@ class DecisionKind(StrEnum):
     SCENE_SEARCH：场景检索决策——记录系统搜到了哪些候选。
     SCENE_SELECTION：场景选择决策——记录系统/用户选了哪个候选、为什么。
     APPROVAL_REQUIREMENT：审批要求决策——记录为什么需要用户审批或审批结果。
+    CONFIG_WRITEBACK：配置写回决策——记录自动写入 datagen 配置的结果。
     """
 
     SCENE_SEARCH = "SCENE_SEARCH"
     SCENE_SELECTION = "SCENE_SELECTION"
     APPROVAL_REQUIREMENT = "APPROVAL_REQUIREMENT"
+    CONFIG_WRITEBACK = "CONFIG_WRITEBACK"
 
 
 class DecisionSource(StrEnum):
@@ -89,7 +91,7 @@ class DecisionRecord(BaseModel):
     proposal_id: str | None = Field(default=None, description="关联的候选集 ID，无法关联时为空。")
     action_id: ActionId | None = Field(default=None, description="关联的动作 ID，无法关联时为空。")
     scene_run_id: str | None = Field(default=None, description="关联的场景运行 ID，决策发生在执行前时为空。")
-    decision_kind: DecisionKind = Field(description="决策类型：场景检索/场景选择/审批要求。")
+    decision_kind: DecisionKind = Field(description="决策类型：场景检索/场景选择/审批要求/配置写回。")
     decision_source: DecisionSource = Field(description="决策来源：规则/目录/模型/用户/系统默认。")
     status: DecisionStatus = Field(description="决策记录状态，不等同于 TaskRunStatus。")
     target_type: str | None = Field(default=None, description="决策目标类型，如 scene。")
